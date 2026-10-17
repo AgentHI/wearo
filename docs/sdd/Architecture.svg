@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 400" width="1040" height="400">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#856d8b"/></marker></defs>
+<rect width="1040" height="400" fill="#FAF7F2" rx="20"/><text x="30" y="28" font-family="Lato" font-size="15" font-weight="bold" fill="#3B1746">Shared platform · distinct form factors</text>
+<g stroke="#D1BFCF" stroke-width="1.5" fill="#FFF">
+<rect x="30" y="55" width="157" height="70" rx="10"/><rect x="30" y="156" width="157" height="70" rx="10"/><rect x="30" y="257" width="157" height="70" rx="10"/>
+<rect x="234" y="133" width="170" height="115" rx="13" fill="#F1EAF1"/>
+<rect x="453" y="105" width="178" height="170" rx="13" fill="#FFF" stroke="#3B1746" stroke-width="2"/>
+<rect x="707" y="50" width="282" height="65" rx="10"/>
+<rect x="707" y="133" width="282" height="65" rx="10"/>
+<rect x="707" y="218" width="282" height="65" rx="10"/>
+<rect x="707" y="302" width="282" height="65" rx="10"/>
+</g>
+<g font-family="Lato" fill="#261C2A" font-size="16" text-anchor="middle">
+<text x="108" y="82" font-weight="bold">Consumer Shop</text><text x="108" y="105" font-size="12">Mobile · phone OTP</text>
+<text x="108" y="183" font-weight="bold">Merchant</text><text x="108" y="206" font-size="12">Web · email OTP</text>
+<text x="108" y="284" font-weight="bold">Mirror / Admin</text><text x="108" y="307" font-size="12">Tablet / desktop</text>
+<text x="319" y="164" font-weight="bold">Next.js web UI</text><text x="319" y="190" font-size="12">Shared design tokens</text><text x="319" y="211" font-size="12">Separate route shells</text>
+<text x="542" y="139" font-weight="bold">FastAPI core</text><text x="542" y="166" font-size="12">Identity · tenancy</text><text x="542" y="185" font-size="12">Catalog · consent</text><text x="542" y="204" font-size="12">Wallet · payments</text><text x="542" y="223" font-size="12">Render orchestration</text><text x="542" y="245" font-size="12">Admin · audit</text>
+<text x="848" y="76" font-weight="bold">PostgreSQL</text><text x="848" y="96" font-size="12">Ledger / RBAC / operations</text>
+<text x="848" y="158" font-weight="bold">Private object store</text><text x="848" y="180" font-size="12">Originals · generated outputs</text>
+<text x="848" y="244" font-weight="bold">Payment + OTP adapters</text><text x="848" y="264" font-size="12">Signed webhook · auth channels</text>
+<text x="848" y="328" font-weight="bold">Queue → worker → approved AI</text><text x="848" y="351" font-size="12">Quality gate · model routing</text>
+</g>
+<g stroke="#856d8b" stroke-width="2.2" fill="none" marker-end="url(#a)"><path d="M187 90 L234 170"/><path d="M187 190 L234 190"/><path d="M187 292 L234 212"/><path d="M404 192 L453 192"/><path d="M631 136 L707 82"/><path d="M631 170 L707 166"/><path d="M631 206 L707 251"/><path d="M631 246 L707 332"/></g>
+</svg>

@@ -1,0 +1,37 @@
+﻿qa_id,given_when,then_required_proof,wr_ids
+QA-001,Guest opens mobile Shop and picks enabled product,Can browse; paid render prompts phone OTP; no account data exposed,"WR-001,002,142"
+QA-002,Upload poor-light/cropped/multi-person image,Actionable rejection **before** any reservation/debit,"WR-003,004"
+QA-003,"Personal image, consent unchecked or permission false",Render quote rejected; no provider invocation,"WR-006,124,125"
+QA-004,Unsupported garment or disabled jewellery category,Not offered/charged; safe reason displayed,"WR-014,015,043,075,076"
+QA-005,Verified shopper approves fixed-price quote,"Single render status chain, original + AI label + fit limitation + zoom","WR-024–030,120,121"
+QA-006,Same render POST retried 10 times with identical key,"One canonical job, one reservation, one final debit",WR-160
+QA-007,Two associates draw on the same low-balance tenant wallet,At most available amount reserved; no negative balance/double spend,"WR-153,157,160"
+QA-008,"Model timeout, invalid output or job failure","No net token cost, safe retry and refund/release visible","WR-040,128,161"
+QA-009,Duplicate/late gateway webhooks arrive,Tokens credited exactly once after verification; failed payment never credits,"WR-162,170,173"
+QA-010,Buyer selects standard vs bulk pack,"Base, savings, total, tokens and purchase confirmation match immutable price version","WR-158,159,163"
+QA-011,Business owner onboards in India,"Email OTP, one tenant, optional GSTIN, proper issued invoice available","WR-144–149,172"
+QA-012,Owner revokes associate,Associate immediately loses merchant session/catalog spend; owner retains control,"WR-150,152"
+QA-013,Tenant A guesses tenant B's item/render/wallet/invoice IDs,"No content, balance, image URL, usage or tenant existence leaked","WR-126,152,153,187"
+QA-014,Showroom customer finishes; next customer uses Back/Reload/old URL,"Prior photo/result hidden and unresolvable, cleanup scheduled","WR-086,089,093,123"
+QA-015,Customer opts in enquiry with exact item and phone,Enquiry shown to correct merchant; receipt names item and next follow-up,"WR-084,092,113,119"
+QA-016,User reports/removes preview,Report tied to result; private asset unavailable on deletion; complaint tracked,"WR-122,127,188,193"
+QA-017,"Admin toggles category/model, pack price and tenant with reason","Only approved routes used for new jobs, effective dates honored, audit written","WR-177,178,181,182,189"
+QA-018,Consumer tries using merchant owner credentials in admin login,Denied; admin password+MFA separate; audit and throttling operate,"WR-175,192"
+QA-019,Product has no verified seller URL,"Enquiry, not invented Buy button/checkout; source item always accessible","WR-017,079,110"
+QA-020,Jewellery result fabricates stones/changes shape in quality review,Reject/not release affected output; disable item/category pending fidelity review,"WR-026,076,083"
+QA-021,Guest consented image reaches TTL / owner deletes,"Revoke access immediately, remove object asynchronously, preserve legally necessary audit only","WR-122,123,130,187,188"
+QA-022,B2C promo credit issued once,Purchased/promo balances and validity distinct; no duplicate promo on repeat OTP,"WR-165,167"
+QA-023,Admin reports use B2C/B2B filter and date range,"Totals reconcile with underlying jobs/payments/ledger, no real customer photo","WR-096,176"
+QA-024,Long provider outage during quoted/held render,"User sees progress -> failure and funds restored, no orphaned reservation","WR-161,191"
+QA-025,UI tested in phone/tablet/desktop and keyboard/screenreader,Main actions accessible; selection/errors not color-only; dark Mirror contrast checked,"WR-011,135"
+QA-026,Customer chooses neutral adult mannequin instead of own photo,Renderable only for supported categories; no avatar customization or personal consent bypass,WR-007
+QA-027,Signed-in customer opens/deletes recent results,Only own delivered recent previews listed and removed; no mood boards,WR-010
+QA-028,User uploads one valid product reference instead of SKU,"Product clearly labelled as nonmerchant concept, supported category only",WR-013
+QA-029,"Merchant owner adds, updates, unpublishes 10–30 real pilot products","Published display follows tenant ownership, no inventory/branch sync",WR-020
+QA-030,Shop displays retailer-listed product beside AI render,Source product and generated illustration unmistakably distinguished,WR-021
+QA-031,Shopper presses thumbs down with wrong-color reason,Feedback attached to correct render without exposing private result,WR-039
+QA-032,Jewellery item with merchant dimensions visualized,"UI says approximate dimensions, never asserts calibrated scale or gold weight",WR-077
+QA-033,Wallet has promo/paid balance and insufficient funds,"Price, spendable balance and top-up guidance visible; no negative spend","WR-129,166"
+QA-034,Account switches among entitled offerings/form factors,"One core billing/identity, separate B2C/B2B shells, disabled features hidden and blocked","WR-133,134,136"
+QA-035,"OTP expired, guessed, resent too frequently or used twice","Login fails safely, limits enforced, legitimate new challenge can verify","WR-140,141"
+QA-036,Payment checkout offers provider-enabled India rails,Actual enabled UPI/card options visible; unavailable rails not falsely promised,WR-171

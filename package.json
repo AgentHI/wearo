@@ -1,0 +1,24 @@
+{
+  "name": "wearo-ai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wearo.ai MVP spec-driven monorepo",
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "validate:backlog": "node scripts/validate-backlog.mjs",
+    "lint:openapi": "redocly lint docs/sdd/openapi.yaml && node scripts/validate-openapi.mjs",
+    "generate:contracts": "openapi-typescript docs/sdd/openapi.yaml -o packages/contracts/src/generated/openapi.ts",
+    "check:contracts": "node scripts/check-generated-contracts.mjs",
+    "check:web": "pnpm --filter @wearo/web check",
+    "check:ci": "UV_CACHE_DIR=.uv-cache uv run python scripts/validate_ci.py",
+    "check:python": "UV_CACHE_DIR=.uv-cache uv run ruff format --check . && UV_CACHE_DIR=.uv-cache uv run ruff check . && UV_CACHE_DIR=.uv-cache uv run mypy && UV_CACHE_DIR=.uv-cache uv run pytest",
+    "check:security": "UV_CACHE_DIR=.uv-cache uv run pip-audit && pnpm audit --audit-level high"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.64.1",
+    "openapi-typescript": "7.13.0"
+  }
+}

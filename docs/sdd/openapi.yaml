@@ -1,0 +1,4705 @@
+openapi: 3.1.0
+info:
+  title: wearo.ai MVP API contract
+  version: 1.0.0-draft
+  description: Contract-first MVP API proposal. Product scope controlled by the uploaded MVP v1.0 (90
+    selected WR-IDs). All endpoint paths, sample values, TTL and stack choices must be approved via
+    DEC log; do not treat them as new product requirements.
+servers:
+- url: /api/v1
+  description: Same origin, pilot API gateway
+tags:
+- name: Admin Identity
+- name: Business
+- name: Catalog
+- name: Consent
+- name: Identity
+- name: Media
+- name: Merchant Catalog
+- name: Mirror Lite
+- name: Payments
+- name: Platform Admin
+- name: Rendering
+- name: Trust
+- name: Wallet
+paths:
+  /admin/audit:
+    get:
+      tags:
+      - Platform Admin
+      summary: Read protected administrative audit records
+      operationId: get__admin_audit
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /admin/auth/login:
+    post:
+      tags:
+      - Admin Identity
+      summary: Begin admin password sign in
+      operationId: post__admin_auth_login
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpChallenge'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLogin'
+  /admin/auth/mfa/verify:
+    post:
+      tags:
+      - Admin Identity
+      summary: Verify admin MFA and establish session
+      operationId: post__admin_auth_mfa_verify
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Principal'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaVerify'
+  /admin/cases:
+    get:
+      tags:
+      - Platform Admin
+      summary: Review privacy support and payment cases
+      operationId: get__admin_cases
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /admin/cases/{id}:
+    patch:
+      tags:
+      - Platform Admin
+      summary: Resolve reviewed case with audit
+      operationId: patch__admin_cases__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseResolution'
+  /admin/model-routes/{useCase}:
+    patch:
+      tags:
+      - Platform Admin
+      summary: Change approved model version routing with audit
+      operationId: patch__admin_model_routes__useCase
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEntry'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: useCase
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelRouteChange'
+  /admin/models:
+    get:
+      tags:
+      - Platform Admin
+      summary: List approved and disabled render models
+      operationId: get__admin_models
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelEntry'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /admin/overview:
+    get:
+      tags:
+      - Platform Admin
+      summary: Read filtered platform pilot metrics
+      operationId: get__admin_overview
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportAggregate'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /admin/tenants:
+    get:
+      tags:
+      - Platform Admin
+      summary: List tenant administrative statuses
+      operationId: get__admin_tenants
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Business'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /admin/tenants/{id}:
+    patch:
+      tags:
+      - Platform Admin
+      summary: Activate suspend or change entitlements with reason
+      operationId: patch__admin_tenants__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Business'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminTenantChange'
+  /admin/token-packs:
+    get:
+      tags:
+      - Platform Admin
+      summary: List current and historical published packs
+      operationId: get__admin_token_packs
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenPack'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+    post:
+      tags:
+      - Platform Admin
+      summary: Publish an effective dated token pack
+      operationId: post__admin_token_packs
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPack'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPackUpdate'
+  /admin/token-packs/{id}:
+    patch:
+      tags:
+      - Platform Admin
+      summary: Version token pack pricing with reason
+      operationId: patch__admin_token_packs__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPack'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPackUpdate'
+  /assets:
+    post:
+      tags:
+      - Media
+      summary: Upload one private beta source image
+      operationId: post__assets
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadIntent'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum: [PERSON, PRODUCT]
+                image:
+                  type: string
+                  format: binary
+              required: [kind, image]
+              additionalProperties: false
+      description: Authenticated direct private upload for the simple beta flow; validation and
+        consent precede a generation quote.
+  /assets/{id}:
+    get:
+      tags:
+      - Media
+      summary: Read an owned private image
+      operationId: get__assets__id
+      responses:
+        '200':
+          description: Success
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /auth/email-otp/request:
+    post:
+      tags:
+      - Identity
+      summary: Request business email OTP
+      operationId: post__auth_email_otp_request
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpChallenge'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpRequest'
+  /auth/email-otp/verify:
+    post:
+      tags:
+      - Identity
+      summary: Verify business email OTP
+      operationId: post__auth_email_otp_verify
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Principal'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerify'
+  /auth/logout:
+    post:
+      tags:
+      - Identity
+      summary: Revoke session
+      operationId: post__auth_logout
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+  /auth/phone-otp/request:
+    post:
+      tags:
+      - Identity
+      summary: Request consumer phone OTP
+      operationId: post__auth_phone_otp_request
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpChallenge'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpRequest'
+  /auth/phone-otp/verify:
+    post:
+      tags:
+      - Identity
+      summary: Verify consumer phone OTP
+      operationId: post__auth_phone_otp_verify
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Principal'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerify'
+  /business/catalog/items:
+    get:
+      tags:
+      - Merchant Catalog
+      summary: List own merchant items
+      operationId: get__business_catalog_items
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CatalogItem'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+    post:
+      tags:
+      - Merchant Catalog
+      summary: Create genuine catalogue SKU
+      operationId: post__business_catalog_items
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatalogItemCreate'
+  /business/catalog/items/{id}:
+    patch:
+      tags:
+      - Merchant Catalog
+      summary: Update or unpublish merchant item
+      operationId: patch__business_catalog_items__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatalogItemPatch'
+    delete:
+      tags:
+      - Merchant Catalog
+      summary: Unpublish merchant SKU
+      operationId: delete__business_catalog_items__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+  /business/enquiries:
+    get:
+      tags:
+      - Mirror Lite
+      summary: List tenant opted in enquiries
+      operationId: get__business_enquiries
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Enquiry'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /business/invoices:
+    get:
+      tags:
+      - Payments
+      summary: List tenant issued tax invoices
+      operationId: get__business_invoices
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invoice'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /business/invoices/{id}:
+    get:
+      tags:
+      - Payments
+      summary: Read invoice metadata and controlled PDF link
+      operationId: get__business_invoices__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /business/overview:
+    get:
+      tags:
+      - Business
+      summary: Read tenant scoped usage and enquiries
+      operationId: get__business_overview
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportAggregate'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /business/staff/invitations:
+    post:
+      tags:
+      - Business
+      summary: Invite a tenant associate
+      operationId: post__business_staff_invitations
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Invitation'
+  /business/staff/{memberId}:
+    delete:
+      tags:
+      - Business
+      summary: Revoke tenant associate
+      operationId: delete__business_staff__memberId
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: memberId
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+  /business/store-sessions:
+    post:
+      tags:
+      - Mirror Lite
+      summary: Start temporary consented customer session
+      operationId: post__business_store_sessions
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSession'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreSessionCreate'
+  /business/store-sessions/{id}:
+    get:
+      tags:
+      - Mirror Lite
+      summary: Read active temporary guest session
+      operationId: get__business_store_sessions__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSession'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /business/store-sessions/{id}/enquiries:
+    post:
+      tags:
+      - Mirror Lite
+      summary: Create customer opted in exact item enquiry
+      operationId: post__business_store_sessions__id__enquiries
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enquiry'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnquiryCreate'
+  /business/store-sessions/{id}/finish:
+    post:
+      tags:
+      - Mirror Lite
+      summary: Finish and revoke temporary session
+      operationId: post__business_store_sessions__id__finish
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSession'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+  /business/tenant:
+    get:
+      tags:
+      - Business
+      summary: Read current authorized tenant
+      operationId: get__business_tenant
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Business'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+    patch:
+      tags:
+      - Business
+      summary: Edit permitted billing details
+      operationId: patch__business_tenant
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Business'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessPatch'
+  /business/tenants:
+    post:
+      tags:
+      - Business
+      summary: Self register one pilot merchant tenant
+      operationId: post__business_tenants
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Business'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessCreate'
+  /catalog/items:
+    get:
+      tags:
+      - Catalog
+      summary: List quality approved merchant/catalog items
+      operationId: get__catalog_items
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CatalogItem'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+  /catalog/items/{id}:
+    get:
+      tags:
+      - Catalog
+      summary: Read item and original seller photo
+      operationId: get__catalog_items__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /categories:
+    get:
+      tags:
+      - Catalog
+      summary: List currently enabled categories
+      operationId: get__categories
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+  /consents:
+    post:
+      tags:
+      - Consent
+      summary: Record affirmative consent
+      operationId: post__consents
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consent'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentCreate'
+  /me:
+    get:
+      tags:
+      - Identity
+      summary: Read effective identity and entitlements
+      operationId: get__me
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Principal'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /me/person-profile:
+    get:
+      tags: [Identity]
+      summary: Read the reusable private person profile
+      operationId: get__me_person_profile
+      responses:
+        '200':
+          description: Active profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PersonProfile'}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
+    put:
+      tags: [Identity]
+      summary: Create or replace the reusable private person profile
+      operationId: put__me_person_profile
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PersonProfileWrite'}
+      responses:
+        '200':
+          description: Saved profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PersonProfile'}
+        '422':
+          description: Invalid or unconsented person profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
+    delete:
+      tags: [Identity]
+      summary: Revoke and schedule deletion of the reusable person profile
+      operationId: delete__me_person_profile
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema: {type: string}
+      responses:
+        '202':
+          description: Access revoked and deletion scheduled
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Success'}
+        '404':
+          description: Profile unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
+  /me/daily-allowance:
+    get:
+      tags: [Rendering]
+      summary: Read remaining free-beta successful generations for the current IST day
+      operationId: get__me_daily_allowance
+      responses:
+        '200':
+          description: Current allowance
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DailyAllowance'}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
+  /payment-orders:
+    post:
+      tags:
+      - Payments
+      summary: Create prepaid pack payment order
+      operationId: post__payment_orders
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrder'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Stable key, scoped to paying account and operation
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCreate'
+  /payment-orders/{id}:
+    get:
+      tags:
+      - Payments
+      summary: Read server confirmed gateway payment status
+      operationId: get__payment_orders__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrder'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /privacy-requests:
+    post:
+      tags:
+      - Trust
+      summary: Submit correction access export or deletion request
+      operationId: post__privacy_requests
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCreate'
+  /privacy-requests/{id}:
+    get:
+      tags:
+      - Trust
+      summary: Read owned privacy request status
+      operationId: get__privacy_requests__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /quotes:
+    post:
+      tags:
+      - Rendering
+      summary: Quote approved single photo try-on
+      operationId: post__quotes
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteRequest'
+  /quotes/{id}:
+    get:
+      tags:
+      - Rendering
+      summary: Read unexpired token quote
+      operationId: get__quotes__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /renders:
+    post:
+      tags:
+      - Rendering
+      summary: Create render after explicit quote approval
+      operationId: post__renders
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderJob'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Stable key, scoped to paying account and operation
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderCreate'
+    get:
+      tags:
+      - Rendering
+      summary: List owned recent render jobs
+      operationId: get__renders
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RenderJob'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /renders/{id}:
+    get:
+      tags:
+      - Rendering
+      summary: Read scoped render state
+      operationId: get__renders__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderJob'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+      - Rendering
+      summary: Delete owned private result and revoke asset access
+      operationId: delete__renders__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+  /renders/{id}/assets:
+    get:
+      tags:
+      - Rendering
+      summary: Read private source and generated result URLs
+      operationId: get__renders__id__assets
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderAssets'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /renders/{id}/feedback:
+    post:
+      tags:
+      - Trust
+      summary: Record basic render usefulness feedback
+      operationId: post__renders__id__feedback
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Feedback'
+  /renders/{id}/report:
+    post:
+      tags:
+      - Trust
+      summary: Report unsuitable result and request removal
+      operationId: post__renders__id__report
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Report'
+  /support/cases:
+    post:
+      tags:
+      - Trust
+      summary: Open render quality support or billing dispute
+      operationId: post__support_cases
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+        description: Anti-CSRF token bound to the browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCreate'
+  /support/cases/{id}:
+    get:
+      tags:
+      - Trust
+      summary: Read own support case status
+      operationId: get__support_cases__id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+  /token-packs:
+    get:
+      tags:
+      - Wallet
+      summary: List published standard and discounted packs
+      operationId: get__token_packs
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenPack'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /wallet:
+    get:
+      tags:
+      - Wallet
+      summary: Read paying account token balances
+      operationId: get__wallet
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /wallet/transactions:
+    get:
+      tags:
+      - Wallet
+      summary: Read itemized wallet history
+      operationId: get__wallet_transactions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WalletTxn'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
+  /webhooks/payments:
+    post:
+      tags:
+      - Payments
+      summary: Process signed payment provider event
+      operationId: post__webhooks_payments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: State or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Validation or unsupported category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - gatewaySignature: []
+      description: Gateway signature is verified over exact raw body. Event delivery is idempotent.
+        No client redirect credits the wallet.
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: wearo_session
+      description: HttpOnly secure session cookie; mutating operations additionally require anti-CSRF
+        token.
+    gatewaySignature:
+      type: apiKey
+      in: header
+      name: X-Gateway-Signature
+      description: Provider specific signed webhook + allowlist/status verification.
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+      required:
+      - code
+      - message
+      - request_id
+      additionalProperties: false
+    Principal:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+          - CONSUMER
+          - BUSINESS
+          - ADMIN
+        verified:
+          type: boolean
+        tenant_id:
+          type: string
+        role:
+          type: string
+        account_id:
+          type: string
+        csrf_token:
+          type: string
+          description: Returned only when a browser session is established.
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - type
+      - verified
+      additionalProperties: false
+    PersonProfileWrite:
+      type: object
+      properties:
+        person_asset_id: {type: string, format: uuid}
+        consent_id: {type: string, format: uuid}
+        height_cm: {type: number, minimum: 80, maximum: 260}
+        weight_kg: {type: number, minimum: 20, maximum: 350}
+      required: [person_asset_id, consent_id]
+      additionalProperties: false
+    PersonProfile:
+      allOf:
+      - $ref: '#/components/schemas/PersonProfileWrite'
+      - type: object
+        properties:
+          id: {type: string, format: uuid}
+          status: {type: string, enum: [ACTIVE, DELETION_REQUESTED]}
+          last_used_at: {type: [string, 'null'], format: date-time}
+        required: [id, status]
+    DailyAllowance:
+      type: object
+      properties:
+        successful_limit: {type: integer, const: 3}
+        successful_used: {type: integer, minimum: 0, maximum: 3}
+        remaining: {type: integer, minimum: 0, maximum: 3}
+        resets_at: {type: string, format: date-time}
+        active_job_id: {type: [string, 'null'], format: uuid}
+      required: [successful_limit, successful_used, remaining, resets_at]
+      additionalProperties: false
+    OtpRequest:
+      type: object
+      properties:
+        destination:
+          type: string
+        purpose:
+          type: string
+          enum:
+          - SIGN_IN
+          - BUSINESS_SIGN_IN
+          - STAFF_INVITE
+      required:
+      - destination
+      - purpose
+      additionalProperties: false
+    OtpVerify:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+        code:
+          type: string
+          minLength: 4
+          maxLength: 10
+      required:
+      - challenge_id
+      - code
+      additionalProperties: false
+    OtpChallenge:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        resend_after_seconds:
+          type: integer
+          minimum: 0
+        message:
+          type: string
+      required:
+      - challenge_id
+      - expires_at
+      additionalProperties: false
+    Category:
+      type: object
+      properties:
+        code:
+          type: string
+        display_name:
+          type: string
+        enabled:
+          type: boolean
+        unavailable_reason:
+          type: string
+      required:
+      - code
+      - display_name
+      - enabled
+      additionalProperties: false
+    CatalogItem:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        item_code:
+          type: string
+        category:
+          type: string
+        name:
+          type: string
+        source_asset_id:
+          type: string
+        seller_name:
+          type: string
+        seller_product_url:
+          type: string
+          format: uri
+        attributes:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - QUALITY_PENDING
+          - PUBLISHED
+          - UNPUBLISHED
+          - DISABLED
+      required:
+      - id
+      - item_code
+      - category
+      - name
+      - source_asset_id
+      - status
+      additionalProperties: false
+    CatalogItemPatch:
+      type: object
+      properties:
+        item_code:
+          type: string
+        category:
+          type: string
+        name:
+          type: string
+        source_asset_id:
+          type: string
+        seller_product_url:
+          type: string
+          format: uri
+        attributes:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - QUALITY_PENDING
+          - PUBLISHED
+          - UNPUBLISHED
+          - DISABLED
+      required: []
+      additionalProperties: false
+    CaseResolution:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - OPEN
+          - IN_PROGRESS
+          - RESOLVED
+          - REJECTED
+        resolution:
+          type: string
+        reason:
+          type: string
+          minLength: 4
+      required:
+      - status
+      - reason
+      additionalProperties: false
+    CatalogItemCreate:
+      type: object
+      properties:
+        item_code:
+          type: string
+          minLength: 1
+          maxLength: 100
+        category:
+          type: string
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        source_asset_id:
+          type: string
+        seller_product_url:
+          type: string
+          format: uri
+        attributes:
+          type: object
+          additionalProperties: true
+      required:
+      - item_code
+      - category
+      - name
+      - source_asset_id
+      additionalProperties: false
+    UploadIntent:
+      type: object
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        account_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          enum: [PERSON_SOURCE, PRODUCT_SOURCE]
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 1
+      required:
+      - asset_id
+      - account_id
+      - purpose
+      - mime_type
+      - size_bytes
+      additionalProperties: false
+    ConsentCreate:
+      type: object
+      properties:
+        subject_asset_id:
+          type: string
+          format: uuid
+        adult_confirmed:
+          type: boolean
+        depicted_person_permission:
+          type: boolean
+        transformation_approved:
+          type: boolean
+        retention_notice_acknowledged:
+          type: boolean
+        no_training_notice_acknowledged:
+          type: boolean
+      required:
+      - subject_asset_id
+      - adult_confirmed
+      - depicted_person_permission
+      - transformation_approved
+      - retention_notice_acknowledged
+      - no_training_notice_acknowledged
+      additionalProperties: false
+    Consent:
+      type: object
+      properties:
+        id:
+          type: string
+        accepted_at:
+          type: string
+          format: date-time
+        consent_version:
+          type: string
+        purpose:
+          type: string
+      required:
+      - id
+      - accepted_at
+      - consent_version
+      - purpose
+      additionalProperties: false
+    QuoteRequest:
+      type: object
+      properties:
+        item_asset_id:
+          type: string
+          format: uuid
+      required:
+      - item_asset_id
+      additionalProperties: false
+    Quote:
+      type: object
+      properties:
+        quote_id:
+          type: string
+          format: uuid
+        remaining_allowance:
+          type: integer
+          minimum: 1
+          maximum: 3
+        expires_at:
+          type: string
+          format: date-time
+        disclaimer:
+          type: string
+      required:
+      - quote_id
+      - remaining_allowance
+      - expires_at
+      - disclaimer
+      additionalProperties: false
+    RenderCreate:
+      type: object
+      properties:
+        quote_id:
+          type: string
+          format: uuid
+      required:
+      - quote_id
+      additionalProperties: false
+    RenderJob:
+      type: object
+      properties:
+        render_id:
+          type: string
+          format: uuid
+        quote_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - QUEUED
+          - PROCESSING
+          - QUALITY_CHECK
+          - SUCCEEDED
+          - FAILED
+          - CANCELLED
+        charge_status:
+          type: string
+          enum:
+          - RESERVED
+          - SETTLED
+          - RELEASED
+          - RECREDITED
+        cost_wearo_tokens:
+          type: integer
+          minimum: 0
+        error_code:
+          type: string
+        source_item_id:
+          type: string
+        result_asset_id:
+          type: [string, 'null']
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        status_url:
+          type: string
+      required:
+      - render_id
+      - status
+      - charge_status
+      - cost_wearo_tokens
+      additionalProperties: false
+    RenderAssets:
+      type: object
+      properties:
+        person_original_signed_url:
+          type: string
+          format: uri
+        product_source_signed_url:
+          type: string
+          format: uri
+        result_signed_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        is_ai_generated:
+          type: boolean
+        fit_disclaimer:
+          type: string
+      required:
+      - product_source_signed_url
+      - is_ai_generated
+      - fit_disclaimer
+      additionalProperties: false
+    Feedback:
+      type: object
+      properties:
+        positive:
+          type: boolean
+        reason:
+          type: string
+          enum:
+          - WRONG_FACE
+          - WRONG_COLOR
+          - WRONG_PRODUCT_DETAIL
+          - WRONG_DRAPE
+          - OTHER
+        comment:
+          type: string
+          maxLength: 500
+      required:
+      - positive
+      additionalProperties: false
+    Report:
+      type: object
+      properties:
+        reason:
+          type: string
+          enum:
+          - INACCURATE
+          - HARMFUL
+          - UNWANTED
+          - OTHER
+        details:
+          type: string
+          maxLength: 500
+        remove_result:
+          type: boolean
+      required:
+      - reason
+      additionalProperties: false
+    Wallet:
+      type: object
+      properties:
+        account_id:
+          type: string
+        purchased_tokens:
+          type: integer
+          minimum: 0
+        promo_tokens:
+          type: integer
+          minimum: 0
+        reserved_tokens:
+          type: integer
+          minimum: 0
+        available_tokens:
+          type: integer
+          minimum: 0
+        currency_units:
+          type: string
+          enum:
+          - WEARO_TOKEN
+      required:
+      - account_id
+      - purchased_tokens
+      - promo_tokens
+      - reserved_tokens
+      - available_tokens
+      - currency_units
+      additionalProperties: false
+    WalletTxn:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        amount_signed:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        reference_id:
+          type: string
+      required:
+      - id
+      - type
+      - amount_signed
+      - created_at
+      additionalProperties: false
+    TokenPack:
+      type: object
+      properties:
+        id:
+          type: string
+        audience:
+          type: string
+          enum:
+          - B2C
+          - B2B
+          - BOTH
+        token_quantity:
+          type: integer
+          minimum: 1
+        base_price_paise:
+          type: integer
+          minimum: 0
+        discount_paise:
+          type: integer
+          minimum: 0
+        final_price_paise:
+          type: integer
+          minimum: 0
+        effective_from:
+          type: string
+          format: date-time
+      required:
+      - id
+      - audience
+      - token_quantity
+      - base_price_paise
+      - discount_paise
+      - final_price_paise
+      additionalProperties: false
+    PaymentCreate:
+      type: object
+      properties:
+        token_pack_id:
+          type: string
+        invoice_details_confirmed:
+          type: boolean
+      required:
+      - token_pack_id
+      - invoice_details_confirmed
+      additionalProperties: false
+    PaymentOrder:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+          - CREATED
+          - PENDING
+          - CONFIRMED
+          - FAILED
+          - REFUNDED
+        provider_checkout_data:
+          type: object
+          additionalProperties: true
+        amount_paise:
+          type: integer
+        token_quantity:
+          type: integer
+      required:
+      - id
+      - status
+      - amount_paise
+      - token_quantity
+      additionalProperties: false
+    BusinessCreate:
+      type: object
+      properties:
+        legal_name:
+          type: string
+        trade_name:
+          type: string
+        business_type:
+          type: string
+          enum:
+          - BOUTIQUE
+          - GOLD_JEWELLER
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        billing_address:
+          type: string
+        state:
+          type: string
+        gstin:
+          type: string
+      required:
+      - legal_name
+      - business_type
+      - email
+      - billing_address
+      - state
+      additionalProperties: false
+    Business:
+      type: object
+      properties:
+        id:
+          type: string
+        legal_name:
+          type: string
+        trade_name:
+          type: string
+        business_type:
+          type: string
+        status:
+          type: string
+        state:
+          type: string
+        gstin:
+          type: string
+      required:
+      - id
+      - legal_name
+      - business_type
+      - status
+      - state
+      additionalProperties: false
+    BusinessPatch:
+      type: object
+      properties:
+        trade_name:
+          type: string
+        billing_address:
+          type: string
+        phone:
+          type: string
+        gstin:
+          type: string
+      required: []
+      additionalProperties: false
+    Invitation:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum:
+          - ASSOCIATE
+      required:
+      - email
+      - role
+      additionalProperties: false
+    StoreSessionCreate:
+      type: object
+      properties:
+        purpose:
+          type: string
+          enum:
+          - GARMENT_TRYON
+          - JEWELLERY_TRYON
+      required:
+      - purpose
+      additionalProperties: false
+    StoreSession:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        status:
+          type: string
+          enum:
+          - CREATED
+          - ACTIVE
+          - FINISHED
+          - EXPIRED
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - tenant_id
+      - status
+      - expires_at
+      additionalProperties: false
+    EnquiryCreate:
+      type: object
+      properties:
+        catalog_item_id:
+          type: string
+        contact_channel:
+          type: string
+          enum:
+          - PHONE
+          - EMAIL
+        contact_value:
+          type: string
+        contact_sharing_accepted:
+          type: boolean
+        followup_message:
+          type: string
+          maxLength: 300
+      required:
+      - catalog_item_id
+      - contact_channel
+      - contact_value
+      - contact_sharing_accepted
+      additionalProperties: false
+    Enquiry:
+      type: object
+      properties:
+        id:
+          type: string
+        catalog_item_id:
+          type: string
+        merchant_name:
+          type: string
+        status:
+          type: string
+        followup_channel:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - catalog_item_id
+      - merchant_name
+      - status
+      - created_at
+      additionalProperties: false
+    IssueCreate:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - SUPPORT
+          - DISPUTE
+          - RENDER_QUALITY
+          - ACCESS
+          - CORRECTION
+          - EXPORT
+          - DELETION
+        reference_id:
+          type: string
+        description:
+          type: string
+          maxLength: 2000
+      required:
+      - type
+      - description
+      additionalProperties: false
+    Issue:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+          enum:
+          - OPEN
+          - IN_PROGRESS
+          - RESOLVED
+          - REJECTED
+        reference_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - type
+      - status
+      - created_at
+      additionalProperties: false
+    AdminLogin:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+      - username
+      - password
+      additionalProperties: false
+    MfaVerify:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+        code:
+          type: string
+      required:
+      - challenge_id
+      - code
+      additionalProperties: false
+    AdminTenantChange:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - SUSPENDED
+        reason:
+          type: string
+          minLength: 4
+        enabled_categories:
+          type: array
+          items:
+            type: string
+      required:
+      - status
+      - reason
+      additionalProperties: false
+    ModelRouteChange:
+      type: object
+      properties:
+        model_version_id:
+          type: string
+        enabled:
+          type: boolean
+        reason:
+          type: string
+          minLength: 4
+      required:
+      - model_version_id
+      - enabled
+      - reason
+      additionalProperties: false
+    AdminPackUpdate:
+      type: object
+      properties:
+        token_quantity:
+          type: integer
+          minimum: 1
+        base_price_paise:
+          type: integer
+          minimum: 0
+        discount_paise:
+          type: integer
+          minimum: 0
+        effective_from:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          minLength: 4
+      required:
+      - effective_from
+      - reason
+      additionalProperties: false
+    ReportAggregate:
+      type: object
+      properties:
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        segment:
+          type: string
+        metrics:
+          type: object
+          additionalProperties: true
+      required:
+      - period_start
+      - period_end
+      - metrics
+      additionalProperties: false
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        invoice_number:
+          type: string
+        payment_id:
+          type: string
+        issued_at:
+          type: string
+          format: date-time
+        pdf_download_url:
+          type: string
+          format: uri
+      required:
+      - id
+      - invoice_number
+      - payment_id
+      - issued_at
+      additionalProperties: false
+    ModelEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        version:
+          type: string
+        use_case:
+          type: string
+        approved:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+      - id
+      - provider
+      - version
+      - use_case
+      - approved
+      - enabled
+      additionalProperties: false
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        actor_id:
+          type: string
+        action:
+          type: string
+        entity_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        reason:
+          type: string
+      required:
+      - id
+      - actor_id
+      - action
+      - entity_id
+      - timestamp
+      additionalProperties: false
+    Success:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        request_id:
+          type: string
+      required:
+      - ok
+      - request_id
+      additionalProperties: false

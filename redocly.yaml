@@ -1,0 +1,12 @@
+extends:
+  - recommended
+
+rules:
+  operation-operationId-unique: error
+  operation-operationId-url-safe: error
+  operation-4xx-response: error
+  no-unresolved-refs: error
+  path-not-include-query: error
+  spec-strict-refs: error
+  info-license: off
+  tag-description: off

@@ -1,0 +1,32 @@
+{
+  "name": "Wearo — See it on you",
+  "short_name": "Wearo",
+  "description": "Create private AI-powered visual try-on previews.",
+  "id": "/app/",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#faf7f2",
+  "theme_color": "#3b1746",
+  "icons": [
+    {
+      "src": "/wearo-brand.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New try-on",
+      "short_name": "Try on",
+      "url": "/app/try-on"
+    },
+    {
+      "name": "Saved looks",
+      "short_name": "Looks",
+      "url": "/app/history"
+    }
+  ]
+}

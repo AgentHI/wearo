@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 340" width="1040" height="340">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8A6689"/></marker></defs>
+<rect width="1040" height="340" fill="#FAF7F2" rx="20"/>
+<text x="30" y="30" font-size="15" fill="#3B1746" font-family="Lato" font-weight="bold">Only successful delivery settles a render debit</text>
+<g font-family="Lato" fill="#261C2A" text-anchor="middle" font-size="14" stroke="#E8DFE7" stroke-width="1.5">
+<rect x="22" y="68" width="152" height="72" rx="10" fill="white"/><rect x="191" y="68" width="147" height="72" rx="10" fill="#F1EAF1"/>
+<rect x="356" y="68" width="145" height="72" rx="10" fill="white"/><rect x="519" y="68" width="153" height="72" rx="10" fill="white"/>
+<rect x="690" y="68" width="151" height="72" rx="10" fill="white"/><rect x="860" y="68" width="150" height="72" rx="10" fill="#E8E3EC" stroke="#3B1746"/>
+<rect x="190" y="231" width="228" height="65" rx="10" fill="#fff"/><rect x="555" y="231" width="292" height="65" rx="10" fill="#fff"/>
+</g>
+<g font-family="Lato" font-size="14" fill="#3B1746" text-anchor="middle" font-weight="bold"><text x="98" y="96">Preflight</text><text x="98" y="115" font-size="11" font-weight="normal">Photo + consent</text>
+<text x="264" y="96">Reserve</text><text x="264" y="115" font-size="11" font-weight="normal">Quote + balance</text>
+<text x="429" y="107">Queue</text><text x="596" y="107">Process</text><text x="765" y="96">Quality gate</text><text x="765" y="115" font-size="11" font-weight="normal">Image fidelity</text>
+<text x="935" y="96">Success</text><text x="935" y="115" font-size="11" font-weight="normal">Settle once</text>
+<text x="304" y="256">Reject unsupported input</text><text x="304" y="277" font-size="11" font-weight="normal">Zero reservation · zero charge</text>
+<text x="701" y="256">Failure / cancelled</text><text x="701" y="277" font-size="11" font-weight="normal">Release hold · safe retry</text>
+</g>
+<g stroke="#8A6689" stroke-width="2.4" fill="none" marker-end="url(#ar)"><path d="M174 104 H191"/><path d="M338 104 H356"/><path d="M501 104 H519"/><path d="M672 104 H690"/><path d="M841 104 H860"/><path d="M97 140 V264 H190"/><path d="M594 140 V263 H555"/><path d="M763 140 V225"/></g>
+<text x="30" y="324" fill="#716775" font-size="12" font-family="Lato">A retry with the same idempotency key returns the same job. A regeneration requires a new explicit quote.</text>
+</svg>

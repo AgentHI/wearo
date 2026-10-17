@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from uuid import UUID, uuid4
+
+import pytest
+
+from apps.api.wearo_api.beta_profile import (
+    DailyQuotaService,
+    DailyUsage,
+    PersonProfile,
+    PersonProfileService,
+    ProfileError,
+    QuotaError,
+)
+
+NOW = datetime(2026, 10, 17, 20, tzinfo=UTC)
+
+
+class MemoryProfileStore:
+    def __init__(self) -> None:
+        self.profiles: dict[UUID, PersonProfile] = {}
+
+    def replace_active(self, profile: PersonProfile, replaced_at: datetime) -> None:
+        self.profiles = {profile.account_id: profile}
+
+    def active_for_account(self, account_id: UUID) -> PersonProfile | None:
+        return self.profiles.get(account_id)
+
+    def request_delete(self, profile_id: UUID, account_id: UUID, delete_after: datetime) -> bool:
+        item = self.profiles.get(account_id)
+        if item is None or item.profile_id != profile_id:
+            return False
+        self.profiles[account_id] = replace(item, status="DELETION_REQUESTED")
+        return True
+
+
+class MemoryQuotaStore:
+    def __init__(self) -> None:
+        self.items: dict[tuple[UUID, date], DailyUsage] = {}
+
+    def get(self, account_id: UUID, usage_date: date) -> DailyUsage | None:
+        return self.items.get((account_id, usage_date))
+
+    def reserve(
+        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
+    ) -> DailyUsage | None:
+        item = self.get(account_id, usage_date) or DailyUsage(account_id, usage_date, 0, None)
+        if item.active_job_id is not None or item.successful_generations >= maximum:
+            return None
+        item = replace(item, active_job_id=job_id)
+        self.items[(account_id, usage_date)] = item
+        return item
+
+    def settle_success(
+        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
+    ) -> DailyUsage | None:
+        item = self.get(account_id, usage_date)
+        if item is None or item.active_job_id != job_id or item.successful_generations >= maximum:
+            return None
+        item = replace(
+            item, active_job_id=None, successful_generations=item.successful_generations + 1
+        )
+        self.items[(account_id, usage_date)] = item
+        return item
+
+    def release(self, account_id: UUID, usage_date: date, job_id: UUID) -> DailyUsage | None:
+        item = self.get(account_id, usage_date)
+        if item is None or item.active_job_id != job_id:
+            return None
+        item = replace(item, active_job_id=None)
+        self.items[(account_id, usage_date)] = item
+        return item
+
+
+def profile(account_id: UUID) -> PersonProfile:
+    return PersonProfile(
+        uuid4(),
+        account_id,
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        Decimal("170"),
+        Decimal("65"),
+        "ACTIVE",
+        None,
+    )
+
+
+def test_profile_is_reusable_owner_scoped_and_deletable() -> None:
+    store = MemoryProfileStore()
+    service = PersonProfileService(store)
+    account = uuid4()
+    item = profile(account)
+    service.save(item, now=NOW)
+    assert service.require(account) == item
+    with pytest.raises(ProfileError):
+        service.require(uuid4())
+    service.delete(item.profile_id, account, now=NOW)
+    with pytest.raises(ProfileError):
+        service.require(account)
+
+
+def test_profile_guidance_bounds_are_not_measurement_claims() -> None:
+    service = PersonProfileService(MemoryProfileStore())
+    item = profile(uuid4())
+    with pytest.raises(ProfileError):
+        service.save(replace(item, height_cm=Decimal("20")), now=NOW)
+    with pytest.raises(ProfileError):
+        service.save(replace(item, weight_kg=Decimal("500")), now=NOW)
+
+
+def test_only_successes_consume_three_per_ist_day_and_one_job_is_active() -> None:
+    service = DailyQuotaService(MemoryQuotaStore())
+    account = uuid4()
+    for expected in (2, 1, 0):
+        job = uuid4()
+        service.reserve(account, job, now=NOW)
+        with pytest.raises(QuotaError):
+            service.reserve(account, uuid4(), now=NOW)
+        service.settle_success(account, job, now=NOW)
+        assert service.remaining(account, now=NOW) == expected
+    with pytest.raises(QuotaError):
+        service.reserve(account, uuid4(), now=NOW)
+
+
+def test_failure_releases_slot_without_consuming_allowance() -> None:
+    service = DailyQuotaService(MemoryQuotaStore())
+    account, job = uuid4(), uuid4()
+    service.reserve(account, job, now=NOW)
+    service.release_failure(account, job, now=NOW)
+    assert service.remaining(account, now=NOW) == 3
+    assert DailyQuotaService.usage_date(NOW) == date(2026, 10, 18)
+
+
+def test_disabled_daily_limit_always_reports_available_capacity() -> None:
+    store = MemoryQuotaStore()
+    service = DailyQuotaService(store, limit_enabled=False)
+    account = uuid4()
+    for _ in range(3):
+        job = uuid4()
+        store.reserve(account, service.usage_date(NOW), job, service.maximum)
+        store.settle_success(account, service.usage_date(NOW), job, service.maximum)
+
+    assert service.remaining(account, now=NOW) == 3
+    assert service.limit_enabled is False
