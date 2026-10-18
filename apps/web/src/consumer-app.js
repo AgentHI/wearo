@@ -60,7 +60,23 @@ async function api(path, options = {}, auth = readAuth()) {
     ...options,
     headers,
   });
-  const body = response.status === 204 ? {} : await response.json();
+  let body = {};
+  if (response.status !== 204) {
+    const responseText = await response.text();
+    if (responseText) {
+      try {
+        body = JSON.parse(responseText);
+      } catch {
+        body = {
+          code: "INVALID_API_RESPONSE",
+          message:
+            response.status >= 500
+              ? `Wearo API returned ${response.status} ${response.statusText || "Internal Server Error"}. Make sure the backend is running on 127.0.0.1:8000 and check its terminal log.`
+              : `Wearo API returned an unreadable response (${response.status}).`,
+        };
+      }
+    }
+  }
   if (!response.ok) {
     const error = new Error(body.message || "The request could not be completed.");
     error.code = body.code;
