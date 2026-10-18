@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, Form, Header, Request, Response, UploadFile
@@ -17,7 +17,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
-from .beta_profile import IST, DailyQuotaService, PersonProfile, PersonProfileService, ProfileError
+from .beta_profile import (
+    IST,
+    DailyQuotaService,
+    PersonProfile,
+    PersonProfileService,
+    ProfileError,
+    ProfileImage,
+)
 from .browser_sessions import (
     BrowserSession,
     BrowserSessionService,
@@ -113,11 +120,22 @@ class ConsentBody(BaseModel):
     no_training_notice_acknowledged: bool
 
 
-class ProfileBody(BaseModel):
+class ProfileImageBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     person_asset_id: UUID
     consent_id: UUID
+    photo_type: Literal["FULL_BODY", "CLOSE_UP", "OTHER"]
+    label: str = Field(min_length=1, max_length=60)
+    is_primary: bool = False
+
+
+class ProfileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_asset_id: UUID | None = None
+    consent_id: UUID | None = None
+    images: list[ProfileImageBody] = Field(default_factory=list, max_length=6)
     height_cm: float | None = Field(default=None, ge=80, le=260)
     weight_kg: float | None = Field(default=None, ge=20, le=350)
 
@@ -126,6 +144,7 @@ class QuoteBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_asset_id: UUID
+    person_asset_id: UUID
 
 
 class RenderBody(BaseModel):
@@ -166,6 +185,16 @@ def _authenticate(
 
 
 def _profile_json(profile: PersonProfile) -> dict[str, Any]:
+    images = profile.images or (
+        ProfileImage(
+            profile_image_id=profile.profile_id,
+            asset_id=profile.person_asset_id,
+            consent_id=profile.consent_id,
+            photo_type="FULL_BODY",
+            label="Full body",
+            is_primary=True,
+        ),
+    )
     return {
         "id": profile.profile_id,
         "person_asset_id": profile.person_asset_id,
@@ -174,6 +203,17 @@ def _profile_json(profile: PersonProfile) -> dict[str, Any]:
         "weight_kg": profile.weight_kg,
         "status": profile.status,
         "last_used_at": profile.last_used_at,
+        "images": [
+            {
+                "id": image.profile_image_id,
+                "person_asset_id": image.asset_id,
+                "consent_id": image.consent_id,
+                "photo_type": image.photo_type,
+                "label": image.label,
+                "is_primary": image.is_primary,
+            }
+            for image in images
+        ],
     }
 
 
@@ -417,24 +457,54 @@ def create_app(
         x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
     ) -> dict[str, Any]:
         session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
-        evidence = container.consents.require_current(
-            account_id=session.account_id,
-            actor_principal_id=session.principal_id,
-            asset_id=body.person_asset_id,
-            purpose="TRY_ON",
-        )
-        if evidence.consent_id != body.consent_id:
-            raise ConsentError("affirmative consent is required")
+        submitted_images = list(body.images)
+        if not submitted_images and body.person_asset_id and body.consent_id:
+            submitted_images = [
+                ProfileImageBody(
+                    person_asset_id=body.person_asset_id,
+                    consent_id=body.consent_id,
+                    photo_type="FULL_BODY",
+                    label="Full body",
+                    is_primary=True,
+                )
+            ]
+        if not submitted_images:
+            raise ApiProblem(
+                422, "PROFILE_PHOTO_REQUIRED", "At least one profile photo is required."
+            )
+        images: list[ProfileImage] = []
+        has_primary = any(image.is_primary for image in submitted_images)
+        for index, submitted in enumerate(submitted_images):
+            evidence = container.consents.require_current(
+                account_id=session.account_id,
+                actor_principal_id=session.principal_id,
+                asset_id=submitted.person_asset_id,
+                purpose="TRY_ON",
+            )
+            if evidence.consent_id != submitted.consent_id:
+                raise ConsentError("affirmative consent is required")
+            images.append(
+                ProfileImage(
+                    profile_image_id=uuid4(),
+                    asset_id=submitted.person_asset_id,
+                    consent_id=submitted.consent_id,
+                    photo_type=submitted.photo_type,
+                    label=submitted.label.strip(),
+                    is_primary=submitted.is_primary or (not has_primary and index == 0),
+                )
+            )
+        primary = next((image for image in images if image.is_primary), images[0])
         profile = PersonProfile(
             profile_id=uuid4(),
             account_id=session.account_id,
             principal_id=session.principal_id,
-            person_asset_id=body.person_asset_id,
-            consent_id=body.consent_id,
+            person_asset_id=primary.asset_id,
+            consent_id=primary.consent_id,
             height_cm=decimal_or_none(body.height_cm),
             weight_kg=decimal_or_none(body.weight_kg),
             status="ACTIVE",
             last_used_at=None,
+            images=tuple(images),
         )
         container.profiles.save(profile)
         return _profile_json(profile)
@@ -490,8 +560,15 @@ def create_app(
                 "Image understanding is not configured for this environment.",
             )
         profile = container.profiles.require(session.account_id)
+        selected_image = profile.image_for(body.person_asset_id)
+        if selected_image is None:
+            raise ApiProblem(
+                422,
+                "PROFILE_PHOTO_UNAVAILABLE",
+                "Select a photo from your active profile.",
+            )
         person_image, _ = container.media.read_prepared(
-            profile.person_asset_id, session.account_id, "PERSON"
+            selected_image.asset_id, session.account_id, "PERSON"
         )
         item_image, _ = container.media.read_prepared(
             body.item_asset_id, session.account_id, "GARMENT"
@@ -499,6 +576,7 @@ def create_app(
         quote = container.preflight.quote(
             account_id=session.account_id,
             principal_id=session.principal_id,
+            person_asset_id=selected_image.asset_id,
             item_asset_id=body.item_asset_id,
             person_image=person_image,
             item_image=item_image,
@@ -568,6 +646,17 @@ def create_app(
         job = container.renders.cancel_queued(render_id, session.account_id)
         container.media.clear_progressive_preview(render_id)
         return _job_json(job)
+
+    @app.delete("/api/v1/renders/{render_id}/result", status_code=202)
+    def delete_saved_look(
+        render_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, bool]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if not container.renders.delete_saved_look(render_id, session.account_id):
+            raise ApiProblem(404, "SAVED_LOOK_UNAVAILABLE", "Saved look is unavailable.")
+        return {"ok": True}
 
     @app.get("/api/v1/renders/{render_id}/preview")
     def get_progressive_preview(
@@ -672,7 +761,12 @@ def create_app_from_env() -> FastAPI:
         preflight = BetaRenderPreflightService(
             profile_service,
             consent_service,
-            ImagePreflightService(analyzer),
+            ImagePreflightService(
+                analyzer,
+                enforce_adult_only=not test_auth_enabled,
+                require_full_body=not test_auth_enabled,
+                allow_jewellery=test_auth_enabled,
+            ),
             quota_service,
             ApprovedBetaRouteRegistry(
                 enabled=True,

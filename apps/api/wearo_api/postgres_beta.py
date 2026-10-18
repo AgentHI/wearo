@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, text
 
-from .beta_profile import DailyUsage, PersonProfile
+from .beta_profile import DailyUsage, PersonProfile, ProfileImage
 from .consent import ConsentEvidence, ConsentPurpose
 from .render_preflight import BetaRenderQuote
 
 
-def _profile(row: object) -> PersonProfile:
+def _profile(row: object, images: tuple[ProfileImage, ...] = ()) -> PersonProfile:
     values = row._mapping  # type: ignore[attr-defined]
     return PersonProfile(
         profile_id=values["profile_id"],
@@ -23,6 +23,7 @@ def _profile(row: object) -> PersonProfile:
         weight_kg=values["weight_kg"],
         status=values["status"],
         last_used_at=values["last_used_at"],
+        images=images,
     )
 
 
@@ -88,6 +89,57 @@ class PostgresProfileStore:
                     "last_used": profile.last_used_at,
                 },
             )
+            images = profile.images or (
+                ProfileImage(
+                    profile_image_id=uuid4(),
+                    asset_id=profile.person_asset_id,
+                    consent_id=profile.consent_id,
+                    photo_type="FULL_BODY",
+                    label="Full body",
+                    is_primary=True,
+                ),
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO person_profile_images
+                        (
+                            profile_image_id,
+                            profile_id,
+                            account_id,
+                            asset_id,
+                            consent_id,
+                            photo_type,
+                            label,
+                            is_primary
+                        )
+                    VALUES
+                        (
+                            :profile_image,
+                            :profile,
+                            :account,
+                            :asset,
+                            :consent,
+                            :photo_type,
+                            :label,
+                            :is_primary
+                        )
+                    """
+                ),
+                [
+                    {
+                        "profile_image": image.profile_image_id,
+                        "profile": profile.profile_id,
+                        "account": profile.account_id,
+                        "asset": image.asset_id,
+                        "consent": image.consent_id,
+                        "photo_type": image.photo_type,
+                        "label": image.label,
+                        "is_primary": image.is_primary,
+                    }
+                    for image in images
+                ],
+            )
 
     def active_for_account(self, account_id: UUID) -> PersonProfile | None:
         with self.engine.connect() as connection:
@@ -110,13 +162,44 @@ class PostgresProfileStore:
                 ),
                 {"account": account_id},
             ).one_or_none()
-        return _profile(row) if row is not None else None
+            if row is None:
+                return None
+            image_rows = connection.execute(
+                text(
+                    """
+                    SELECT
+                        profile_image_id,
+                        asset_id,
+                        consent_id,
+                        photo_type,
+                        label,
+                        is_primary
+                    FROM person_profile_images
+                    WHERE profile_id = :profile AND account_id = :account
+                    ORDER BY is_primary DESC, created_at, profile_image_id
+                    """
+                ),
+                {"profile": row._mapping["profile_id"], "account": account_id},
+            ).mappings()
+            images = tuple(
+                ProfileImage(
+                    profile_image_id=image["profile_image_id"],
+                    asset_id=image["asset_id"],
+                    consent_id=image["consent_id"],
+                    photo_type=image["photo_type"],
+                    label=image["label"],
+                    is_primary=image["is_primary"],
+                )
+                for image in image_rows
+            )
+        return _profile(row, images)
 
     def request_delete(self, profile_id: UUID, account_id: UUID, delete_after: datetime) -> bool:
         with self.engine.begin() as connection:
-            row = connection.execute(
-                text(
-                    """
+            row = (
+                connection.execute(
+                    text(
+                        """
                     UPDATE person_profiles
                     SET status = 'DELETION_REQUESTED',
                         delete_after = :delete_after,
@@ -124,15 +207,18 @@ class PostgresProfileStore:
                     WHERE profile_id = :profile
                       AND account_id = :account
                       AND status = 'ACTIVE'
-                    RETURNING person_asset_id
+                    RETURNING profile_id, person_asset_id
                     """
-                ),
-                {
-                    "profile": profile_id,
-                    "account": account_id,
-                    "delete_after": delete_after,
-                },
-            ).scalar_one_or_none()
+                    ),
+                    {
+                        "profile": profile_id,
+                        "account": account_id,
+                        "delete_after": delete_after,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
             if row is not None:
                 connection.execute(
                     text(
@@ -141,10 +227,22 @@ class PostgresProfileStore:
                         SET deletion_state = 'REQUESTED',
                             delete_after = :delete_after,
                             updated_at = now()
-                        WHERE asset_id = :asset AND account_id = :account
+                        WHERE account_id = :account
+                          AND asset_id IN (
+                              SELECT asset_id
+                              FROM person_profile_images
+                              WHERE profile_id = :profile AND account_id = :account
+                              UNION
+                              SELECT :legacy_asset
+                          )
                         """
                     ),
-                    {"asset": row, "account": account_id, "delete_after": delete_after},
+                    {
+                        "profile": row["profile_id"],
+                        "legacy_asset": row["person_asset_id"],
+                        "account": account_id,
+                        "delete_after": delete_after,
+                    },
                 )
         return row is not None
 
@@ -389,8 +487,8 @@ class PostgresQuoteStore:
                     SELECT
                         :quote,
                         profile.account_id,
-                        profile.person_asset_id,
-                        profile.consent_id,
+                        :person_asset,
+                        :consent,
                         :expires_at,
                         profile.principal_id,
                         profile.profile_id,
@@ -404,12 +502,28 @@ class PostgresQuoteStore:
                       AND profile.account_id = :account
                       AND profile.principal_id = :principal
                       AND profile.status = 'ACTIVE'
+                      AND (
+                          EXISTS (
+                              SELECT 1
+                              FROM person_profile_images AS image
+                              WHERE image.profile_id = profile.profile_id
+                                AND image.account_id = profile.account_id
+                                AND image.asset_id = :person_asset
+                                AND image.consent_id = :consent
+                          )
+                          OR (
+                              profile.person_asset_id = :person_asset
+                              AND profile.consent_id = :consent
+                          )
+                      )
                     """
                 ),
                 {
                     "quote": quote.quote_id,
                     "expires_at": quote.expires_at,
                     "item_asset": quote.item_asset_id,
+                    "person_asset": quote.person_asset_id,
+                    "consent": quote.consent_id,
                     "remaining": quote.remaining_before,
                     "provider": quote.route.provider,
                     "model": quote.route.model,

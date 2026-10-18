@@ -13,6 +13,7 @@ from apps.api.wearo_api.beta_profile import (
     PersonProfile,
     PersonProfileService,
     ProfileError,
+    ProfileImage,
     QuotaError,
 )
 
@@ -110,6 +111,25 @@ def test_profile_guidance_bounds_are_not_measurement_claims() -> None:
         service.save(replace(item, height_cm=Decimal("20")), now=NOW)
     with pytest.raises(ProfileError):
         service.save(replace(item, weight_kg=Decimal("500")), now=NOW)
+
+
+def test_profile_supports_reusable_full_body_and_close_up_photos() -> None:
+    store = MemoryProfileStore()
+    service = PersonProfileService(store)
+    item = profile(uuid4())
+    full_body = ProfileImage(
+        uuid4(), item.person_asset_id, item.consent_id, "FULL_BODY", "Full body", True
+    )
+    close_up = ProfileImage(uuid4(), uuid4(), uuid4(), "CLOSE_UP", "Close-up", False)
+    item = replace(item, images=(full_body, close_up))
+
+    service.save(item, now=NOW)
+
+    assert service.require(item.account_id).image_for(close_up.asset_id) == close_up
+    with pytest.raises(ProfileError):
+        service.save(
+            replace(item, images=(replace(full_body, is_primary=False), close_up)), now=NOW
+        )
 
 
 def test_only_successes_consume_three_per_ist_day_and_one_job_is_active() -> None:

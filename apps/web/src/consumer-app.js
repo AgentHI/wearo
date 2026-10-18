@@ -125,29 +125,54 @@ function signInView() {
 function homeView() {
   return `
     <header class="home-heading">
-      <div><p class="eyebrow">Your private fitting room</p><h1>Try it on</h1><p>Upload a wearable and see it with your saved person profile.</p></div>
+      <div><p class="eyebrow">Your private fitting room</p><h1>Try it on</h1><p>Upload or photograph a wearable and see it with your saved person profile.</p></div>
       <a class="profile-shortcut" href="/app/profile"><span>○</span> Edit profile</a>
     </header>
-    <section class="allowance-card" aria-label="Daily allowance"><div><span id="allowance-count" class="allowance-ring">—</span><div><strong><span id="allowance-copy">Loading</span> previews available</strong><p id="allowance-note">Resets at midnight IST.</p></div></div><span>Today</span></section>
+    <section class="allowance-card" aria-label="Daily beta allowance"><div><span id="allowance-count" class="allowance-ring">—</span><div><strong><span id="allowance-copy">Loading</span> previews available</strong><p id="allowance-note">Beta testing · 3 successful previews per day.</p></div></div><span>Beta · Today</span></section>
     <section class="tryon-studio" aria-labelledby="tryon-title">
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
       <div class="tryon-workspace">
         <div id="preview-canvas" class="mobile-preview__canvas" role="img" aria-label="Generated preview will appear here">
-          <span aria-hidden="true">✦</span><strong>Your result appears here</strong><small>Your saved profile is used automatically</small>
+          <span aria-hidden="true">✦</span><strong>Your result appears here</strong><small>Choose the best saved photo for this wearable</small>
         </div>
         <form id="try-on-form" class="wearable-dock" novalidate>
-          <label class="wearable-picker">
+          <fieldset id="person-photo-selector" class="person-photo-selector" aria-label="Person photo">
+            <legend>Use person photo</legend>
+            <p>Loading your saved photos…</p>
+          </fieldset>
+          <div class="wearable-picker">
             <span id="item-thumb" class="wearable-picker__thumb" aria-hidden="true">＋</span>
             <strong>Add wearable</strong>
-            <small>Shirt, saree, blouse, necklace, earrings, or any clear item photo</small>
-            <input name="item" type="file" accept="image/jpeg,image/png,image/webp" required />
-          </label>
+            <small>Shirt, saree, blouse, necklace, earrings, or a contextual photo where the intended item is visible</small>
+            <div class="wearable-source-actions">
+              <label class="wearable-source">
+                <span aria-hidden="true">↑</span> Upload image
+                <input name="item_upload" type="file" accept="image/jpeg,image/png,image/webp" />
+              </label>
+              <button id="open-camera" class="wearable-source wearable-source--camera" type="button">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                Take photo
+              </button>
+            </div>
+            <small class="camera-permission-note">Camera permission is controlled and remembered by your browser or device.</small>
+          </div>
           <button id="generate-button" class="button button--primary button--full" type="submit"><span aria-hidden="true">✦</span> Generate try-on</button>
         </form>
       </div>
       <p id="tryon-status" class="form-status status-panel" role="status" aria-live="polite"></p>
       <div class="notice" role="note"><strong>Visual preview only.</strong> This is not a fit, size, measurement, material, or purchase guarantee.</div>
-    </section>`;
+    </section>
+    <dialog id="camera-dialog" class="camera-dialog" aria-labelledby="camera-title">
+      <div class="camera-dialog__panel">
+        <header><div><p class="eyebrow">Wearable camera</p><h2 id="camera-title">Take a photo</h2></div><button id="close-camera" class="camera-dialog__close" type="button" aria-label="Close camera">×</button></header>
+        <div class="camera-dialog__view"><video id="camera-preview" autoplay muted playsinline aria-label="Live camera preview"></video></div>
+        <p id="camera-status" class="camera-dialog__status" role="status" aria-live="polite">Preparing camera…</p>
+        <button id="capture-photo" class="button button--primary button--full camera-dialog__capture" type="button" disabled>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+          Capture photo
+        </button>
+      </div>
+    </dialog>`;
 }
 
 function profileView(auth) {
@@ -157,15 +182,35 @@ function profileView(auth) {
       <div class="flow-progress" aria-label="Account setup progress"><span>1</span><i class="is-complete"></i><span class="is-active">2</span><i></i><span>3</span></div>
       <p class="eyebrow">${setup ? "Step 2 of 3" : "Personal profile"}</p>
       <h1>${setup ? "Create your profile" : "Update your profile"}</h1>
-      <p>Use one clear full-body photo. This profile is reused for every try-on.</p>
+      <p>Save photos for different try-ons. Use full-body for clothing and close-up for necklaces or earrings.</p>
     </header>
     <form id="profile-form" class="profile-editor">
       <section class="consumer-card profile-photo-card">
-        <div id="person-preview" class="person-preview"><span aria-hidden="true">◎</span><strong>${setup ? "Add your photo" : "Loading profile…"}</strong></div>
-        <label class="upload-zone">${setup ? "Full-body person photo" : "Replace person photo (optional)"}
-          <input name="person" type="file" accept="image/jpeg,image/png,image/webp" ${setup ? "required" : ""} />
-          <small>Face and full body visible · JPEG, PNG or WebP · Maximum 7 MB</small>
-        </label>
+        <div class="profile-photo-grid">
+          <div class="profile-photo-slot">
+            <div id="full-body-preview" class="person-preview"><span aria-hidden="true">◎</span><strong>${setup ? "Add a full-body photo" : "Loading…"}</strong></div>
+            <label class="upload-zone">Full-body photo ${setup ? "" : "(optional replacement)"}
+              <input name="full_body" type="file" accept="image/jpeg,image/png,image/webp" />
+              <small>Best for shirts, jeans, sarees, blouses and full outfits</small>
+            </label>
+            <button class="profile-camera-button" type="button" data-profile-camera="full_body">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+              Take full-body photo
+            </button>
+          </div>
+          <div class="profile-photo-slot">
+            <div id="close-up-preview" class="person-preview"><span aria-hidden="true">◇</span><strong>Add a close-up photo</strong></div>
+            <label class="upload-zone">Close-up face photo (optional)
+              <input name="close_up" type="file" accept="image/jpeg,image/png,image/webp" />
+              <small>Best for necklaces, earrings and face-level accessories</small>
+            </label>
+            <button class="profile-camera-button" type="button" data-profile-camera="close_up">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+              Take close-up photo
+            </button>
+          </div>
+        </div>
+        <p class="field-help">JPEG, PNG or WebP · Maximum 7 MB per photo. Originals remain private.</p>
         <div class="field-row"><label>Height <span>Optional, cm</span><input name="height" type="number" min="80" max="260" inputmode="decimal" /></label><label>Weight <span>Optional, kg</span><input name="weight" type="number" min="20" max="350" inputmode="decimal" /></label></div>
         <p class="field-help">Used only as visual guidance, never for sizing or measurements.</p>
       </section>
@@ -181,6 +226,17 @@ function profileView(auth) {
       <p id="profile-status" class="form-status status-panel" role="status" aria-live="polite"></p>
       ${setup ? "" : '<button id="delete-profile" class="text-button" type="button">Delete saved profile</button>'}
     </form>
+    <dialog id="profile-camera-dialog" class="camera-dialog" aria-labelledby="profile-camera-title">
+      <div class="camera-dialog__panel">
+        <header><div><p class="eyebrow">Profile camera</p><h2 id="profile-camera-title">Take profile photo</h2></div><button id="close-profile-camera" class="camera-dialog__close" type="button" aria-label="Close camera">×</button></header>
+        <div class="camera-dialog__view"><video id="profile-camera-preview" autoplay muted playsinline aria-label="Live camera preview"></video></div>
+        <p id="profile-camera-status" class="camera-dialog__status" role="status" aria-live="polite">Preparing camera…</p>
+        <button id="capture-profile-photo" class="button button--primary button--full camera-dialog__capture" type="button" disabled>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+          Capture photo
+        </button>
+      </div>
+    </dialog>
     <section class="mobile-menu account-menu">
       <div><span>◷</span><div><strong>Retention</strong><small>Product and accepted result media: 30 days</small></div></div>
       <div><span>⌾</span><div><strong>Privacy</strong><small>Not authorised for model training</small></div></div>
@@ -208,6 +264,100 @@ function setButtonBusy(button, busy, busyLabel, idleLabel) {
 function setStatus(element, message, tone = "info") {
   element.textContent = message;
   element.dataset.tone = tone;
+}
+
+function attachCameraCapture({ dialog, video, cameraStatus, captureButton, closeButton, onCapture }) {
+  let stream = null;
+  let captureContext = null;
+  let requestVersion = 0;
+
+  const stop = () => {
+    requestVersion += 1;
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    video.srcObject = null;
+    captureButton.disabled = true;
+  };
+
+  const open = async (context = null) => {
+    captureContext = context;
+    if (!dialog.open) dialog.showModal();
+    cameraStatus.textContent = "Requesting camera access…";
+    stop();
+    const currentRequest = requestVersion;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Camera access requires a supported browser opened through HTTPS or localhost.");
+      }
+      const nextStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+      if (currentRequest !== requestVersion || !dialog.open) {
+        nextStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = nextStream;
+      video.srcObject = stream;
+      await video.play();
+      captureButton.disabled = false;
+      cameraStatus.textContent = "Center the subject in the frame, then capture the photo.";
+    } catch (error) {
+      stop();
+      if (error.name === "NotAllowedError") {
+        cameraStatus.textContent = "Camera permission was denied. Allow camera access in your browser settings and try again.";
+      } else if (error.name === "NotFoundError") {
+        cameraStatus.textContent = "No camera was found on this device.";
+      } else if (error.name === "NotReadableError") {
+        cameraStatus.textContent = "The camera is already being used by another application.";
+      } else {
+        cameraStatus.textContent = error.message || "The camera could not be started.";
+      }
+    }
+  };
+
+  captureButton.addEventListener("click", async () => {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) {
+      cameraStatus.textContent = "The camera is not ready yet. Try again in a moment.";
+      return;
+    }
+    captureButton.disabled = true;
+    cameraStatus.textContent = "Capturing photo…";
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      captureButton.disabled = false;
+      cameraStatus.textContent = "The photo could not be captured. Please try again.";
+      return;
+    }
+    context.drawImage(video, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob) {
+      captureButton.disabled = false;
+      cameraStatus.textContent = "The photo could not be captured. Please try again.";
+      return;
+    }
+    try {
+      await onCapture(
+        new File([blob], `wearo-camera-${Date.now()}.jpg`, { type: "image/jpeg" }),
+        captureContext,
+      );
+      dialog.close();
+    } catch (error) {
+      captureButton.disabled = false;
+      cameraStatus.textContent = error.message || "The photo could not be saved.";
+    }
+  });
+
+  closeButton.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", stop);
+  window.addEventListener("pagehide", stop, { once: true });
+
+  return { open, stop };
 }
 
 function attachInstallButton() {
@@ -295,13 +445,16 @@ async function upload(kind, file, auth) {
 
 function attachProfileFlow(auth) {
   const form = document.querySelector("#profile-form");
-  const personInput = form.elements.person;
+  const fullBodyInput = form.elements.namedItem("full_body");
+  const closeUpInput = form.elements.namedItem("close_up");
   const consentFields = document.querySelector("#consent-fields");
-  const preview = document.querySelector("#person-preview");
+  const fullBodyPreview = document.querySelector("#full-body-preview");
+  const closeUpPreview = document.querySelector("#close-up-preview");
   const submit = document.querySelector("#save-profile");
   const status = document.querySelector("#profile-status");
   let existingProfile = null;
-  let previewUrl = null;
+  const previewUrls = new Map();
+  const selectedProfileFiles = new Map();
 
   const setConsentRequired = (required) => {
     consentFields.hidden = !required;
@@ -310,8 +463,28 @@ function attachProfileFlow(auth) {
     }
   };
 
-  const showPersonImage = (src) => {
-    preview.innerHTML = `<img src="${src}" alt="Your saved person profile" />`;
+  const showPersonImage = (preview, src, label) => {
+    preview.innerHTML = `<img src="${src}" alt="${label}" />`;
+  };
+
+  const currentImages = () => {
+    if (existingProfile?.images?.length) {
+      return existingProfile.images.map((image) => ({
+        person_asset_id: image.person_asset_id,
+        consent_id: image.consent_id,
+        photo_type: image.photo_type,
+        label: image.label,
+        is_primary: image.is_primary,
+      }));
+    }
+    if (!existingProfile?.person_asset_id || !existingProfile?.consent_id) return [];
+    return [{
+      person_asset_id: existingProfile.person_asset_id,
+      consent_id: existingProfile.consent_id,
+      photo_type: "FULL_BODY",
+      label: "Full body",
+      is_primary: true,
+    }];
   };
 
   if (auth.hasProfile) {
@@ -323,7 +496,22 @@ function attachProfileFlow(auth) {
         existingProfile = profile;
         form.elements.height.value = profile.height_cm ?? "";
         form.elements.weight.value = profile.weight_kg ?? "";
-        showPersonImage(`${API_BASE}/assets/${profile.person_asset_id}`);
+        const fullBody = currentImages().find((image) => image.photo_type === "FULL_BODY");
+        const closeUp = currentImages().find((image) => image.photo_type === "CLOSE_UP");
+        if (fullBody) {
+          showPersonImage(
+            fullBodyPreview,
+            `${API_BASE}/assets/${encodeURIComponent(fullBody.person_asset_id)}`,
+            "Your saved full-body profile photo",
+          );
+        }
+        if (closeUp) {
+          showPersonImage(
+            closeUpPreview,
+            `${API_BASE}/assets/${encodeURIComponent(closeUp.person_asset_id)}`,
+            "Your saved close-up profile photo",
+          );
+        }
         submit.disabled = false;
         submit.setAttribute("aria-busy", "false");
         setStatus(status, "Your profile is ready to update.", "success");
@@ -332,9 +520,8 @@ function attachProfileFlow(auth) {
         if (error.code === "PROFILE_NOT_FOUND") {
           auth.hasProfile = false;
           saveAuth(auth);
-          personInput.required = true;
           setConsentRequired(true);
-          preview.innerHTML = '<span aria-hidden="true">◎</span><strong>Add your photo</strong>';
+          fullBodyPreview.innerHTML = '<span aria-hidden="true">◎</span><strong>Add a full-body photo</strong>';
           submit.disabled = false;
           submit.setAttribute("aria-busy", "false");
           setStatus(status, "Add a photo to finish your profile.");
@@ -347,26 +534,80 @@ function attachProfileFlow(auth) {
     setStatus(status, "Add your photo and consent to continue.");
   }
 
-  personInput.addEventListener("change", () => {
-    const file = personInput.files[0];
-    setConsentRequired(Boolean(file) || !existingProfile);
+  const selectProfilePhoto = (input, file, preview, label) => {
     if (!file) return;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(file);
-    showPersonImage(previewUrl);
+    selectedProfileFiles.set(input.name, file);
+    setConsentRequired(selectedProfileFiles.size > 0 || !existingProfile);
+    if (previewUrls.has(input.name)) URL.revokeObjectURL(previewUrls.get(input.name));
+    const nextUrl = URL.createObjectURL(file);
+    previewUrls.set(input.name, nextUrl);
+    showPersonImage(preview, nextUrl, label);
     setStatus(status, "Photo selected. Review consent, then save your profile.");
+  };
+
+  const attachPhotoPreview = (input, preview, label) => {
+    input.addEventListener("change", () => {
+      selectProfilePhoto(input, input.files?.[0], preview, label);
+    });
+  };
+  attachPhotoPreview(fullBodyInput, fullBodyPreview, "Selected full-body profile photo");
+  attachPhotoPreview(closeUpInput, closeUpPreview, "Selected close-up profile photo");
+
+  const profilePhotoTargets = {
+    full_body: {
+      input: fullBodyInput,
+      preview: fullBodyPreview,
+      label: "Selected full-body profile photo",
+      title: "Take a full-body photo",
+    },
+    close_up: {
+      input: closeUpInput,
+      preview: closeUpPreview,
+      label: "Selected close-up profile photo",
+      title: "Take a close-up photo",
+    },
+  };
+  const profileCameraTitle = document.querySelector("#profile-camera-title");
+  const profileCamera = attachCameraCapture({
+    dialog: document.querySelector("#profile-camera-dialog"),
+    video: document.querySelector("#profile-camera-preview"),
+    cameraStatus: document.querySelector("#profile-camera-status"),
+    captureButton: document.querySelector("#capture-profile-photo"),
+    closeButton: document.querySelector("#close-profile-camera"),
+    onCapture: (file, photoType) => {
+      const target = profilePhotoTargets[photoType];
+      if (!target) throw new Error("Choose which profile photo you want to capture.");
+      target.input.value = "";
+      selectProfilePhoto(target.input, file, target.preview, target.label);
+    },
   });
+  for (const button of document.querySelectorAll("[data-profile-camera]")) {
+    button.addEventListener("click", () => {
+      const photoType = button.dataset.profileCamera;
+      const target = profilePhotoTargets[photoType];
+      if (!target) return;
+      profileCameraTitle.textContent = target.title;
+      profileCamera.open(photoType);
+    });
+  }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const fullBodyFile = selectedProfileFiles.get("full_body") || null;
+    const closeUpFile = selectedProfileFiles.get("close_up") || null;
+    if (!fullBodyFile && !currentImages().some((image) => image.photo_type === "FULL_BODY")) {
+      setStatus(status, "Upload or take a full-body photo to create your profile.", "error");
+      return;
+    }
     if (!form.reportValidity()) return;
     setButtonBusy(submit, true, "Saving profile…", auth.hasProfile ? "Save profile changes" : "Save profile and continue");
-    setStatus(status, personInput.files[0] ? "Uploading your private profile photo…" : "Saving your profile details…");
+    const newPhotos = [fullBodyFile, closeUpFile].filter(Boolean);
+    setStatus(status, newPhotos.length ? "Uploading your private profile photos…" : "Saving your profile details…");
     try {
-      let personAssetId = existingProfile?.person_asset_id;
-      let consentId = existingProfile?.consent_id;
-      if (personInput.files[0]) {
-        const person = await upload("PERSON", personInput.files[0], auth);
+      let images = currentImages().map((image) => ({ ...image }));
+      const savePhoto = async (file, photoType, label) => {
+        if (!file) return;
+        const person = await upload("PERSON", file, auth);
         setStatus(status, "Recording your photo consent…");
         const consent = await api(
           "/consents",
@@ -384,18 +625,31 @@ function attachProfileFlow(auth) {
           },
           auth,
         );
-        personAssetId = person.asset_id;
-        consentId = consent.id;
+        images = images.filter((image) => image.photo_type !== photoType);
+        images.push({
+          person_asset_id: person.asset_id,
+          consent_id: consent.id,
+          photo_type: photoType,
+          label,
+          is_primary: photoType === "FULL_BODY",
+        });
+      };
+      await savePhoto(fullBodyFile, "FULL_BODY", "Full body");
+      await savePhoto(closeUpFile, "CLOSE_UP", "Close-up");
+      if (!images.some((image) => image.photo_type === "FULL_BODY")) {
+        throw new Error("Choose a full-body photo to create your profile.");
       }
-      if (!personAssetId || !consentId) throw new Error("Choose a full-body photo to create your profile.");
+      images = images.map((image) => ({
+        ...image,
+        is_primary: image.photo_type === "FULL_BODY",
+      }));
       await api(
         "/me/person-profile",
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            person_asset_id: personAssetId,
-            consent_id: consentId,
+            images,
             height_cm: form.elements.height.value ? Number(form.elements.height.value) : null,
             weight_kg: form.elements.weight.value ? Number(form.elements.weight.value) : null,
           }),
@@ -442,8 +696,15 @@ function attachProfileFlow(auth) {
 
 function attachHomeFlow(auth) {
   const form = document.querySelector("#try-on-form");
-  const itemInput = form.elements.namedItem("item");
+  const itemUploadInput = form.elements.namedItem("item_upload");
+  const openCameraButton = document.querySelector("#open-camera");
+  const cameraDialog = document.querySelector("#camera-dialog");
+  const cameraVideo = document.querySelector("#camera-preview");
+  const cameraStatus = document.querySelector("#camera-status");
+  const capturePhotoButton = document.querySelector("#capture-photo");
+  const closeCameraButton = document.querySelector("#close-camera");
   const itemThumb = document.querySelector("#item-thumb");
+  const personPhotoSelector = document.querySelector("#person-photo-selector");
   const preview = document.querySelector("#preview-canvas");
   const submit = document.querySelector("#generate-button");
   const status = document.querySelector("#tryon-status");
@@ -451,7 +712,56 @@ function attachHomeFlow(auth) {
   const allowanceCopy = document.querySelector("#allowance-copy");
   const allowanceNote = document.querySelector("#allowance-note");
   let itemPreviewUrl = null;
+  let selectedItemFile = null;
   let generationActive = false;
+  let selectedPersonAssetId = null;
+
+  const loadProfilePhotos = async () => {
+    submit.disabled = true;
+    try {
+      const profile = await api("/me/person-profile", {}, auth);
+      const images = profile.images?.length
+        ? profile.images
+        : [{
+            person_asset_id: profile.person_asset_id,
+            photo_type: "FULL_BODY",
+            label: "Full body",
+            is_primary: true,
+          }];
+      const selected = images.find((image) => image.is_primary) || images[0];
+      selectedPersonAssetId = selected?.person_asset_id || null;
+      personPhotoSelector.innerHTML = `
+        <legend>Use person photo</legend>
+        <div class="person-photo-options">
+          ${images
+            .map((image) => {
+              const assetId = escapeHtml(image.person_asset_id);
+              const label = escapeHtml(image.label || (image.photo_type === "CLOSE_UP" ? "Close-up" : "Full body"));
+              return `
+                <label class="person-photo-option">
+                  <input type="radio" name="person_asset_id" value="${assetId}" ${image.person_asset_id === selectedPersonAssetId ? "checked" : ""} required />
+                  <img src="${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}" alt="${label} profile photo" />
+                  <span>${label}</span>
+                </label>`;
+            })
+            .join("")}
+        </div>`;
+      personPhotoSelector.addEventListener("change", (event) => {
+        if (event.target.name === "person_asset_id") {
+          selectedPersonAssetId = event.target.value;
+          setStatus(status, "Person photo selected. Add a wearable when ready.", "success");
+        }
+      });
+      submit.disabled = false;
+    } catch (error) {
+      setStatus(status, error.message, "error");
+      if (error.code === "PROFILE_NOT_FOUND") {
+        auth.hasProfile = false;
+        saveAuth(auth);
+        window.location.assign("/app/profile");
+      }
+    }
+  };
 
   const showGeneratedPreview = (assetId) => {
     if (!assetId) return;
@@ -477,7 +787,7 @@ function attachHomeFlow(auth) {
       allowanceCopy.textContent = allowance.unlimited ? "Unlimited" : allowance.remaining;
       allowanceNote.textContent = allowance.unlimited
         ? "Local testing mode. Provider usage may still incur charges."
-        : "Resets at midnight IST.";
+        : "Beta testing · 3 successful previews per day · Resets at midnight IST.";
     } catch (error) {
       if (error.status === 401) {
         clearAuth();
@@ -557,32 +867,60 @@ function attachHomeFlow(auth) {
     };
   };
 
-  itemInput.addEventListener("change", () => {
-    const file = itemInput.files[0];
-    if (!file) return;
+  const selectItemFile = (file, sourceLabel) => {
+    selectedItemFile = file;
     if (itemPreviewUrl) URL.revokeObjectURL(itemPreviewUrl);
     itemPreviewUrl = URL.createObjectURL(file);
-    itemThumb.innerHTML = `<img src="${itemPreviewUrl}" alt="" />`;
-    setStatus(status, `${file.name} selected. Press Generate try-on when ready.`, "success");
+    itemThumb.innerHTML = `<img src="${itemPreviewUrl}" alt="Selected wearable" />`;
+    setStatus(status, `${sourceLabel} selected. Press Generate try-on when ready.`, "success");
+  };
+
+  itemUploadInput.addEventListener("change", () => {
+    const file = itemUploadInput.files?.[0];
+    if (file) selectItemFile(file, "Wearable image");
   });
+
+  const itemCamera = attachCameraCapture({
+    dialog: cameraDialog,
+    video: cameraVideo,
+    cameraStatus,
+    captureButton: capturePhotoButton,
+    closeButton: closeCameraButton,
+    onCapture: (file) => {
+      itemUploadInput.value = "";
+      selectItemFile(file, "Camera photo");
+    },
+  });
+  openCameraButton.addEventListener("click", () => itemCamera.open());
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!itemInput.files?.[0]) {
-      setStatus(status, "Choose a wearable photo before generating.", "error");
-      itemInput.focus();
+    if (!selectedItemFile) {
+      setStatus(status, "Upload or take a wearable photo before generating.", "error");
+      itemUploadInput.focus();
+      return;
+    }
+    if (!selectedPersonAssetId) {
+      setStatus(status, "Choose a saved person photo before generating.", "error");
       return;
     }
     generationActive = true;
     setButtonBusy(submit, true, "Uploading wearable…", "Generate try-on");
     setStatus(status, "Uploading your wearable item…");
     try {
-      const item = await upload("PRODUCT", itemInput.files[0], auth);
+      const item = await upload("PRODUCT", selectedItemFile, auth);
       setButtonBusy(submit, true, "Checking item…", "Generate try-on");
       setStatus(status, "Understanding the uploaded item…");
       const quote = await api(
         "/quotes",
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item_asset_id: item.asset_id }) },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_asset_id: item.asset_id,
+            person_asset_id: selectedPersonAssetId,
+          }),
+        },
         auth,
       );
       setButtonBusy(submit, true, "Creating preview…", "Generate try-on");
@@ -619,6 +957,7 @@ function attachHomeFlow(auth) {
 
   refreshAllowance();
   loadLatestPreview();
+  loadProfilePhotos();
 }
 
 function formatLookDate(value) {
@@ -693,6 +1032,45 @@ function attachHistoryFlow(auth) {
   const queueList = document.querySelector("#queue-list");
   const queueCount = document.querySelector("#queue-count");
 
+  const prepareLookFile = async (assetId, createdAt) => {
+    const response = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetId)}`, {
+      credentials: "same-origin",
+    });
+    if (!response.ok) throw new Error("The saved look could not be prepared for sharing.");
+    const blob = await response.blob();
+    const extension = { "image/jpeg": "jpg", "image/webp": "webp" }[blob.type] || "png";
+    const date = new Date(createdAt);
+    const stamp = Number.isNaN(date.getTime()) ? "saved" : date.toISOString().slice(0, 10);
+    return new File([blob], `wearo-look-${stamp}.${extension}`, { type: blob.type });
+  };
+
+  const downloadLook = (file) => {
+    const downloadUrl = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = file.name;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+  };
+
+  const shareLook = async (assetId, createdAt) => {
+    const file = await prepareLookFile(assetId, createdAt);
+    const payload = {
+      title: "My Wearo look",
+      text: "My virtual try-on from Wearo.ai",
+      files: [file],
+    };
+    if (
+      typeof navigator.share === "function" &&
+      (typeof navigator.canShare !== "function" || navigator.canShare({ files: [file] }))
+    ) {
+      await navigator.share(payload);
+      return "shared";
+    }
+    downloadLook(file);
+    return "downloaded";
+  };
+
   queueList.addEventListener("click", async (event) => {
     const button = event.target instanceof Element ? event.target.closest("[data-cancel-render-id]") : null;
     if (!button) return;
@@ -706,6 +1084,70 @@ function attachHistoryFlow(auth) {
     } catch (error) {
       setStatus(status, error.message, "error");
       setButtonBusy(button, false, "Removing…", "Remove from queue");
+    }
+  });
+
+  gallery.addEventListener("click", async (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const downloadButton = target?.closest("[data-download-look]");
+    if (downloadButton) {
+      setButtonBusy(downloadButton, true, "Preparing…", "Download");
+      try {
+        const file = await prepareLookFile(
+          downloadButton.dataset.assetId,
+          downloadButton.dataset.createdAt,
+        );
+        downloadLook(file);
+        setStatus(status, "Saved look downloaded.", "success");
+      } catch (error) {
+        setStatus(status, error.message, "error");
+      } finally {
+        setButtonBusy(downloadButton, false, "Preparing…", "Download");
+      }
+      return;
+    }
+
+    const shareButton = target?.closest("[data-share-look]");
+    if (shareButton) {
+      setButtonBusy(shareButton, true, "Preparing…", "Share");
+      try {
+        const outcome = await shareLook(
+          shareButton.dataset.assetId,
+          shareButton.dataset.createdAt,
+        );
+        setStatus(
+          status,
+          outcome === "shared"
+            ? "The saved look was sent to your device share sheet."
+            : "File sharing is unavailable in this browser, so the look was downloaded.",
+          "success",
+        );
+      } catch (error) {
+        if (error.name !== "AbortError") setStatus(status, error.message, "error");
+      } finally {
+        setButtonBusy(shareButton, false, "Preparing…", "Share");
+      }
+      return;
+    }
+
+    const deleteButton = target?.closest("[data-delete-look]");
+    if (!deleteButton) return;
+    if (!window.confirm("Delete this saved look? It will no longer be available to view or share.")) {
+      return;
+    }
+    setButtonBusy(deleteButton, true, "Deleting…", "Delete");
+    setStatus(status, "Deleting the saved look…");
+    try {
+      await api(
+        `/renders/${encodeURIComponent(deleteButton.dataset.renderId)}/result`,
+        { method: "DELETE" },
+        auth,
+      );
+      setStatus(status, "Saved look deleted.", "success");
+      await loadLooks();
+    } catch (error) {
+      setStatus(status, error.message, "error");
+      setButtonBusy(deleteButton, false, "Deleting…", "Delete");
     }
   });
 
@@ -732,6 +1174,11 @@ function attachHistoryFlow(auth) {
                 <div class="look-card__meta">
                   <strong>${formatLookDate(look.created_at)}</strong>
                   <small>Available until ${formatLookDate(look.expires_at)}</small>
+                  <div class="look-card__actions">
+                    <button type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download saved look from ${formatLookDate(look.created_at)}">Download</button>
+                    <button type="button" data-share-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Share saved look from ${formatLookDate(look.created_at)}">Share</button>
+                    <button type="button" data-delete-look data-render-id="${escapeHtml(look.render_id)}" aria-label="Delete saved look from ${formatLookDate(look.created_at)}">Delete</button>
+                  </div>
                 </div>
               </article>`;
           })

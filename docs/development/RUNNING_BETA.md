@@ -15,10 +15,13 @@ configured. Codes and credentials must never be logged.
 For local testing without SMTP or SMS delivery, set `WEARO_SECURE_COOKIE=false`,
 `WEARO_TEST_AUTH_ENABLED=true`, and `WEARO_TEST_OTP_CODE=1324`. Any valid email address or mobile
 number will create or reuse a local consumer identity and accepts `1324` once. This mode bypasses
-delivery and resend throttling; each request returns a fresh challenge and a response message that
-identifies the fake code. Expiry, attempt limits, hashing, one-time consumption and session/CSRF
-checks remain active. The API refuses to start with test authentication and secure-cookie mode
-enabled; never use fixed authentication in staging or production.
+delivery and resend throttling. It also permits close-up person photos, jewellery, and bypasses the
+vision model's suspected-minor rejection for local flow testing. File integrity, single-person,
+single-item, ambiguity, and unsafe-content checks remain active. Each request returns a fresh
+challenge and a response message that identifies the fake code. Expiry, attempt limits, hashing,
+one-time consumption and session/CSRF checks remain active. The API refuses to start with test
+authentication and secure-cookie mode enabled; never use fixed authentication in staging or
+production.
 
 Set `WEARO_DAILY_LIMIT_ENABLED=false` only during local testing to bypass daily quota and
 single-active-generation reservation. The PWA displays an unlimited indicator, but every OpenAI
@@ -56,12 +59,16 @@ Open the consumer PWA at `http://127.0.0.1:5173/app/` and the Business web app a
 customer insights, plan/billing and settings presentation; payment and business persistence remain
 disabled until their server APIs and provider checkout are connected. The consumer PWA starts at
 `/app/sign-in`, sends new accounts to `/app/profile` for mandatory person-profile creation, and
-uses `/app/` as the authenticated try-on home. Returning users can update their reusable profile
-from the Profile tab; wearable uploads remain separate on Home beside the generated preview. The
-Looks tab loads the account's delivered, quality-approved previews from private storage until their
-30-day expiry. It also shows the account's queued, processing, failed, and cancelled generation
-activity and refreshes automatically while work is active. The PWA can be installed from a
-production build.
+uses `/app/` as the authenticated try-on home. Profiles can retain a full-body photo for clothing
+and a close-up photo for jewellery; users choose the appropriate saved photo beside the wearable
+upload for each try-on. Jewellery references may include a person, mannequin, hands, or background;
+the generation prompt isolates the primary featured wearable and ignores unrelated reference-scene
+content. Returning users can replace either profile photo from the Profile tab. The Looks tab
+loads the account's delivered, quality-approved previews from private storage until their 30-day
+expiry. Each saved look can be downloaded, shared as a private image file through the device share
+sheet, or deleted with immediate access revocation and physical purge scheduled within 24 hours.
+The page shows only active queued/processing generation activity and refreshes automatically while
+work is active. The PWA can be installed from a production build.
 
 The Vite development server proxies `/api` and `/health` to the local API. Production must route
 the built web assets and `/api/v1` through the same HTTPS origin and provide SPA fallback to

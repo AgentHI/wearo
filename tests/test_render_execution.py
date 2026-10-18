@@ -115,6 +115,7 @@ def quote(account: UUID, principal: UUID) -> BetaRenderQuote:
         uuid4(),
         uuid4(),
         uuid4(),
+        uuid4(),
         ModelRoute("GOOGLE_VERTEX", "virtual-try-on-001", "asia-southeast1", "APPAREL", True),
         3,
         NOW + timedelta(minutes=10),

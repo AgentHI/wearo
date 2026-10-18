@@ -1,5 +1,5 @@
 {
-  "name": "Wearo — See it on you",
+  "name": "Wearo",
   "short_name": "Wearo",
   "description": "Create private AI-powered visual try-on previews.",
   "id": "/app/",
@@ -14,7 +14,7 @@
       "src": "/wearo-brand.png",
       "sizes": "1254x1254",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ],
   "shortcuts": [

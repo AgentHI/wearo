@@ -79,10 +79,19 @@ class Quotes:
 
 def setup(
     *, consent: bool = True, images: bool = True, remaining: int = 3, route: bool = True
-) -> tuple[BetaRenderPreflightService, Quotes, UUID, UUID]:
+) -> tuple[BetaRenderPreflightService, Quotes, UUID, UUID, UUID]:
     account, principal = uuid4(), uuid4()
+    person_asset_id = uuid4()
     profile = PersonProfile(
-        uuid4(), account, principal, uuid4(), uuid4(), Decimal("170"), None, "ACTIVE", None
+        uuid4(),
+        account,
+        principal,
+        person_asset_id,
+        uuid4(),
+        Decimal("170"),
+        None,
+        "ACTIVE",
+        None,
     )
     quotes = Quotes()
     service = BetaRenderPreflightService(
@@ -93,14 +102,15 @@ def setup(
         Routes(route),
         quotes,
     )
-    return service, quotes, account, principal
+    return service, quotes, account, principal, person_asset_id
 
 
 def test_valid_quote_captures_approved_route_allowance_and_limitation() -> None:
-    service, quotes, account, principal = setup()
+    service, quotes, account, principal, person_asset_id = setup()
     result = service.quote(
         account_id=account,
         principal_id=principal,
+        person_asset_id=person_asset_id,
         item_asset_id=uuid4(),
         person_image=b"p",
         item_image=b"i",
@@ -119,14 +129,33 @@ def test_valid_quote_captures_approved_route_allowance_and_limitation() -> None:
     ],
 )
 def test_invalid_prerequisites_create_no_quote(options: dict[str, object], code: str) -> None:
-    service, quotes, account, principal = setup(**options)  # type: ignore[arg-type]
+    service, quotes, account, principal, person_asset_id = setup(**options)  # type: ignore[arg-type]
     with pytest.raises(RenderPreflightError) as error:
         service.quote(
             account_id=account,
             principal_id=principal,
+            person_asset_id=person_asset_id,
             item_asset_id=uuid4(),
             person_image=b"p",
             item_image=b"i",
             now=NOW,
         )
     assert error.value.code == code and quotes.items == []
+
+
+def test_quote_rejects_photo_outside_active_profile() -> None:
+    service, quotes, account, principal, _person_asset_id = setup()
+
+    with pytest.raises(RenderPreflightError) as error:
+        service.quote(
+            account_id=account,
+            principal_id=principal,
+            person_asset_id=uuid4(),
+            item_asset_id=uuid4(),
+            person_image=b"p",
+            item_image=b"i",
+            now=NOW,
+        )
+
+    assert error.value.code == "PROFILE_OR_CONSENT_REQUIRED"
+    assert quotes.items == []

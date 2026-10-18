@@ -19,6 +19,16 @@ class QuotaError(ValueError):
 
 
 @dataclass(frozen=True)
+class ProfileImage:
+    profile_image_id: UUID
+    asset_id: UUID
+    consent_id: UUID
+    photo_type: str
+    label: str
+    is_primary: bool
+
+
+@dataclass(frozen=True)
 class PersonProfile:
     profile_id: UUID
     account_id: UUID
@@ -29,6 +39,22 @@ class PersonProfile:
     weight_kg: Decimal | None
     status: str
     last_used_at: datetime | None
+    images: tuple[ProfileImage, ...] = ()
+
+    def image_for(self, asset_id: UUID) -> ProfileImage | None:
+        for image in self.images:
+            if image.asset_id == asset_id:
+                return image
+        if not self.images and self.person_asset_id == asset_id:
+            return ProfileImage(
+                profile_image_id=self.profile_id,
+                asset_id=self.person_asset_id,
+                consent_id=self.consent_id,
+                photo_type="FULL_BODY",
+                label="Full body",
+                is_primary=True,
+            )
+        return None
 
 
 @dataclass(frozen=True)
@@ -69,6 +95,30 @@ class PersonProfileService:
             raise ProfileError("height guidance is outside supported bounds")
         if profile.weight_kg is not None and not Decimal(20) <= profile.weight_kg <= Decimal(350):
             raise ProfileError("weight guidance is outside supported bounds")
+        if profile.images:
+            if len(profile.images) > 6:
+                raise ProfileError("a profile supports up to six photos")
+            if len({image.asset_id for image in profile.images}) != len(profile.images):
+                raise ProfileError("profile photos must be unique")
+            if len({image.photo_type for image in profile.images}) != len(profile.images):
+                raise ProfileError("profile photo types must be unique")
+            if any(
+                image.photo_type not in {"FULL_BODY", "CLOSE_UP", "OTHER"}
+                for image in profile.images
+            ):
+                raise ProfileError("unsupported profile photo type")
+            if not any(image.photo_type == "FULL_BODY" for image in profile.images):
+                raise ProfileError("profile requires a full-body photo")
+            if sum(image.is_primary for image in profile.images) != 1:
+                raise ProfileError("profile requires exactly one primary photo")
+            primary = next(image for image in profile.images if image.is_primary)
+            if primary.photo_type != "FULL_BODY":
+                raise ProfileError("the full-body photo must be primary")
+            if (primary.asset_id, primary.consent_id) != (
+                profile.person_asset_id,
+                profile.consent_id,
+            ):
+                raise ProfileError("primary profile photo is inconsistent")
         self.store.replace_active(profile, now or datetime.now(UTC))
 
     def require(self, account_id: UUID) -> PersonProfile:

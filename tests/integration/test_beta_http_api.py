@@ -215,17 +215,57 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
             )
             assert consent.status_code == 201
 
+            close_up = client.post(
+                "/api/v1/assets",
+                headers=headers,
+                data={"kind": "PERSON"},
+                files={"image": ("close-up.png", _image_bytes((90, 120, 100)), "image/png")},
+            )
+            assert close_up.status_code == 201
+            close_up_consent = client.post(
+                "/api/v1/consents",
+                headers=headers,
+                json={
+                    "subject_asset_id": close_up.json()["asset_id"],
+                    "adult_confirmed": True,
+                    "depicted_person_permission": True,
+                    "transformation_approved": True,
+                    "retention_notice_acknowledged": True,
+                    "no_training_notice_acknowledged": True,
+                },
+            )
+            assert close_up_consent.status_code == 201
+
             profile = client.put(
                 "/api/v1/me/person-profile",
                 headers=headers,
                 json={
-                    "person_asset_id": person_asset_id,
-                    "consent_id": consent.json()["id"],
+                    "images": [
+                        {
+                            "person_asset_id": person_asset_id,
+                            "consent_id": consent.json()["id"],
+                            "photo_type": "FULL_BODY",
+                            "label": "Full body",
+                            "is_primary": True,
+                        },
+                        {
+                            "person_asset_id": close_up.json()["asset_id"],
+                            "consent_id": close_up_consent.json()["id"],
+                            "photo_type": "CLOSE_UP",
+                            "label": "Close-up",
+                            "is_primary": False,
+                        },
+                    ],
                     "height_cm": 170,
                 },
             )
             assert profile.status_code == 200
-            assert client.get("/api/v1/me/person-profile").json()["id"] == profile.json()["id"]
+            saved_profile = client.get("/api/v1/me/person-profile").json()
+            assert saved_profile["id"] == profile.json()["id"]
+            assert [image["photo_type"] for image in saved_profile["images"]] == [
+                "FULL_BODY",
+                "CLOSE_UP",
+            ]
 
             item = client.post(
                 "/api/v1/assets",
@@ -386,7 +426,10 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
             unavailable = client.post(
                 "/api/v1/quotes",
                 headers=headers,
-                json={"item_asset_id": item.json()["asset_id"]},
+                json={
+                    "person_asset_id": person_asset_id,
+                    "item_asset_id": item.json()["asset_id"],
+                },
             )
             assert unavailable.status_code == 503
             assert unavailable.json()["code"] == "VISION_PROVIDER_UNAVAILABLE"

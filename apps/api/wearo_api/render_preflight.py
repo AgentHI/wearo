@@ -32,6 +32,7 @@ class BetaRenderQuote:
     principal_id: UUID
     profile_id: UUID
     person_asset_id: UUID
+    consent_id: UUID
     item_asset_id: UUID
     route: ModelRoute
     remaining_before: int
@@ -92,6 +93,7 @@ class BetaRenderPreflightService:
         *,
         account_id: UUID,
         principal_id: UUID,
+        person_asset_id: UUID,
         item_asset_id: UUID,
         person_image: bytes,
         item_image: bytes,
@@ -102,10 +104,13 @@ class BetaRenderPreflightService:
             profile = self.profiles.require(account_id)
             if profile.principal_id != principal_id:
                 raise ProfileError("active person profile is required")
+            selected_image = profile.image_for(person_asset_id)
+            if selected_image is None:
+                raise ProfileError("selected photo is not part of the active profile")
             self.consents.require_current(
                 account_id=account_id,
                 actor_principal_id=principal_id,
-                asset_id=profile.person_asset_id,
+                asset_id=selected_image.asset_id,
                 purpose="TRY_ON",
             )
         except (ProfileError, ConsentError) as error:
@@ -115,7 +120,10 @@ class BetaRenderPreflightService:
             raise RenderPreflightError(result.code, result.message)
         remaining = self.quota.remaining(account_id, now=current)
         if remaining < 1:
-            raise RenderPreflightError("DAILY_LIMIT_REACHED", "Your daily beta allowance is used.")
+            raise RenderPreflightError(
+                "DAILY_LIMIT_REACHED",
+                "You have used all 3 beta previews for today. Try again after midnight IST.",
+            )
         route = self.routes.route_for("APPAREL", current)
         if route is None or not route.enabled:
             raise RenderPreflightError(
@@ -126,7 +134,8 @@ class BetaRenderPreflightService:
             account_id=account_id,
             principal_id=principal_id,
             profile_id=profile.profile_id,
-            person_asset_id=profile.person_asset_id,
+            person_asset_id=selected_image.asset_id,
+            consent_id=selected_image.consent_id,
             item_asset_id=item_asset_id,
             route=route,
             remaining_before=remaining,

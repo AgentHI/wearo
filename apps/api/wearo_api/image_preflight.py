@@ -34,9 +34,20 @@ class VisionAnalyzer(Protocol):
 
 
 class ImagePreflightService:
-    def __init__(self, analyzer: VisionAnalyzer, *, max_bytes: int = 7 * 1024 * 1024) -> None:
+    def __init__(
+        self,
+        analyzer: VisionAnalyzer,
+        *,
+        max_bytes: int = 7 * 1024 * 1024,
+        enforce_adult_only: bool = True,
+        require_full_body: bool = True,
+        allow_jewellery: bool = False,
+    ) -> None:
         self.analyzer = analyzer
         self.max_bytes = max_bytes
+        self.enforce_adult_only = enforce_adult_only
+        self.require_full_body = require_full_body
+        self.allow_jewellery = allow_jewellery
 
     def validate(self, person_image: bytes, item_image: bytes) -> PreflightResult:
         person = self._decode(person_image, "person")
@@ -57,24 +68,35 @@ class ImagePreflightService:
         assessment = self.analyzer.assess(person_image, item_image)
         if not assessment.safe_content:
             return PreflightResult(False, "UNSAFE_CONTENT", "This image cannot be processed.")
-        if assessment.suspected_minor:
+        if self.enforce_adult_only and assessment.suspected_minor:
             return PreflightResult(False, "ADULT_ONLY", "The beta accepts adult profiles only.")
-        if assessment.person_count != 1 or not assessment.full_body_visible:
+        if assessment.person_count != 1 or (
+            self.require_full_body and not assessment.full_body_visible
+        ):
             return PreflightResult(
                 False, "PERSON_FRAMING", "Use one adult, fully visible in the frame."
             )
-        if assessment.item_count != 1 or assessment.item_kind == "AMBIGUOUS":
+        contextual_jewellery = (
+            self.allow_jewellery
+            and assessment.item_kind == "JEWELLERY"
+            and assessment.item_count >= 1
+        )
+        if assessment.item_kind == "AMBIGUOUS" or (
+            assessment.item_count != 1 and not contextual_jewellery
+        ):
             return PreflightResult(
-                False, "ITEM_AMBIGUOUS", "Upload one clearly visible wearable item."
+                False,
+                "ITEM_AMBIGUOUS",
+                "Upload a photo with one identifiable primary wearable item.",
             )
-        if assessment.item_kind == "JEWELLERY":
+        if assessment.item_kind == "JEWELLERY" and not self.allow_jewellery:
             return PreflightResult(
                 False,
                 "JEWELLERY_NOT_READY",
                 "Jewellery generation is not yet supported.",
                 item_kind="JEWELLERY",
             )
-        if assessment.item_kind != "APPAREL":
+        if assessment.item_kind not in {"APPAREL", "JEWELLERY"}:
             return PreflightResult(
                 False,
                 "ITEM_UNSUPPORTED",
@@ -82,7 +104,12 @@ class ImagePreflightService:
                 item_kind=assessment.item_kind,
             )
         return PreflightResult(
-            True, "ACCEPTED", "Ready to generate.", person_width, person_height, "APPAREL"
+            True,
+            "ACCEPTED",
+            "Ready to generate.",
+            person_width,
+            person_height,
+            assessment.item_kind,
         )
 
     def _decode(self, content: bytes, label: str) -> tuple[int, int, float] | PreflightResult:

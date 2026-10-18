@@ -217,12 +217,18 @@ class OpenAIImageEditAdapter:
     region = "global"
     endpoint = "https://api.openai.com/v1/images/edits"
     prompt = (
-        "Use the first image as the customer and the second image as the selected garment. "
-        "Replace only the relevant clothing with the garment from the second image. Preserve "
-        "the person's identity, face, hairstyle, body proportions, pose, and background. "
-        "Preserve the garment's color, design, pattern, texture, and visible logo. Produce a "
-        "realistic virtual try-on with natural lighting and fabric fitting. Do not modify "
-        "unrelated parts of the image."
+        "Use the first image as the customer and the second image as the wearable reference. "
+        "Identify the primary wearable shown in the second image. If the reference is contextual, "
+        "isolate only the intended garment or jewellery and ignore any reference person, "
+        "mannequin, clothing used only to display jewellery, hands, props, and background. Apply "
+        "only the "
+        "identified wearable to the correct location on the customer. For apparel, replace only "
+        "the relevant clothing; for jewellery, add the item without replacing unrelated clothing. "
+        "Preserve the customer's identity, face, hairstyle, body proportions, pose, and "
+        "background. Preserve the wearable's color, design, pattern, texture, material details, "
+        "and visible logo. Produce a realistic virtual try-on with natural lighting and fitting. "
+        "Do not copy unrelated content from the reference image or modify unrelated parts of the "
+        "customer image."
     )
 
     def __init__(

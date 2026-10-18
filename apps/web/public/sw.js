@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-consumer-v1";
+const CACHE_NAME = "wearo-consumer-v2";
 const APP_SHELL = ["/app/", "/manifest.webmanifest", "/wearo-brand.png"];
 
 self.addEventListener("install", (event) => {

@@ -161,6 +161,9 @@ def test_openai_analysis_client_uses_responses_vision_and_structured_output() ->
     assert isinstance(first_input, dict)
     content = first_input["content"]
     assert isinstance(content, list)
+    prompt = next(part["text"] for part in content if part["type"] == "input_text")
+    assert "Ignore the reference person" in prompt
+    assert "earring pair or matching jewellery set" in prompt
     images = [part for part in content if part["type"] == "input_image"]
     assert len(images) == 2
     assert str(images[0]["image_url"]).startswith("data:image/png;base64,")

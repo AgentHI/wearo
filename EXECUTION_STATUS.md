@@ -1,7 +1,7 @@
 # Wearo.ai execution status
 
-**Last updated:** 17 October 2026  
-**Local migration head:** `20261017_0014`  
+**Last updated:** 18 October 2026
+**Local migration head:** `20261018_0015`
 **Current state:** Simplified upload-first beta is locally implemented; external production gates
 remain fail-closed.
 
@@ -14,8 +14,9 @@ remain fail-closed.
 - JPEG/PNG/WebP uploads are decoded and integrity-hashed before being placed in owner-scoped private
   storage. Private reads require the authenticated owner.
 - Consent records all five approved attestations as immutable `beta-v1` evidence.
-- A reusable person profile supports optional height/weight visual guidance, replacement and
-  immediate access revocation with deletion scheduled within 24 hours.
+- A reusable person profile supports full-body and close-up photos, per-try-on photo selection,
+  optional height/weight visual guidance, replacement and immediate access revocation with
+  deletion scheduled within 24 hours.
 - Product and accepted result media expire after 30 days. The scheduler claims due records safely,
   deletes blobs and retains only lifecycle tombstones.
 - The free allowance permits three successful generations per account per IST day and only one
@@ -29,7 +30,8 @@ remain fail-closed.
   before quote creation. Worker jobs verify the persisted provider/model/region before sending
   either customer image to a provider.
 - The FastAPI runtime exposes health, OTP, private upload/read, consent, profile, allowance, quote,
-  render and logout endpoints. The Shop UI is wired to the same-origin API and reuses saved profiles.
+  render and logout endpoints. The Shop UI is wired to the same-origin API and lets users select a
+  saved profile photo for each try-on.
 - Operations commands cover expired work recovery and retention purge. Local startup instructions
   are in `docs/development/RUNNING_BETA.md`.
 
@@ -44,8 +46,8 @@ remain fail-closed.
 | OpenAPI and generated TypeScript | PASS: 57 paths, 65 operations, 48 schemas |
 | SDD backlog mapping | PASS: 90/90 requirements and 36/36 QA cases mapped |
 | CI policy | PASS |
-| Migration policy | PASS: 14 revisions |
-| Latest migration rollback/reapply | PASS: `0014 → 0013 → 0014`; current is head |
+| Migration policy | PASS: 15 revisions |
+| Latest migration apply | PASS: `0014 → 0015`; current is head |
 | Python dependency audit | No known vulnerabilities |
 | Node high-severity audit gate | PASS; one low-severity advisory remains |
 

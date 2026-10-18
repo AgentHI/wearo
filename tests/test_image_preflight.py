@@ -50,6 +50,33 @@ def test_adult_safety_and_framing_are_hard_stops() -> None:
         )
 
 
+def test_local_testing_accepts_close_up_and_jewellery_while_retaining_safety_checks() -> None:
+    assessment = replace(
+        valid(),
+        suspected_minor=True,
+        full_body_visible=False,
+        item_kind="JEWELLERY",
+        item_count=3,
+    )
+
+    result = ImagePreflightService(
+        FixedAnalyzer(assessment),
+        enforce_adult_only=False,
+        require_full_body=False,
+        allow_jewellery=True,
+    ).validate(image_bytes(), image_bytes())
+
+    assert result.accepted and result.item_kind == "JEWELLERY"
+
+    unsafe = ImagePreflightService(
+        FixedAnalyzer(replace(assessment, safe_content=False)),
+        enforce_adult_only=False,
+        require_full_body=False,
+        allow_jewellery=True,
+    ).validate(image_bytes(), image_bytes())
+    assert not unsafe.accepted and unsafe.code == "UNSAFE_CONTENT"
+
+
 def test_item_is_automatically_classified_and_unsupported_inputs_do_not_pass() -> None:
     cases = (
         (replace(valid(), item_kind="JEWELLERY"), "JEWELLERY_NOT_READY"),

@@ -336,6 +336,48 @@ class PostgresRenderRuntime:
             for row in rows
         )
 
+    def delete_saved_look(
+        self,
+        render_id: UUID,
+        account_id: UUID,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        current = now or datetime.now(UTC)
+        with self.engine.begin() as connection:
+            deleted = connection.execute(
+                text(
+                    """
+                    UPDATE media_assets AS asset
+                    SET deletion_state = 'REQUESTED',
+                        delete_after = :delete_after,
+                        updated_at = :now
+                    WHERE asset.account_id = :account
+                      AND asset.deletion_state = 'RETAINED'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM render_results AS result
+                          JOIN render_jobs AS job
+                            ON job.job_id = result.job_id
+                           AND job.account_id = result.account_id
+                          WHERE result.job_id = :render
+                            AND result.account_id = :account
+                            AND result.result_asset_id = asset.asset_id
+                            AND result.quality_state = 'APPROVED'
+                            AND job.status = 'DELIVERED'
+                      )
+                    RETURNING asset.asset_id
+                    """
+                ),
+                {
+                    "render": render_id,
+                    "account": account_id,
+                    "now": current,
+                    "delete_after": current + timedelta(hours=24),
+                },
+            ).scalar_one_or_none()
+        return deleted is not None
+
     def list_queue_activity(
         self,
         account_id: UUID,

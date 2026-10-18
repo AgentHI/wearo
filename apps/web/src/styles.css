@@ -59,6 +59,31 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .form-status { min-height: 1.5rem; color: var(--brand-plum); font-weight: 600; }
 .form-status:empty { display: none; }
 
+/* Consumer PWA launch splash */
+.launch-splash { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 55%, #fff 0, var(--canvas-ivory) 48%, #eee3ed 100%); opacity: 1; }
+.launch-splash.is-exiting { animation: launch-splash-exit .4s ease forwards; pointer-events: none; }
+.launch-splash__glow { position: absolute; width: min(88vw, 28rem); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgb(201 164 107 / 24%), rgb(111 61 130 / 8%) 46%, transparent 70%); filter: blur(1rem); animation: launch-glow 2.4s ease-out both; }
+.launch-splash__content { position: relative; display: grid; justify-items: center; animation: launch-logo-rise 1.35s cubic-bezier(.2, .78, .24, 1) both; }
+.launch-splash__logo { position: relative; width: min(86vw, 22rem); height: min(56vw, 14rem); overflow: hidden; filter: drop-shadow(0 1rem 1.5rem rgb(59 23 70 / 14%)); }
+.launch-splash__logo img { position: absolute; top: -20%; left: 0; width: 100%; max-width: none; }
+.launch-splash p { margin: -.25rem 0 0; color: var(--brand-plum); font-size: clamp(.78rem, 3.2vw, 1rem); font-weight: 600; letter-spacing: .08em; text-align: center; text-transform: uppercase; opacity: 0; animation: launch-caption-in .65s ease 1.15s forwards; }
+@keyframes launch-logo-rise {
+  0% { opacity: 0; transform: translateY(48vh) scale(.86); }
+  68% { opacity: 1; transform: translateY(-.8rem) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes launch-caption-in {
+  from { opacity: 0; transform: translateY(.6rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes launch-glow {
+  from { opacity: 0; transform: scale(.55); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes launch-splash-exit {
+  to { opacity: 0; visibility: hidden; }
+}
+
 /* Business public site and authentication */
 [data-experience="business"] body { background: #fbfaf8; }
 .business-public { min-height: 100vh; }
@@ -259,6 +284,10 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .look-card__meta { display: grid; gap: .2rem; padding: .75rem; }
 .look-card__meta strong { color: var(--brand-plum); font-size: .82rem; }
 .look-card__meta small { color: var(--ink-mauve); font-size: .68rem; line-height: 1.35; }
+.look-card__actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; margin-top: .45rem; }
+.look-card__actions button { min-height: 2.25rem; padding: .35rem; border: 1px solid var(--border-mauve); border-radius: .55rem; color: var(--brand-plum); background: white; font-size: .7rem; font-weight: 700; }
+.look-card__actions button:last-child { color: #8f2d3b; }
+.look-card__actions button:disabled { cursor: wait; opacity: .65; }
 .profile-card { display: flex; align-items: center; gap: .8rem; padding: 1rem; border: 1px solid var(--border-mauve); border-radius: 1rem; background: white; }
 .profile-avatar { display: grid; flex: 0 0 auto; width: 3rem; height: 3rem; place-items: center; border-radius: 50%; color: white; background: var(--brand-plum); font-weight: 700; }
 .profile-card > div:nth-child(2) { flex: 1; }
@@ -303,16 +332,47 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-workspace .mobile-preview__canvas { min-height: 22rem; }
 .wearable-dock { display: flex; min-width: 0; flex-direction: column; gap: .75rem; }
 .wearable-dock .button { margin-top: auto; padding-inline: .6rem; font-size: .85rem; }
-.wearable-picker { display: grid; flex: 1; align-content: start; gap: .45rem; padding: .7rem; border: 1px dashed var(--brand-gold); border-radius: .9rem; background: #fffdf8; cursor: pointer; }
+.person-photo-selector { display: grid; gap: .55rem; margin: 0; padding: .7rem; border: 1px solid var(--border-mauve); border-radius: .9rem; background: var(--surface-soft); }
+.person-photo-selector legend { padding: 0 .25rem; color: var(--brand-plum); font-size: .78rem; font-weight: 700; }
+.person-photo-selector > p { margin: 0; color: var(--ink-mauve); font-size: .72rem; }
+.person-photo-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+.person-photo-option { position: relative; display: grid; min-width: 0; gap: .3rem; padding: .3rem; border: 2px solid transparent; border-radius: .7rem; background: white; cursor: pointer; }
+.person-photo-option:has(input:checked) { border-color: var(--brand-plum); box-shadow: 0 0 0 2px rgb(59 23 70 / 10%); }
+.person-photo-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.person-photo-option img { width: 100%; aspect-ratio: 1; border-radius: .5rem; object-fit: cover; }
+.person-photo-option span { overflow: hidden; color: var(--brand-plum); font-size: .65rem; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.wearable-picker { display: grid; flex: 1; align-content: start; gap: .45rem; padding: .7rem; border: 1px dashed var(--brand-gold); border-radius: .9rem; background: #fffdf8; }
 .wearable-picker__thumb { display: grid; width: 100%; aspect-ratio: 1; place-items: center; overflow: hidden; border-radius: .7rem; color: var(--brand-plum); background: var(--state-lilac); font-size: 2rem; }
 .wearable-picker__thumb img { width: 100%; height: 100%; object-fit: cover; }
 .wearable-picker strong { font-size: .82rem; }
 .wearable-picker small { color: var(--ink-mauve); font-size: .68rem; line-height: 1.35; }
-.wearable-picker input { min-height: 0; padding: .35rem 0 0; border: 0; border-radius: 0; background: transparent; font-size: .65rem; }
+.wearable-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; margin-top: .15rem; }
+.wearable-source { position: relative; display: flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .3rem; padding: .5rem; border: 1px solid var(--brand-plum); border-radius: .65rem; color: var(--brand-plum); background: white; font-size: .68rem; font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
+.wearable-source--camera { color: white; background: var(--brand-plum); }
+.wearable-source svg { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; }
+.wearable-source input { position: absolute; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
+.wearable-source:focus-within { outline: 3px solid rgb(201 164 107 / 45%); outline-offset: 2px; }
+.wearable-picker .camera-permission-note { font-size: .62rem; }
+.camera-dialog { width: min(calc(100% - 1.5rem), 30rem); max-height: calc(100dvh - 1.5rem); padding: 0; overflow: hidden; border: 0; border-radius: 1.2rem; color: var(--ink-charcoal); background: white; box-shadow: var(--shadow-lg); }
+.camera-dialog::backdrop { background: rgb(37 17 41 / 72%); backdrop-filter: blur(.2rem); }
+.camera-dialog__panel { display: grid; gap: .8rem; padding: 1rem; }
+.camera-dialog header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.camera-dialog header .eyebrow { margin-bottom: .15rem; }
+.camera-dialog__close { display: grid; width: 2.5rem; height: 2.5rem; flex: 0 0 auto; place-items: center; border: 1px solid var(--border-mauve); border-radius: 50%; color: var(--brand-plum); background: white; font-size: 1.5rem; line-height: 1; }
+.camera-dialog__view { display: grid; min-height: 18rem; overflow: hidden; border-radius: .9rem; background: var(--brand-aubergine); }
+.camera-dialog__view video { width: 100%; height: 100%; max-height: 58dvh; object-fit: cover; }
+.camera-dialog__status { min-height: 2.6rem; margin: 0; color: var(--ink-mauve); font-size: .78rem; }
+.camera-dialog__capture { margin: 0; }
+.camera-dialog__capture svg { width: 1.25rem; height: 1.25rem; }
 .profile-title { padding-bottom: 0; }
 .profile-title .flow-progress { margin-bottom: 1rem; }
 .profile-editor { display: grid; gap: 1rem; }
 .profile-photo-card { padding: 1rem; }
+.profile-photo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.profile-photo-slot { display: grid; min-width: 0; align-content: start; gap: .65rem; }
+.profile-camera-button { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .45rem; padding: .6rem .8rem; border: 1px solid var(--brand-plum); border-radius: .7rem; color: white; background: var(--brand-plum); font-size: .78rem; font-weight: 700; }
+.profile-camera-button:hover { background: var(--brand-aubergine); }
+.profile-camera-button svg { width: 1.2rem; height: 1.2rem; flex: 0 0 auto; }
 .person-preview { display: grid; min-height: 15rem; place-items: center; align-content: center; overflow: hidden; border-radius: .9rem; color: var(--brand-plum); background: radial-gradient(circle at 50% 25%, white, var(--state-lilac)); }
 .person-preview > span { font-size: 2rem; }
 .person-preview img { width: 100%; height: 100%; max-height: 28rem; object-fit: contain; }
@@ -326,8 +386,10 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .tryon-workspace { grid-template-columns: 1fr; }
   .tryon-workspace .mobile-preview__canvas { min-height: 18rem; }
   .wearable-picker { grid-template-columns: 5rem 1fr; align-items: center; }
-  .wearable-picker__thumb { grid-row: 1 / 4; }
-  .wearable-picker input { grid-column: 2; }
+  .wearable-picker__thumb { grid-row: 1 / 3; }
+  .wearable-source-actions, .wearable-picker .camera-permission-note { grid-column: 1 / -1; }
+  .profile-photo-grid { grid-template-columns: 1fr; }
+  .person-preview { min-height: 13rem; }
 }
 
 @media (min-width: 48rem) {
@@ -381,4 +443,6 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+  .launch-splash__content, .launch-splash__glow, .launch-splash p { animation: none; }
+  .launch-splash p { opacity: 1; }
 }

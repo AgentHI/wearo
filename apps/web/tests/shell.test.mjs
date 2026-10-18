@@ -58,6 +58,14 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "Generate try-on",
     "not a fit",
     "Delete saved profile",
+    "Full-body photo",
+    "Close-up face photo",
+    "Use person photo",
+    "Upload image",
+    "Take photo",
+    "Take full-body photo",
+    "Take close-up photo",
+    "3 successful previews per day",
   ]) {
     assert.match(consumer, new RegExp(text, "i"));
   }
@@ -66,8 +74,21 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /sessionStorage\.setItem\(AUTH_KEY/);
   assert.match(consumer, /auth\.hasProfile \? "home" : "profile"/);
   assert.match(consumer, /Uploading your wearable item/);
-  assert.match(consumer, /elements\.namedItem\("item"\)/);
-  assert.match(consumer, /Choose a wearable photo before generating/);
+  assert.match(consumer, /elements\.namedItem\("item_upload"\)/);
+  assert.match(consumer, /id="open-camera"/);
+  assert.match(consumer, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(consumer, /facingMode: \{ ideal: "environment" \}/);
+  assert.match(consumer, /canvas\.toBlob\(resolve, "image\/jpeg", 0\.92\)/);
+  assert.match(consumer, /stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+  assert.match(consumer, /data-profile-camera="full_body"/);
+  assert.match(consumer, /data-profile-camera="close_up"/);
+  assert.match(consumer, /id="profile-camera-dialog"/);
+  assert.match(consumer, /selectedProfileFiles/);
+  assert.match(consumer, /selectedItemFile/);
+  assert.match(consumer, /Upload or take a wearable photo before generating/);
+  assert.match(consumer, /person_asset_id: selectedPersonAssetId/);
+  assert.match(consumer, /photo_type: "FULL_BODY"/);
+  assert.match(consumer, /savePhoto\(closeUpFile, "CLOSE_UP"/);
   assert.match(consumer, /Local testing mode/);
   assert.match(consumer, /allowance\.unlimited/);
   assert.match(consumer, /Saving profile/);
@@ -90,10 +111,23 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /If-None-Match/);
   assert.match(consumer, /result_asset_id/);
   assert.match(consumer, /Available until/);
+  assert.match(consumer, /navigator\.share/);
+  assert.match(consumer, /navigator\.canShare/);
+  assert.match(consumer, /data-share-look/);
+  assert.match(consumer, /data-download-look/);
+  assert.match(consumer, /Saved look downloaded/);
+  assert.match(consumer, /data-delete-look/);
+  assert.match(consumer, /\/result/);
   assert.match(css, /\.looks-gallery/);
   assert.match(css, /\.look-card__image/);
   assert.match(css, /\.queue-card/);
   assert.match(css, /\.queue-card__remove/);
+  assert.match(css, /\.look-card__actions/);
+  assert.match(css, /\.person-photo-options/);
+  assert.match(css, /\.profile-photo-grid/);
+  assert.match(css, /\.profile-camera-button/);
+  assert.match(css, /\.wearable-source-actions/);
+  assert.match(css, /\.camera-dialog/);
   assert.match(consumer, /aria-live="polite"/);
 });
 
@@ -102,10 +136,27 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
   assert.equal(manifest.start_url, "/app/");
   assert.equal(manifest.scope, "/app/");
   assert.equal(manifest.display, "standalone");
-  assert.ok(manifest.icons.some((icon) => icon.src === "/wearo-brand.png"));
+  assert.equal(manifest.name, "Wearo");
+  assert.equal(manifest.short_name, "Wearo");
+  assert.ok(
+    manifest.icons.some(
+      (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
+    ),
+  );
+  assert.match(worker, /wearo-consumer-v2/);
   assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/app\/" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);
+});
+
+test("consumer PWA has a three-second animated branded launch splash", () => {
+  assert.match(main, /showConsumerSplash/);
+  assert.match(main, /wearo_consumer_splash_seen/);
+  assert.match(main, /Private AI-powered virtual try-on/);
+  assert.match(main, /setTimeout\(\(\) => splash\.remove\(\), 3000\)/);
+  assert.match(css, /@keyframes launch-logo-rise/);
+  assert.match(css, /translateY\(48vh\)/);
+  assert.match(css, /prefers-reduced-motion/);
 });
 
 test("responsive and accessible interaction states exist for both experiences", () => {
