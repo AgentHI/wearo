@@ -13,6 +13,7 @@ from apps.api.wearo_api.email_otp import (
     EmailOtpService,
     OtpAuthenticationError,
     OtpIdentity,
+    normalize_destination,
     normalize_email,
     normalize_test_destination,
 )
@@ -148,6 +149,22 @@ def test_expiry_and_attempt_limit_fail_closed() -> None:
         second_service.verify_code(second_id, second_code, now=NOW + timedelta(minutes=11))
 
 
+def test_business_email_otp_creates_only_business_realm_session() -> None:
+    identity = OtpIdentity(uuid4(), uuid4(), uuid4(), "owner@example.com", "BUSINESS", "ACTIVE")
+    store = MemoryOtpStore(identity)
+    provider = RecordingProvider()
+    service = EmailOtpService(store, provider, EmailOtpPolicy(), pepper=PEPPER)
+
+    shop_response = service.request_code("owner@example.com", "SHOP", now=NOW)
+    assert shop_response.message == "If the address is eligible, a sign-in code has been sent."
+    assert provider.messages == []
+
+    challenge = service.request_code("owner@example.com", "BUSINESS", now=NOW)
+    result = service.verify_code(challenge.challenge_id, provider.messages[0][1], now=NOW)
+    assert result.realm == "BUSINESS"
+    assert store.sessions[0][0].principal_id == identity.principal_id
+
+
 def test_resend_cooldown_and_window_caps_do_not_send_or_disclose() -> None:
     service, _, provider = make_service()
     responses = [
@@ -201,8 +218,11 @@ def test_fixed_local_code_resend_always_returns_a_verifiable_challenge() -> None
 def test_local_destination_normalization_accepts_email_or_mobile_only() -> None:
     assert normalize_test_destination(" Test@Example.COM ") == "test@example.com"
     assert normalize_test_destination("+91 (98765) 43210") == "+919876543210"
-    assert normalize_test_destination("987-654-3210") == "9876543210"
+    assert normalize_test_destination("987-654-3210") == "+919876543210"
     assert normalize_test_destination("not a destination") == ""
+    assert normalize_destination(" Admin@Example.com ") == "admin@example.com"
+    assert normalize_destination("+91 (98765) 43210") == "+919876543210"
+    assert normalize_destination("9876543210") == "+919876543210"
     with pytest.raises(ValueError, match="4 to 8 ASCII digits"):
         EmailOtpService(
             MemoryOtpStore(

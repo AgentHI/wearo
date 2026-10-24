@@ -17,7 +17,7 @@ class SessionAuthenticationError(ValueError):
 
 @dataclass(frozen=True)
 class SessionPolicy:
-    ttl: timedelta = timedelta(days=7)
+    ttl: timedelta = timedelta(days=30)
     rotate_after: timedelta = timedelta(hours=24)
 
     def __post_init__(self) -> None:
@@ -63,6 +63,8 @@ class BrowserSessionStore(Protocol):
     def revoke(self, session_id: UUID, revoked_at: datetime) -> bool: ...
 
     def revoke_principal(self, principal_id: UUID, revoked_at: datetime) -> int: ...
+
+    def replace_csrf(self, session_id: UUID, csrf_hash: bytes, updated_at: datetime) -> bool: ...
 
 
 class BrowserSessionService:
@@ -137,6 +139,22 @@ class BrowserSessionService:
 
     def revoke_all(self, principal_id: UUID, *, now: datetime | None = None) -> int:
         return self.store.revoke_principal(principal_id, now or datetime.now(UTC))
+
+    def refresh_csrf(
+        self,
+        session_token: str,
+        *,
+        expected_realm: SessionRealm,
+        now: datetime | None = None,
+    ) -> str:
+        current = now or datetime.now(UTC)
+        session = self.authenticate(session_token, expected_realm=expected_realm, now=current)
+        csrf_token = secrets.token_urlsafe(32)
+        if not self.store.replace_csrf(
+            session.session_id, self._hash(b"csrf", csrf_token), current
+        ):
+            raise SessionAuthenticationError("invalid or expired session")
+        return csrf_token
 
     def _realm(self, session_token: str) -> SessionRealm:
         session = self.store.find_by_token_hash(self._hash(b"session", session_token))

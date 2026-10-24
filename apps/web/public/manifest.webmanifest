@@ -4,7 +4,7 @@
   "description": "Create private AI-powered visual try-on previews.",
   "id": "/app/",
   "start_url": "/app/",
-  "scope": "/app/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#faf7f2",

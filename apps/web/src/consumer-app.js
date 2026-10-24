@@ -2,6 +2,89 @@ import { compactBrandMarkup } from "./brand.js";
 
 const API_BASE = "/api/v1";
 const AUTH_KEY = "wearo_consumer_auth";
+const AUTH_IDENTITY_VERSION = 2;
+const SHOP_CONTEXT_KEY = "wearo_shop_context";
+const SHOP_DETAILS_KEY = "wearo_shop_details";
+const SHOP_DETAILS_VERSION = 4;
+const SPONSORED_SESSION_KEY = "wearo_sponsored_session";
+
+function captureShopContext(pathname) {
+  const match = pathname.match(/^\/shop\/([^/]+)\/?$/);
+  if (!match) return;
+  const key = new URLSearchParams(window.location.search).get("key");
+  if (!key) return;
+  const nextContext = {
+    businessReference: decodeURIComponent(match[1]),
+    key,
+  };
+  const previousContext = readShopContext();
+  sessionStorage.setItem(SHOP_CONTEXT_KEY, JSON.stringify(nextContext));
+  if (
+    previousContext?.businessReference !== nextContext.businessReference
+    || previousContext?.key !== nextContext.key
+  ) {
+    sessionStorage.removeItem(SHOP_DETAILS_KEY);
+  }
+}
+
+function readShopContext() {
+  try { return JSON.parse(sessionStorage.getItem(SHOP_CONTEXT_KEY) || "null"); }
+  catch { return null; }
+}
+
+function readShopDetails() {
+  try {
+    const details = JSON.parse(sessionStorage.getItem(SHOP_DETAILS_KEY) || "null");
+    return details?._cacheVersion === SHOP_DETAILS_VERSION ? details : null;
+  }
+  catch { return null; }
+}
+
+async function loadShopDetails() {
+  const context = readShopContext();
+  if (!context) return null;
+  const details = await api(`/public/shops/${encodeURIComponent(context.businessReference)}?key=${encodeURIComponent(context.key)}`);
+  let logoDataUrl = null;
+  if (details.logo_url) {
+    try {
+      const logoResponse = await fetch(details.logo_url, { credentials: "same-origin", cache: "no-store" });
+      if (!logoResponse.ok) throw new Error("Business logo unavailable.");
+      const logoBlob = await logoResponse.blob();
+      if (!logoBlob.type.startsWith("image/")) throw new Error("Invalid business logo response.");
+      logoDataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.addEventListener("load", () => resolve(reader.result), { once: true });
+        reader.addEventListener("error", () => reject(reader.error), { once: true });
+        reader.readAsDataURL(logoBlob);
+      });
+    } catch {
+      // The business initial remains a safe fallback when the logo cannot be loaded.
+    }
+  }
+  const cachedDetails = { ...details, logo_data_url: logoDataUrl, _cacheVersion: SHOP_DETAILS_VERSION };
+  sessionStorage.setItem(SHOP_DETAILS_KEY, JSON.stringify(cachedDetails));
+  return cachedDetails;
+}
+
+function saveSponsoredSession(value) {
+  sessionStorage.setItem(SPONSORED_SESSION_KEY, JSON.stringify(value));
+}
+
+async function ensureSponsoredSession(auth) {
+  const context = readShopContext();
+  if (!context) return null;
+  const session = await api(
+    `/public/shops/${encodeURIComponent(context.businessReference)}/sessions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: context.key }),
+    },
+    auth,
+  );
+  saveSponsoredSession(session);
+  return session;
+}
 
 let installPrompt = null;
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -27,11 +110,19 @@ function clearAuth() {
   sessionStorage.removeItem(AUTH_KEY);
 }
 
+function normalizeShopMobile(value) {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (trimmed.startsWith("+") && /^\+[1-9]\d{6,14}$/.test(`+${digits}`)) return `+${digits}`;
+  if (/^[6-9]\d{9}$/.test(digits)) return `+91${digits}`;
+  return "";
+}
+
 function consumerRoute(pathname) {
   if (pathname.startsWith("/app/sign-in")) return "sign-in";
   if (pathname.startsWith("/app/history")) return "history";
   if (pathname.startsWith("/app/profile")) return "profile";
-  if (pathname === "/shop" || pathname.startsWith("/app/try-on")) return "home";
+  if (pathname === "/shop" || pathname.startsWith("/shop/") || pathname.startsWith("/app/try-on")) return "home";
   return "home";
 }
 
@@ -46,7 +137,8 @@ function resolvedRoute(pathname, auth) {
     history: "/app/history",
     profile: "/app/profile",
   }[route];
-  if (window.location.pathname !== expectedPath) window.history.replaceState({}, "", expectedPath);
+  const isShopEntry = pathname.startsWith("/shop/");
+  if (!isShopEntry && window.location.pathname !== expectedPath) window.history.replaceState({}, "", expectedPath);
   return route;
 }
 
@@ -86,7 +178,7 @@ async function api(path, options = {}, auth = readAuth()) {
   return body;
 }
 
-function consumerFrame(route, content, authenticated) {
+function consumerFrame(route, content, authenticated, shopDetails = null) {
   const nav = [
     ["home", "/app/", "✦", "Try on"],
     ["history", "/app/history", "◫", "Looks"],
@@ -100,12 +192,12 @@ function consumerFrame(route, content, authenticated) {
     )
     .join("");
   return `
-    <div class="consumer-app consumer-app--${route}">
+    <div class="consumer-app consumer-app--${route}${shopDetails ? " consumer-app--shop" : ""}">
       <header class="consumer-header">
-        ${compactBrandMarkup(authenticated ? "/app/" : "/app/sign-in")}
+        ${shopDetails ? `<div class="shop-brand">${shopDetails.logo_data_url ? `<img src="${escapeHtml(shopDetails.logo_data_url)}" alt="${escapeHtml(shopDetails.display_name)} logo" />` : `<span>${escapeHtml(shopDetails.display_name).slice(0, 1)}</span>`}<strong>${escapeHtml(shopDetails.display_name)}</strong><small>with Wearo.ai</small></div>` : compactBrandMarkup(authenticated ? "/app/" : "/app/sign-in")}
         <div class="consumer-header__actions">
           <button id="install-app" class="icon-button install-button" type="button" hidden aria-label="Install Wearo app">↓</button>
-          ${authenticated ? '<a class="avatar-button" href="/app/profile" aria-label="Open profile">M</a>' : '<a class="business-switch" href="/business">For business</a>'}
+          ${authenticated ? '<a class="avatar-button" href="/app/profile" aria-label="Open profile">M</a>' : ""}
         </div>
       </header>
       <main id="main" class="consumer-main consumer-main--${route}">${content}</main>
@@ -113,14 +205,19 @@ function consumerFrame(route, content, authenticated) {
     </div>`;
 }
 
-function signInView() {
+function signInView(shopDetails = null) {
+  const shopName = shopDetails?.display_name;
   return `
     <section class="consumer-auth">
+      ${shopName ? `<div class="shop-welcome"><img class="shop-welcome__wearo-logo" src="/wearo-brand.png" alt="Wearo.ai" /><p class="eyebrow">Private virtual try-on</p><h1>Wearo.ai</h1><p>${escapeHtml(shopDetails.caption || "Try before you buy with your private Wearo profile.")}</p></div>` : ""}
       <div class="flow-progress" aria-label="Account setup progress"><span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span></div>
       <p class="eyebrow">Step 1 of 3</p>
-      <h1>Sign up or sign in</h1>
-      <p class="lede">Use your email or mobile number. New accounts are created automatically.</p>
+      <h1>${shopName ? "Start your try-on" : "Sign up or sign in"}</h1>
+      <p id="consumer-auth-intro" class="lede">Use your email or mobile number. New accounts are created automatically.</p>
       <form id="auth-form" class="consumer-card">
+        ${shopName ? `<label>Your name
+          <input name="name" type="text" autocomplete="name" minlength="2" maxlength="80" required placeholder="Enter your name" />
+        </label>` : ""}
         <label>Email or mobile number
           <input name="destination" type="text" autocomplete="username" required placeholder="you@example.com or +91…" />
         </label>
@@ -144,6 +241,7 @@ function homeView() {
       <div><p class="eyebrow">Your private fitting room</p><h1>Try it on</h1><p>Upload or photograph a wearable and see it with your saved person profile.</p></div>
       <a class="profile-shortcut" href="/app/profile"><span>○</span> Edit profile</a>
     </header>
+    <section id="sponsored-session-card" class="notice sponsored-session-card" hidden aria-live="polite"></section>
     <section class="allowance-card" aria-label="Daily beta allowance"><div><span id="allowance-count" class="allowance-ring">—</span><div><strong><span id="allowance-copy">Loading</span> previews available</strong><p id="allowance-note">Beta testing · 3 successful previews per day.</p></div></div><span>Beta · Today</span></section>
     <section class="tryon-studio" aria-labelledby="tryon-title">
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
@@ -395,9 +493,25 @@ function attachSignInFlow() {
   const status = document.querySelector("#auth-status");
   let challengeId = null;
   let verifying = false;
+  const shopContext = readShopContext();
+  if (shopContext) {
+    const intro = document.querySelector("#consumer-auth-intro");
+    intro.textContent = "Enter and verify your mobile number to start this business-sponsored try-on session.";
+    form.elements.destination.closest("label").childNodes[0].textContent = "Mobile number";
+    form.elements.destination.type = "tel";
+    form.elements.destination.autocomplete = "tel";
+    form.elements.destination.placeholder = "98765 43210";
+  }
 
   requestButton.addEventListener("click", async () => {
+    if (form.elements.name && !form.elements.name.reportValidity()) return;
     if (!form.elements.destination.reportValidity()) return;
+    const destination = shopContext
+      ? normalizeShopMobile(form.elements.destination.value)
+      : form.elements.destination.value.trim();
+    if (shopContext && !destination) {
+      return setStatus(status, "Enter a valid 10-digit mobile number.", "error");
+    }
     challengeId = null;
     setStatus(status, "Requesting your sign-in code…");
     setButtonBusy(requestButton, true, "Sending…", "Send sign-in code");
@@ -405,7 +519,7 @@ function attachSignInFlow() {
       const result = await api("/auth/email-otp/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destination: form.elements.destination.value, purpose: "SIGN_IN" }),
+        body: JSON.stringify({ destination, purpose: "SIGN_IN" }),
       });
       challengeId = result.challenge_id;
       codeStep.hidden = false;
@@ -435,15 +549,23 @@ function attachSignInFlow() {
       const auth = {
         csrfToken: result.csrf_token,
         hasProfile: result.has_person_profile,
-        destination: form.elements.destination.value.trim(),
+        destination: shopContext
+          ? normalizeShopMobile(form.elements.destination.value)
+          : form.elements.destination.value.trim(),
+        displayName: form.elements.name?.value.trim() || "",
+        identityVersion: AUTH_IDENTITY_VERSION,
       };
       saveAuth(auth);
+      if (shopContext) await ensureSponsoredSession(auth);
       setStatus(
         status,
         auth.hasProfile ? "Signed in. Opening your fitting room…" : "Account ready. Let’s create your profile…",
         "success",
       );
-      window.setTimeout(() => window.location.assign(auth.hasProfile ? "/app/" : "/app/profile"), 350);
+      const nextLocation = shopContext
+        ? window.location.href
+        : (auth.hasProfile ? "/app/" : "/app/profile");
+      window.setTimeout(() => window.location.assign(nextLocation), 350);
     } catch (error) {
       setStatus(status, error.message, "error");
       verifying = false;
@@ -675,7 +797,10 @@ function attachProfileFlow(auth) {
       auth.hasProfile = true;
       saveAuth(auth);
       setStatus(status, "Profile saved. Opening your fitting room…", "success");
-      window.setTimeout(() => window.location.assign("/app/"), 450);
+      window.setTimeout(
+        () => window.location.assign(readShopContext() ? window.location.href : "/app/"),
+        450,
+      );
     } catch (error) {
       setStatus(status, error.message, "error");
       setButtonBusy(submit, false, "Saving profile…", auth.hasProfile ? "Save profile changes" : "Save profile and continue");
@@ -731,6 +856,20 @@ function attachHomeFlow(auth) {
   let selectedItemFile = null;
   let generationActive = false;
   let selectedPersonAssetId = null;
+  let sponsoredSession = null;
+
+  const refreshSponsoredSession = async () => {
+    if (!readShopContext()) return null;
+    sponsoredSession = await ensureSponsoredSession(auth);
+    const card = document.querySelector("#sponsored-session-card");
+    card.hidden = false;
+    card.innerHTML = `<strong>${escapeHtml(sponsoredSession.business_name)} sponsored session</strong><p>${sponsoredSession.try_ons_remaining} try-on${sponsoredSession.try_ons_remaining === 1 ? "" : "s"} remaining · Valid for 24 hours from verification.</p>`;
+    allowanceCount.textContent = sponsoredSession.try_ons_remaining;
+    allowanceCopy.textContent = sponsoredSession.try_ons_remaining;
+    allowanceNote.textContent = `Sponsored by ${sponsoredSession.business_name} · Valid until ${new Date(sponsoredSession.expires_at).toLocaleString()}.`;
+    submit.disabled = sponsoredSession.try_ons_remaining <= 0;
+    return sponsoredSession;
+  };
 
   const loadProfilePhotos = async () => {
     submit.disabled = true;
@@ -798,12 +937,16 @@ function attachHomeFlow(auth) {
 
   const refreshAllowance = async () => {
     try {
+      if (readShopContext()) {
+        await refreshSponsoredSession();
+        return;
+      }
       const allowance = await api("/me/daily-allowance", {}, auth);
       allowanceCount.textContent = allowance.unlimited ? "∞" : allowance.remaining;
       allowanceCopy.textContent = allowance.unlimited ? "Unlimited" : allowance.remaining;
       allowanceNote.textContent = allowance.unlimited
-        ? "Local testing mode. Provider usage may still incur charges."
-        : "Beta testing · 3 successful previews per day · Resets at midnight IST.";
+        ? `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · ${allowance.tokens_consumed_today ?? 0} actual LLM tokens today.`
+        : `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · ${allowance.tokens_consumed_today ?? 0} actual LLM tokens · Resets at midnight IST.`;
     } catch (error) {
       if (error.status === 401) {
         clearAuth();
@@ -924,6 +1067,12 @@ function attachHomeFlow(auth) {
     setButtonBusy(submit, true, "Uploading wearable…", "Generate try-on");
     setStatus(status, "Uploading your wearable item…");
     try {
+      if (readShopContext()) {
+        const activeSession = await refreshSponsoredSession();
+        if (!activeSession || activeSession.try_ons_remaining <= 0) {
+          throw new Error("No try-ons remain in this 24-hour business session.");
+        }
+      }
       const item = await upload("PRODUCT", selectedItemFile, auth);
       setButtonBusy(submit, true, "Checking item…", "Generate try-on");
       setStatus(status, "Understanding the uploaded item…");
@@ -935,16 +1084,33 @@ function attachHomeFlow(auth) {
           body: JSON.stringify({
             item_asset_id: item.asset_id,
             person_asset_id: selectedPersonAssetId,
+            sponsored_session_id: sponsoredSession?.session_id || null,
           }),
         },
         auth,
       );
       setButtonBusy(submit, true, "Creating preview…", "Generate try-on");
+      const generationKey = crypto.randomUUID();
+      if (sponsoredSession) {
+        sponsoredSession = {
+          ...sponsoredSession,
+          ...await api(
+            `/sponsored-sessions/${encodeURIComponent(sponsoredSession.session_id)}/try-ons`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ request_key: generationKey }),
+            },
+            auth,
+          ),
+        };
+        saveSponsoredSession(sponsoredSession);
+      }
       const job = await api(
         "/renders",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+          headers: { "Content-Type": "application/json", "Idempotency-Key": generationKey },
           body: JSON.stringify({ quote_id: quote.quote_id }),
         },
         auth,
@@ -971,9 +1137,8 @@ function attachHomeFlow(auth) {
     }
   });
 
-  refreshAllowance();
   loadLatestPreview();
-  loadProfilePhotos();
+  loadProfilePhotos().then(refreshAllowance);
 }
 
 function formatLookDate(value) {
@@ -1225,22 +1390,44 @@ function attachHistoryFlow(auth) {
 
 export function renderConsumerApp(root, pathname) {
   document.documentElement.dataset.experience = "consumer";
-  const auth = readAuth();
+  captureShopContext(pathname);
+  let auth = readAuth();
+  const shopContext = readShopContext();
+  const shopDetails = readShopDetails();
+  if (shopContext && auth && auth.identityVersion !== AUTH_IDENTITY_VERSION) {
+    clearAuth();
+    auth = null;
+  }
+  if (shopContext && auth && !/^\+[1-9]\d{6,14}$/.test(auth.destination || "")) {
+    clearAuth();
+    auth = null;
+  }
   const route = resolvedRoute(pathname, auth);
   const views = {
-    "sign-in": signInView,
+    "sign-in": () => signInView(shopDetails),
     home: homeView,
     history: historyView,
     profile: () => profileView(auth),
   };
   const titles = { "sign-in": "Sign in", home: "Try on", history: "Looks", profile: "Profile" };
   document.title = `${titles[route]} · Wearo`;
-  root.innerHTML = consumerFrame(route, views[route](), Boolean(auth));
+  root.innerHTML = consumerFrame(route, views[route](), Boolean(auth), shopDetails);
   attachInstallButton();
   if (route === "sign-in") attachSignInFlow();
   if (route === "profile") attachProfileFlow(auth);
   if (route === "home") attachHomeFlow(auth);
   if (route === "history") attachHistoryFlow(auth);
+  if (auth && shopContext && route !== "home") {
+    ensureSponsoredSession(auth).catch(() => { /* The home screen will show actionable errors. */ });
+  }
+  if (shopContext && !shopDetails) {
+    loadShopDetails()
+      .then(() => renderConsumerApp(root, window.location.pathname))
+      .catch((error) => {
+        const status = document.querySelector("#auth-status");
+        if (status) setStatus(status, error.message, "error");
+      });
+  }
 }
 
 export { consumerRoute };

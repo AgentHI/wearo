@@ -13,8 +13,8 @@ Email OTP delivery fails closed with `EMAIL_DELIVERY_UNAVAILABLE` until the SMTP
 configured. Codes and credentials must never be logged.
 
 For local testing without SMTP or SMS delivery, set `WEARO_SECURE_COOKIE=false`,
-`WEARO_TEST_AUTH_ENABLED=true`, and `WEARO_TEST_OTP_CODE=1324`. Any valid email address or mobile
-number will create or reuse a local consumer identity and accepts `1324` once. This mode bypasses
+`WEARO_TEST_AUTH_ENABLED=true`, and `WEARO_TEST_OTP_CODE=9876`. Any valid email address or mobile
+number will create or reuse a local consumer identity and accepts `9876` once. This mode bypasses
 delivery and resend throttling. It also permits close-up person photos, jewellery, and bypasses the
 vision model's suspected-minor rejection for local flow testing. File integrity, single-person,
 single-item, ambiguity, and unsafe-content checks remain active. Each request returns a fresh
@@ -55,7 +55,7 @@ pnpm --filter @wearo/web dev
 ```
 
 Open the consumer PWA at `http://127.0.0.1:5173/app/` and the Business web app at
-`http://127.0.0.1:5173/business`. The Business routes include onboarding, dashboard, catalogue,
+`http://127.0.0.1:5173/business`. The Business routes include onboarding, dashboard, Wearo experience,
 customer insights, plan/billing and settings presentation; payment and business persistence remain
 disabled until their server APIs and provider checkout are connected. The consumer PWA starts at
 `/app/sign-in`, sends new accounts to `/app/profile` for mandatory person-profile creation, and

@@ -24,6 +24,7 @@ class WorkerRuntime(Protocol):
         result_asset_id: UUID,
         provider_request_id: str,
         quality_details: dict[str, object],
+        provider_usage: dict[str, object] | None = None,
         now: datetime | None = None,
     ) -> DurableRenderJob: ...
 
@@ -137,6 +138,7 @@ class DurableRenderWorker:
                 job_id=job.job_id,
                 result_asset_id=result_asset_id,
                 provider_request_id=response.request_id or "unavailable",
+                provider_usage=response.usage,
                 quality_details={
                     "accepted": decision.accepted,
                     "hard_failure": decision.hard_failure,

@@ -97,6 +97,8 @@ class BetaRenderPreflightService:
         item_asset_id: UUID,
         person_image: bytes,
         item_image: bytes,
+        bypass_daily_quota: bool = False,
+        sponsored_remaining: int | None = None,
         now: datetime | None = None,
     ) -> BetaRenderQuote:
         current = now or datetime.now(UTC)
@@ -118,11 +120,20 @@ class BetaRenderPreflightService:
         result = self.images.validate(person_image, item_image)
         if not result.accepted:
             raise RenderPreflightError(result.code, result.message)
-        remaining = self.quota.remaining(account_id, now=current)
+        remaining = (
+            sponsored_remaining
+            if bypass_daily_quota and sponsored_remaining is not None
+            else self.quota.remaining(account_id, now=current)
+        )
         if remaining < 1:
             raise RenderPreflightError(
-                "DAILY_LIMIT_REACHED",
-                "You have used all 3 beta previews for today. Try again after midnight IST.",
+                "SPONSORED_LIMIT_REACHED" if bypass_daily_quota else "DAILY_LIMIT_REACHED",
+                (
+                    "No try-ons remain in this business-sponsored session."
+                    if bypass_daily_quota
+                    else "You have used all 3 beta previews for today. "
+                    "Try again after midnight IST."
+                ),
             )
         route = self.routes.route_for("APPAREL", current)
         if route is None or not route.enabled:

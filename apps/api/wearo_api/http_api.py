@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import hmac
+import json
 import logging
 import os
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, Form, Header, Request, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
@@ -30,6 +34,42 @@ from .browser_sessions import (
     BrowserSessionService,
     SessionAuthenticationError,
     SessionPolicy,
+)
+from .business_agents import BusinessAgentError, PostgresBusinessAgents
+from .business_allowances import (
+    AllowanceAction,
+    BusinessAllowanceError,
+    PostgresBusinessAllowances,
+)
+from .business_billing import (
+    BillingProfileUpdate,
+    BusinessBillingError,
+    PostgresBusinessBilling,
+)
+from .business_membership import (
+    BusinessMembershipError,
+    MembershipRole,
+    PostgresBusinessMembership,
+)
+from .business_onboarding import (
+    BusinessOnboardingError,
+    InvoiceDetails,
+    PostgresBusinessOnboarding,
+)
+from .business_platform import (
+    BusinessPlatformError,
+    OperatingProfile,
+    PostgresBusinessPlatform,
+    recommendation_for,
+)
+from .business_reports import BusinessReportError, PostgresBusinessReports, reconciliation_csv
+from .business_shop import BusinessShopError, PostgresBusinessShop, qr_poster
+from .catalog import CatalogCollection, CatalogError, CatalogItem, CatalogService, PublishState
+from .communications_governance import (
+    CommunicationChannel,
+    CommunicationsError,
+    CommunicationTopic,
+    PostgresCommunicationsGovernance,
 )
 from .consent import ConsentAttestation, ConsentError, ConsentService
 from .database import normalize_database_url
@@ -50,6 +90,8 @@ from .external_runtime import (
 )
 from .image_preflight import ImagePreflightService, VisionAnalyzer
 from .media_runtime import FilesystemPrivateBlobStore, MediaRuntimeError, PostgresMediaRuntime
+from .plan_usage import PostgresPlanUsage
+from .platform_identity import PlatformIdentityError, PostgresPlatformIdentity
 from .postgres_auth import (
     DevelopmentPostgresOtpStore,
     PostgresBrowserSessionStore,
@@ -62,9 +104,23 @@ from .postgres_beta import (
     PostgresQuoteStore,
     decimal_or_none,
 )
+from .postgres_catalog import PostgresCatalogStore
 from .render_preflight import BetaRenderPreflightService, RenderPreflightError
 from .render_runtime import DurableRenderError, DurableRenderJob, PostgresRenderRuntime
+from .sensitive_audit import PostgresSensitiveAudit, SensitiveAuditError
+from .sms_delivery import HttpSmsDeliveryProvider
 from .smtp_email import SmtpEmailDeliveryProvider, SmtpSettings
+from .sponsored_tryons import PostgresSponsoredTryOns, SponsoredTryOnError
+from .support_access import PostgresSupportAccess, SupportAccessError
+from .support_cases import CaseType, PostgresSupportCases, SupportCaseError
+from .topups import HttpPaymentGateway, PostgresTopUps, TopUpError, UnavailablePaymentGateway
+from .wallet_billing import PostgresWalletBilling
+from .wallet_transactions import (
+    PostgresWalletTransactions,
+    TransactionCategory,
+    WalletTransactionError,
+    transactions_csv,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +147,28 @@ class ApiContainer:
     profiles: PersonProfileService
     quota: DailyQuotaService
     renders: PostgresRenderRuntime
+    catalog: CatalogService | None = None
+    business_platform: PostgresBusinessPlatform | None = None
+    plan_usage: PostgresPlanUsage | None = None
+    platform_identity: PostgresPlatformIdentity | None = None
+    business_onboarding: PostgresBusinessOnboarding | None = None
+    business_billing: PostgresBusinessBilling | None = None
+    business_membership: PostgresBusinessMembership | None = None
+    wallet_billing: PostgresWalletBilling | None = None
+    wallet_transactions: PostgresWalletTransactions | None = None
+    topups: PostgresTopUps | None = None
+    sensitive_audit: PostgresSensitiveAudit | None = None
+    business_agents: PostgresBusinessAgents | None = None
+    business_shop: PostgresBusinessShop | None = None
+    business_allowances: PostgresBusinessAllowances | None = None
+    communications: PostgresCommunicationsGovernance | None = None
+    business_reports: PostgresBusinessReports | None = None
+    support_cases: PostgresSupportCases | None = None
+    support_access: PostgresSupportAccess | None = None
+    sponsored_tryons: PostgresSponsoredTryOns | None = None
     preflight: BetaRenderPreflightService | None = None
     secure_cookie: bool = True
+    registration_test_otp: str | None = None
 
 
 class OtpRequestBody(BaseModel):
@@ -100,6 +176,70 @@ class OtpRequestBody(BaseModel):
 
     destination: str
     purpose: str = "SIGN_IN"
+
+
+class TopUpOrderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pack_id: UUID
+    idempotency_key: str = Field(min_length=8, max_length=100)
+
+
+class OperatingProfileChangeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested_profile: OperatingProfile
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class CustomerExperienceSettingsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    image_retention_days: int = Field(ge=1, le=30)
+    profile_deletion_hours: int = Field(ge=1, le=24)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class BusinessAgentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    mobile: str = Field(min_length=7, max_length=32)
+
+
+class AllowancePolicyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    default_try_on_limit: int = Field(ge=0, le=100000)
+
+
+class UserAllowanceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mobile: str = Field(min_length=7, max_length=32)
+    action: AllowanceAction
+    amount: int = Field(default=0, ge=0, le=100000)
+
+
+class SponsoredSessionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=8, max_length=36)
+
+
+class SponsoredTryOnBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_key: str = Field(min_length=8, max_length=80)
+
+
+class CommunicationPreferenceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: CommunicationChannel
+    topic: CommunicationTopic
+    enabled: bool
+
+
+class SupportCaseBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    case_type: CaseType
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 class OtpVerifyBody(BaseModel):
@@ -145,12 +285,82 @@ class QuoteBody(BaseModel):
 
     item_asset_id: UUID
     person_asset_id: UUID
+    sponsored_session_id: UUID | None = None
 
 
 class RenderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     quote_id: UUID
+
+
+class CollectionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    publish_state: PublishState = "DRAFT"
+
+
+class CatalogItemBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category_id: UUID
+    item_code: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=200)
+    attributes: dict[str, object] = Field(default_factory=dict)
+    price_minor: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    publish_state: PublishState = "DRAFT"
+    collection_ids: list[UUID] = Field(default_factory=list, max_length=50)
+
+
+class BusinessRegistrationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    primary_mobile: str = Field(min_length=7, max_length=32)
+    email_otp: str = Field(min_length=4, max_length=8)
+    mobile_otp: str = Field(min_length=4, max_length=8)
+    operating_profile: Literal[
+        "BOUTIQUE", "CLOTHING_RETAILER", "JEWELLERY_RETAILER", "ENTERPRISE_CHAIN", "OTHER"
+    ]
+    jurisdiction: str = Field(min_length=2, max_length=2)
+    website_url: str | None = Field(default=None, max_length=2048)
+    tax_invoice_requested: bool = False
+    legal_name: str | None = Field(default=None, max_length=200)
+    tax_identifier: str | None = Field(default=None, max_length=80)
+    billing_address: dict[str, str] | None = None
+    company_logo_data_url: str | None = Field(default=None, max_length=2_800_000)
+
+
+class BillingProfileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    billing_email: str = Field(min_length=3, max_length=320)
+    billing_phone: str | None = Field(default=None, max_length=32)
+    legal_name: str = Field(min_length=1, max_length=200)
+    tax_identifier: str | None = Field(default=None, max_length=80)
+    billing_address: dict[str, str] = Field(default_factory=dict)
+    tax_invoice_requested: bool
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class MembershipChangeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: MembershipRole | None = None
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class OwnerContactUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Literal["email", "mobile"]
+    value: str = Field(min_length=3, max_length=320)
+    otp: str = Field(min_length=4, max_length=8)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 def _problem(status: int, code: str, message: str, request_id: str) -> JSONResponse:
@@ -164,6 +374,12 @@ def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", uuid4().hex)
 
 
+CONSUMER_SESSION_COOKIE = "wearo_consumer_session"
+BUSINESS_SESSION_COOKIE = "wearo_business_session"
+AGENT_SESSION_COOKIE = "wearo_agent_session"
+LEGACY_SESSION_COOKIE = "wearo_session"
+
+
 def _authenticate(
     request: Request,
     container: ApiContainer,
@@ -171,7 +387,9 @@ def _authenticate(
     mutation: bool = False,
     csrf_token: str | None = None,
 ) -> BrowserSession:
-    token = request.cookies.get("wearo_session", "")
+    token = request.cookies.get(CONSUMER_SESSION_COOKIE) or request.cookies.get(
+        LEGACY_SESSION_COOKIE, ""
+    )
     try:
         return container.sessions.authenticate(
             token,
@@ -182,6 +400,89 @@ def _authenticate(
     except SessionAuthenticationError:
         status = 403 if token and mutation else 401
         raise ApiProblem(status, "AUTHENTICATION_REQUIRED", "Authentication required.") from None
+
+
+def _authenticate_business(
+    request: Request,
+    container: ApiContainer,
+    *,
+    mutation: bool = False,
+    csrf_token: str | None = None,
+) -> BrowserSession:
+    token = request.cookies.get(BUSINESS_SESSION_COOKIE) or request.cookies.get(
+        LEGACY_SESSION_COOKIE, ""
+    )
+    try:
+        return container.sessions.authenticate(
+            token,
+            expected_realm="BUSINESS",
+            csrf_token=csrf_token,
+            mutation=mutation,
+        )
+    except SessionAuthenticationError:
+        status = 403 if token and mutation else 401
+        raise ApiProblem(status, "AUTHENTICATION_REQUIRED", "Authentication required.") from None
+
+
+def _authenticate_agent(
+    request: Request,
+    container: ApiContainer,
+    *,
+    mutation: bool = False,
+    csrf_token: str | None = None,
+) -> BrowserSession:
+    token = request.cookies.get(AGENT_SESSION_COOKIE, "")
+    try:
+        return container.sessions.authenticate(
+            token,
+            expected_realm="BUSINESS",
+            csrf_token=csrf_token,
+            mutation=mutation,
+        )
+    except SessionAuthenticationError:
+        status = 403 if token and mutation else 401
+        raise ApiProblem(status, "AUTHENTICATION_REQUIRED", "Authentication required.") from None
+
+
+def _authenticated_cookie(
+    request: Request, container: ApiContainer, csrf_token: str | None
+) -> tuple[str, str]:
+    candidates: tuple[tuple[str, Literal["SHOP", "BUSINESS"]], ...] = (
+        (CONSUMER_SESSION_COOKIE, "SHOP"),
+        (BUSINESS_SESSION_COOKIE, "BUSINESS"),
+        (LEGACY_SESSION_COOKIE, "SHOP"),
+        (LEGACY_SESSION_COOKIE, "BUSINESS"),
+    )
+    for cookie_name, realm in candidates:
+        token = request.cookies.get(cookie_name, "")
+        if not token:
+            continue
+        try:
+            container.sessions.authenticate(
+                token,
+                expected_realm=realm,
+                csrf_token=csrf_token,
+                mutation=True,
+            )
+            return cookie_name, token
+        except SessionAuthenticationError:
+            continue
+    raise ApiProblem(403, "AUTHENTICATION_REQUIRED", "Authentication required.")
+
+
+def _catalog_item_json(item: CatalogItem) -> dict[str, Any]:
+    return {
+        "item_id": item.item_id,
+        "tenant_id": item.tenant_id,
+        "category_id": item.category_id,
+        "item_code": item.item_code,
+        "title": item.title,
+        "attributes": item.attributes,
+        "price_minor": item.price_minor,
+        "currency": item.currency,
+        "publish_state": item.publish_state,
+        "collection_ids": item.collection_ids,
+    }
 
 
 def _profile_json(profile: PersonProfile) -> dict[str, Any]:
@@ -293,18 +594,65 @@ def create_app(
         return _problem(error.status, error.code, str(error), _request_id(request))
 
     @app.exception_handler(ProfileError)
+    @app.exception_handler(CatalogError)
+    @app.exception_handler(BusinessPlatformError)
+    @app.exception_handler(PlatformIdentityError)
+    @app.exception_handler(BusinessOnboardingError)
+    @app.exception_handler(BusinessBillingError)
+    @app.exception_handler(BusinessMembershipError)
+    @app.exception_handler(WalletTransactionError)
+    @app.exception_handler(TopUpError)
+    @app.exception_handler(SensitiveAuditError)
+    @app.exception_handler(BusinessAgentError)
+    @app.exception_handler(BusinessShopError)
+    @app.exception_handler(BusinessAllowanceError)
+    @app.exception_handler(CommunicationsError)
+    @app.exception_handler(BusinessReportError)
+    @app.exception_handler(SupportCaseError)
+    @app.exception_handler(SupportAccessError)
+    @app.exception_handler(SponsoredTryOnError)
     @app.exception_handler(ConsentError)
     @app.exception_handler(MediaRuntimeError)
     @app.exception_handler(RenderPreflightError)
     @app.exception_handler(DurableRenderError)
     async def domain_problem(request: Request, error: ValueError) -> JSONResponse:
         code = getattr(error, "code", "VALIDATION_FAILED")
-        if code == "JOB_UNAVAILABLE":
+        if code in {
+            "JOB_UNAVAILABLE",
+            "CATALOG_ITEM_NOT_FOUND",
+            "CATALOG_RESOURCE_UNAVAILABLE",
+            "COLLECTION_NOT_FOUND",
+            "CATEGORY_NOT_FOUND",
+            "BUSINESS_RESOURCE_UNAVAILABLE",
+            "PLATFORM_CONTEXT_UNAVAILABLE",
+            "OFFERING_UNAVAILABLE",
+            "BILLING_PROFILE_UNAVAILABLE",
+            "MEMBERSHIP_UNAVAILABLE",
+            "TRANSACTION_HISTORY_UNAVAILABLE",
+            "TOPUP_UNAVAILABLE",
+            "TOKEN_PACK_UNAVAILABLE",
+            "PAYMENT_ORDER_UNAVAILABLE",
+            "RECEIPT_UNAVAILABLE",
+            "INVOICE_UNAVAILABLE",
+            "RECONCILIATION_UNAVAILABLE",
+            "AUDIT_UNAVAILABLE",
+            "AGENT_UNAVAILABLE",
+            "SHOP_LINK_UNAVAILABLE",
+            "ALLOWANCE_UNAVAILABLE",
+            "COMMUNICATIONS_UNAVAILABLE",
+            "NOTICE_UNAVAILABLE",
+            "REPORT_UNAVAILABLE",
+            "CASE_UNAVAILABLE",
+            "SUPPORT_GRANT_UNAVAILABLE",
+        }:
             status = 404
         elif code in {
             "JOB_STATE_CONFLICT",
             "QUOTA_STATE_CONFLICT",
             "QUEUE_CANCELLATION_TOO_EARLY",
+            "CATALOG_CONFLICT",
+            "REGISTRATION_CONFLICT",
+            "LAST_OWNER_REQUIRED",
         }:
             status = 409
         else:
@@ -338,6 +686,874 @@ def create_app(
             )
         return {"status": "ready", "image_understanding": "configured"}
 
+    @app.get("/api/v1/platform/pricing")
+    def platform_pricing() -> dict[str, Any]:
+        if container.business_platform is None:
+            raise ApiProblem(503, "PRICING_UNAVAILABLE", "Pricing is unavailable.")
+        return {
+            "unit": "WEARO_TOKEN",
+            "rates": container.business_platform.pricing(),
+            "explanation": (
+                "Wearo Tokens are consumed by product actions; they are not model text tokens. "
+                "Costs vary by action and the effective published rate."
+            ),
+        }
+
+    @app.get("/api/v1/platform/recredit-policy")
+    def recredit_policy() -> dict[str, Any]:
+        return {
+            "automatic_recredit": [
+                {
+                    "reason_code": "FAILED",
+                    "description": "The billable action failed before delivering a result.",
+                },
+                {
+                    "reason_code": "CANCELLED_BEFORE_PROCESSING",
+                    "description": "The request was cancelled before processing started.",
+                },
+                {
+                    "reason_code": "NON_DELIVERED",
+                    "description": "Processing completed without a deliverable result.",
+                },
+            ],
+            "not_automatic": (
+                "Delivered actions and cancellations after processing starts require review."
+            ),
+            "ledger_entry_type": "RECREDIT",
+        }
+
+    @app.get("/api/v1/me/usage")
+    def consumer_usage(request: Request, action_code: str = "TRY_ON") -> dict[str, Any]:
+        session = _authenticate(request, container)
+        if container.plan_usage is None:
+            raise ApiProblem(503, "USAGE_UNAVAILABLE", "Usage is unavailable.")
+        return asdict(container.plan_usage.for_account(session.account_id, action_code=action_code))
+
+    @app.get("/api/v1/me/platform")
+    def consumer_platform(request: Request) -> dict[str, Any]:
+        session = _authenticate(request, container)
+        if container.platform_identity is None:
+            raise ApiProblem(503, "PLATFORM_UNAVAILABLE", "Platform context is unavailable.")
+        return asdict(
+            container.platform_identity.context(
+                session.principal_id, session.account_id, "CONSUMER"
+            )
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/overview")
+    def business_overview(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_platform is None:
+            raise ApiProblem(503, "BUSINESS_PLATFORM_UNAVAILABLE", "Workspace is unavailable.")
+        return container.business_platform.overview(session.principal_id, tenant_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/customer-experience-settings")
+    def customer_experience_settings(tenant_id: UUID, request: Request) -> dict[str, int]:
+        session = _authenticate_business(request, container)
+        if container.business_platform is None:
+            raise ApiProblem(503, "BUSINESS_PLATFORM_UNAVAILABLE", "Workspace is unavailable.")
+        return container.business_platform.customer_experience_settings(
+            session.principal_id, tenant_id
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/customer-experience-settings")
+    def update_customer_experience_settings(
+        tenant_id: UUID,
+        body: CustomerExperienceSettingsBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, int]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_platform is None:
+            raise ApiProblem(503, "BUSINESS_PLATFORM_UNAVAILABLE", "Workspace is unavailable.")
+        return container.business_platform.update_customer_experience_settings(
+            session.principal_id,
+            tenant_id,
+            image_retention_days=body.image_retention_days,
+            profile_deletion_hours=body.profile_deletion_hours,
+            reason=body.reason,
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/operating-profile-change")
+    def request_operating_profile_change(
+        tenant_id: UUID,
+        body: OperatingProfileChangeBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_platform is None:
+            raise ApiProblem(503, "BUSINESS_PLATFORM_UNAVAILABLE", "Workspace is unavailable.")
+        return container.business_platform.request_profile_change(
+            session.principal_id, tenant_id, body.requested_profile, body.reason
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/audit-events")
+    def business_audit_events(
+        tenant_id: UUID, request: Request, limit: int = 100
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.sensitive_audit is None:
+            raise ApiProblem(503, "AUDIT_UNAVAILABLE", "Audit history is unavailable.")
+        return container.sensitive_audit.list_for_tenant(
+            session.principal_id, tenant_id, limit=limit
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/agents")
+    def list_business_agents(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
+        return {"items": container.business_agents.list(session.principal_id, tenant_id)}
+
+    @app.get("/api/v1/agent/me")
+    def agent_context(request: Request, business: str, key: str) -> dict[str, object]:
+        session = _authenticate_agent(request, container)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agent access is unavailable.")
+        origin = os.environ.get("WEARO_CONSUMER_ORIGIN", str(request.base_url)).rstrip("/")
+        return container.business_agents.context(session.principal_id, origin, business, key)
+
+    @app.get("/api/v1/public/agent-manifest")
+    def public_agent_manifest(business: str, key: str) -> JSONResponse:
+        if container.business_shop is None:
+            raise ApiProblem(503, "SHOP_LINK_UNAVAILABLE", "Agent app is unavailable.")
+        details = container.business_shop.public_details(business, key)
+        start_url = f"/agent/{business}?key={key}"
+        return JSONResponse(
+            {
+                "name": f"{details['display_name']} Agent",
+                "short_name": "Wearo Agent",
+                "description": "Manage customer try-on allowances for this Wearo business.",
+                "id": f"/agent/{business}",
+                "start_url": start_url,
+                "scope": "/",
+                "display": "standalone",
+                "orientation": "portrait-primary",
+                "background_color": "#faf7f2",
+                "theme_color": "#3b1746",
+                "categories": ["business", "productivity"],
+                "icons": [
+                    {
+                        "src": "/wearo-brand.png",
+                        "sizes": "1254x1254",
+                        "type": "image/png",
+                        "purpose": "any maskable",
+                    }
+                ],
+            }
+        )
+
+    @app.get("/api/v1/agent/shop-qr.png")
+    def agent_shop_qr(request: Request, business: str, key: str) -> Response:
+        session = _authenticate_agent(request, container)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agent access is unavailable.")
+        origin = os.environ.get("WEARO_CONSUMER_ORIGIN", str(request.base_url)).rstrip("/")
+        context = container.business_agents.context(session.principal_id, origin, business, key)
+        return Response(
+            qr_poster(str(context["shop_url"]), str(context["display_name"])),
+            media_type="image/png",
+        )
+
+    @app.get("/api/v1/agent/allowances")
+    def agent_allowances(
+        request: Request, mobile: str, business: str, key: str
+    ) -> dict[str, object]:
+        session = _authenticate_agent(request, container)
+        if container.business_agents is None or container.business_allowances is None:
+            raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
+        context = container.business_agents.context(
+            session.principal_id, str(request.base_url), business, key
+        )
+        allowance = container.business_allowances.get(
+            session.principal_id, UUID(str(context["tenant_id"])), mobile, agent=True
+        )
+        user = allowance["user"]
+        if not isinstance(user, dict):
+            raise ApiProblem(404, "CUSTOMER_UNAVAILABLE", "Customer allowance is unavailable.")
+        return {
+            "customer": {
+                "mobile": user["normalized_mobile"],
+                "allotted": user["effective_limit"],
+                "used": user["used_count"],
+                "remaining": user["remaining"],
+            }
+        }
+
+    @app.post("/api/v1/agent/allowances")
+    def agent_adjust_allowance(
+        body: UserAllowanceBody,
+        request: Request,
+        business: str,
+        key: str,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_agent(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_agents is None or container.business_allowances is None:
+            raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
+        context = container.business_agents.context(
+            session.principal_id, str(request.base_url), business, key
+        )
+        allowance = container.business_allowances.adjust_user(
+            session.principal_id,
+            UUID(str(context["tenant_id"])),
+            body.mobile,
+            body.action,
+            body.amount,
+            agent=True,
+        )
+        user = allowance["user"]
+        if not isinstance(user, dict):
+            raise ApiProblem(404, "CUSTOMER_UNAVAILABLE", "Customer allowance is unavailable.")
+        return {
+            "customer": {
+                "mobile": user["normalized_mobile"],
+                "allotted": user["effective_limit"],
+                "used": user["used_count"],
+                "remaining": user["remaining"],
+            }
+        }
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/allowances")
+    def business_allowances(
+        tenant_id: UUID, request: Request, mobile: str | None = None
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_allowances is None:
+            raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
+        return container.business_allowances.get(session.principal_id, tenant_id, mobile)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/customers/search")
+    def search_business_customer(
+        tenant_id: UUID, request: Request, mobile: str
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_allowances is None:
+            raise ApiProblem(503, "CUSTOMER_SEARCH_UNAVAILABLE", "Customer search is unavailable.")
+        return container.business_allowances.find_participant(
+            session.principal_id, tenant_id, mobile
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/customers")
+    def list_business_customers(
+        tenant_id: UUID,
+        request: Request,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_allowances is None:
+            raise ApiProblem(503, "CUSTOMERS_UNAVAILABLE", "Customers are unavailable.")
+        return container.business_allowances.list_participants(
+            session.principal_id,
+            tenant_id,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/allowances/policy")
+    def update_business_allowance_policy(
+        tenant_id: UUID,
+        body: AllowancePolicyBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_allowances is None:
+            raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
+        return container.business_allowances.update_policy(
+            session.principal_id, tenant_id, body.default_try_on_limit
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/allowances/user")
+    def adjust_business_user_allowance(
+        tenant_id: UUID,
+        body: UserAllowanceBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_allowances is None:
+            raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
+        return container.business_allowances.adjust_user(
+            session.principal_id, tenant_id, body.mobile, body.action, body.amount
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/communications")
+    def business_communications(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.communications is None:
+            raise ApiProblem(503, "COMMUNICATIONS_UNAVAILABLE", "Communications are unavailable.")
+        return container.communications.overview(session.principal_id, tenant_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/reconciliation-report")
+    def business_reconciliation_report(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_reports is None:
+            raise ApiProblem(503, "REPORT_UNAVAILABLE", "Report is unavailable.")
+        return container.business_reports.reconciliation(session.principal_id, tenant_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/reconciliation-report.csv")
+    def download_business_reconciliation(tenant_id: UUID, request: Request) -> PlainTextResponse:
+        session = _authenticate_business(request, container)
+        if container.business_reports is None:
+            raise ApiProblem(503, "REPORT_UNAVAILABLE", "Report is unavailable.")
+        report = container.business_reports.reconciliation(session.principal_id, tenant_id)
+        return PlainTextResponse(
+            reconciliation_csv(report),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="wearo-reconciliation.csv"'},
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/support-cases")
+    def list_business_support_cases(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.support_cases is None:
+            raise ApiProblem(503, "SUPPORT_UNAVAILABLE", "Support is unavailable.")
+        return {"items": container.support_cases.list(session.principal_id, tenant_id)}
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/support-access-grants")
+    def business_support_access_grants(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.support_access is None:
+            raise ApiProblem(503, "SUPPORT_ACCESS_UNAVAILABLE", "Access grants are unavailable.")
+        return {"items": container.support_access.list_for_owner(session.principal_id, tenant_id)}
+
+    @app.delete(
+        "/api/v1/business/tenants/{tenant_id}/support-access-grants/{grant_id}",
+        status_code=204,
+    )
+    def revoke_business_support_access(
+        tenant_id: UUID,
+        grant_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.support_access is None:
+            raise ApiProblem(503, "SUPPORT_ACCESS_UNAVAILABLE", "Access grants are unavailable.")
+        container.support_access.revoke(session.principal_id, tenant_id, grant_id)
+        return Response(status_code=204)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/support-cases", status_code=201)
+    def create_business_support_case(
+        tenant_id: UUID,
+        body: SupportCaseBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.support_cases is None:
+            raise ApiProblem(503, "SUPPORT_UNAVAILABLE", "Support is unavailable.")
+        return container.support_cases.create(
+            session.principal_id, tenant_id, body.case_type, body.reason
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/support-cases/{case_id}")
+    def business_support_case(
+        tenant_id: UUID, case_id: UUID, request: Request
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.support_cases is None:
+            raise ApiProblem(503, "SUPPORT_UNAVAILABLE", "Support is unavailable.")
+        return container.support_cases.detail(session.principal_id, tenant_id, case_id)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/legal-notices/{notice_id}/accept")
+    def accept_business_legal_notice(
+        tenant_id: UUID,
+        notice_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.communications is None:
+            raise ApiProblem(503, "COMMUNICATIONS_UNAVAILABLE", "Notices are unavailable.")
+        return container.communications.accept(session.principal_id, tenant_id, notice_id)
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/communication-preference")
+    def update_business_communication_preference(
+        tenant_id: UUID,
+        body: CommunicationPreferenceBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.communications is None:
+            raise ApiProblem(503, "COMMUNICATIONS_UNAVAILABLE", "Communications are unavailable.")
+        return container.communications.set_preference(
+            session.principal_id, tenant_id, body.channel, body.topic, body.enabled
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/agents", status_code=201)
+    def create_business_agent(
+        tenant_id: UUID,
+        body: BusinessAgentBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
+        return container.business_agents.save(
+            session.principal_id, tenant_id, agent_id=None, name=body.name, mobile=body.mobile
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/agents/{agent_id}")
+    def update_business_agent(
+        tenant_id: UUID,
+        agent_id: UUID,
+        body: BusinessAgentBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
+        return container.business_agents.save(
+            session.principal_id, tenant_id, agent_id=agent_id, name=body.name, mobile=body.mobile
+        )
+
+    @app.delete("/api/v1/business/tenants/{tenant_id}/agents/{agent_id}", status_code=204)
+    def delete_business_agent(
+        tenant_id: UUID,
+        agent_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
+        container.business_agents.delete(session.principal_id, tenant_id, agent_id)
+        return Response(status_code=204)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/shop-link")
+    def business_shop_link(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_shop is None:
+            raise ApiProblem(503, "SHOP_LINK_UNAVAILABLE", "Shop link is unavailable.")
+        origin = os.environ.get("WEARO_CONSUMER_ORIGIN", "http://localhost:5173").rstrip("/")
+        return container.business_shop.details(session.principal_id, tenant_id, origin)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/shop-qr.png")
+    def business_shop_qr(tenant_id: UUID, request: Request) -> Response:
+        session = _authenticate_business(request, container)
+        if container.business_shop is None:
+            raise ApiProblem(503, "SHOP_LINK_UNAVAILABLE", "Shop QR is unavailable.")
+        details = container.business_shop.details(
+            session.principal_id,
+            tenant_id,
+            os.environ.get("WEARO_CONSUMER_ORIGIN", "http://localhost:5173").rstrip("/"),
+        )
+        logo = None
+        if details["logo_asset_id"] is not None:
+            logo, _ = container.media.read_owned(
+                UUID(str(details["logo_asset_id"])), UUID(str(details["account_id"]))
+            )
+        return Response(
+            qr_poster(str(details["shop_url"]), str(details["display_name"]), logo),
+            media_type="image/png",
+            headers={"Content-Disposition": 'attachment; filename="wearo-shop-qr.png"'},
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/company-logo")
+    def business_company_logo(tenant_id: UUID, request: Request) -> Response:
+        session = _authenticate_business(request, container)
+        if container.business_shop is None:
+            raise ApiProblem(503, "BUSINESS_LOGO_UNAVAILABLE", "Company logo is unavailable.")
+        details = container.business_shop.details(
+            session.principal_id, tenant_id, str(request.base_url).rstrip("/")
+        )
+        if details["logo_asset_id"] is None:
+            raise ApiProblem(404, "BUSINESS_LOGO_NOT_FOUND", "No company logo has been uploaded.")
+        content, mime_type = container.media.read_owned(
+            UUID(str(details["logo_asset_id"])), UUID(str(details["account_id"]))
+        )
+        return Response(
+            content, media_type=mime_type, headers={"Cache-Control": "private, no-store"}
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/company-logo")
+    async def update_business_company_logo(
+        tenant_id: UUID,
+        request: Request,
+        image: Annotated[UploadFile, File()],
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_shop is None:
+            raise ApiProblem(503, "BUSINESS_LOGO_UNAVAILABLE", "Company logo is unavailable.")
+        content = await image.read()
+        stored = container.media.store_business_logo(
+            session.account_id, content, image.content_type or "application/octet-stream"
+        )
+        return container.business_shop.set_logo(session.principal_id, tenant_id, stored.asset_id)
+
+    @app.get("/api/v1/public/shops/{business_reference}")
+    def public_business_shop(business_reference: str, key: str) -> dict[str, object]:
+        if container.business_shop is None:
+            raise ApiProblem(503, "SHOP_LINK_UNAVAILABLE", "Shop is unavailable.")
+        details = container.business_shop.public_details(business_reference, key)
+        return {name: value for name, value in details.items() if name != "account_id"}
+
+    @app.get("/api/v1/public/shops/{business_reference}/logo")
+    def public_business_shop_logo(business_reference: str, key: str) -> Response:
+        if container.business_shop is None:
+            raise ApiProblem(503, "SHOP_LINK_UNAVAILABLE", "Shop is unavailable.")
+        details = container.business_shop.public_details(business_reference, key)
+        if details["logo_asset_id"] is None:
+            raise ApiProblem(404, "BUSINESS_LOGO_NOT_FOUND", "No company logo has been uploaded.")
+        content, mime_type = container.media.read_owned(
+            UUID(str(details["logo_asset_id"])), UUID(str(details["account_id"]))
+        )
+        return Response(
+            content,
+            media_type=mime_type,
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
+    @app.post("/api/v1/public/shops/{business_reference}/sessions", status_code=201)
+    def activate_sponsored_session(
+        business_reference: str,
+        body: SponsoredSessionBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.sponsored_tryons is None:
+            raise ApiProblem(503, "SPONSORED_SESSION_UNAVAILABLE", "Session is unavailable.")
+        return container.sponsored_tryons.activate(
+            business_reference=business_reference,
+            public_key=body.key,
+            consumer_account_id=session.account_id,
+            consumer_principal_id=session.principal_id,
+        )
+
+    @app.get("/api/v1/sponsored-sessions/{session_id}")
+    def sponsored_session_status(session_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate(request, container)
+        if container.sponsored_tryons is None:
+            raise ApiProblem(503, "SPONSORED_SESSION_UNAVAILABLE", "Session is unavailable.")
+        return container.sponsored_tryons.status(
+            session_id, session.account_id, session.principal_id
+        )
+
+    @app.post("/api/v1/sponsored-sessions/{session_id}/try-ons", status_code=201)
+    def consume_sponsored_try_on(
+        session_id: UUID,
+        body: SponsoredTryOnBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.sponsored_tryons is None:
+            raise ApiProblem(503, "SPONSORED_SESSION_UNAVAILABLE", "Session is unavailable.")
+        return container.sponsored_tryons.consume(
+            session_id=session_id,
+            consumer_account_id=session.account_id,
+            consumer_principal_id=session.principal_id,
+            request_key=body.request_key,
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/billing-profile")
+    def get_business_billing_profile(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_billing is None:
+            raise ApiProblem(503, "BILLING_UNAVAILABLE", "Billing profile is unavailable.")
+        return container.business_billing.get(session.principal_id, tenant_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/token-transactions")
+    def business_token_transactions(
+        tenant_id: UUID,
+        request: Request,
+        category: TransactionCategory | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.wallet_transactions is None:
+            raise ApiProblem(503, "TRANSACTION_HISTORY_UNAVAILABLE", "History is unavailable.")
+        return container.wallet_transactions.history(
+            session.principal_id,
+            tenant_id,
+            category=category,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/topup-packs")
+    def business_topup_packs(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Top-ups are unavailable.")
+        return container.topups.purchase_context(session.principal_id, tenant_id)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/topup-orders")
+    def create_business_topup(
+        tenant_id: UUID,
+        body: TopUpOrderBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Top-ups are unavailable.")
+        return container.topups.create_order(
+            session.principal_id, tenant_id, body.pack_id, body.idempotency_key
+        )
+
+    @app.post("/api/v1/payments/webhook")
+    async def payment_webhook(
+        request: Request,
+        x_payment_signature: Annotated[str | None, Header(alias="X-Payment-Signature")] = None,
+    ) -> dict[str, object]:
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Payments are unavailable.")
+        return container.topups.accept_webhook(await request.body(), x_payment_signature)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/payment-receipts/{receipt_id}")
+    def business_payment_receipt(
+        tenant_id: UUID, receipt_id: UUID, request: Request
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Receipts are unavailable.")
+        return container.topups.receipt(session.principal_id, tenant_id, receipt_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/payment-reconciliation")
+    def business_payment_reconciliation(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Payments are unavailable.")
+        return container.topups.reconciliation(session.principal_id, tenant_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/payment-receipts/{receipt_id}.txt")
+    def download_business_payment_receipt(
+        tenant_id: UUID, receipt_id: UUID, request: Request
+    ) -> PlainTextResponse:
+        session = _authenticate_business(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Receipts are unavailable.")
+        receipt = container.topups.receipt(session.principal_id, tenant_id, receipt_id)
+        amount_minor = receipt["amount_minor"]
+        if not isinstance(amount_minor, int):
+            raise ApiProblem(500, "INVALID_RECEIPT", "Receipt amount is invalid.")
+        body = (
+            f"Wearo payment receipt {receipt['receipt_number']}\n"
+            f"Issued: {receipt['issued_at']}\n"
+            f"Payment reference: {receipt['provider_payment_id']}\n"
+            f"Amount: {receipt['currency']} {amount_minor / 100:.2f}\n"
+            f"Wearo Tokens credited: {receipt['tokens_credited']}\n"
+        )
+        return PlainTextResponse(
+            body,
+            headers={"Content-Disposition": 'attachment; filename="wearo-payment-receipt.txt"'},
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/invoices/{invoice_id}.txt")
+    def download_business_invoice(
+        tenant_id: UUID, invoice_id: UUID, request: Request
+    ) -> PlainTextResponse:
+        session = _authenticate_business(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Invoices are unavailable.")
+        invoice = container.topups.invoice(session.principal_id, tenant_id, invoice_id)
+        business = invoice["business_snapshot"]
+        tax = invoice["tax_snapshot"]
+        if not isinstance(business, dict) or not isinstance(tax, dict):
+            raise ApiProblem(500, "INVALID_INVOICE", "Invoice snapshot is invalid.")
+        subtotal = invoice["subtotal_minor"]
+        tax_amount = invoice["tax_minor"]
+        total = invoice["amount_minor"]
+        rate = tax.get("rate_basis_points", 0)
+        if (
+            not isinstance(subtotal, int)
+            or not isinstance(tax_amount, int)
+            or not isinstance(total, int)
+            or not isinstance(rate, int)
+        ):
+            raise ApiProblem(500, "INVALID_INVOICE", "Invoice amounts are invalid.")
+        address = business.get("billing_address", {})
+        body = (
+            "WEARO TAX INVOICE\n"
+            f"Invoice number: {invoice['invoice_number']}\n"
+            f"Issued: {invoice['issued_at']}\n"
+            f"Bill to: {business.get('legal_name', '')}\n"
+            f"Billing email: {business.get('billing_email', '')}\n"
+            f"Billing address: {json.dumps(address, sort_keys=True)}\n"
+            f"Jurisdiction: {business.get('jurisdiction', '')}\n"
+            f"Tax identifier: {business.get('tax_identifier') or 'Not provided'}\n"
+            f"Subtotal: {invoice['currency']} {subtotal / 100:.2f}\n"
+            f"Tax ({rate / 100:.2f}%): "
+            f"{invoice['currency']} {tax_amount / 100:.2f}\n"
+            f"Total: {invoice['currency']} {total / 100:.2f}\n"
+        )
+        return PlainTextResponse(
+            body,
+            headers={"Content-Disposition": 'attachment; filename="wearo-tax-invoice.txt"'},
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/token-transactions.csv")
+    def download_business_token_transactions(
+        tenant_id: UUID,
+        request: Request,
+        category: TransactionCategory | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> PlainTextResponse:
+        session = _authenticate_business(request, container)
+        if container.wallet_transactions is None:
+            raise ApiProblem(503, "TRANSACTION_HISTORY_UNAVAILABLE", "History is unavailable.")
+        history = container.wallet_transactions.history(
+            session.principal_id,
+            tenant_id,
+            category=category,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        return PlainTextResponse(
+            transactions_csv(history["items"]),  # type: ignore[arg-type]
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="wearo-token-transactions.csv"'},
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/billing-profile")
+    def update_business_billing_profile(
+        tenant_id: UUID,
+        body: BillingProfileBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_billing is None:
+            raise ApiProblem(503, "BILLING_UNAVAILABLE", "Billing profile is unavailable.")
+        return container.business_billing.update(
+            session.principal_id,
+            tenant_id,
+            BillingProfileUpdate(
+                billing_email=body.billing_email,
+                billing_phone=body.billing_phone,
+                legal_name=body.legal_name,
+                tax_identifier=body.tax_identifier,
+                billing_address=body.billing_address,
+                tax_invoice_requested=body.tax_invoice_requested,
+                reason=body.reason,
+            ),
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/memberships")
+    def list_business_memberships(tenant_id: UUID, request: Request) -> dict[str, Any]:
+        session = _authenticate_business(request, container)
+        if container.business_membership is None:
+            raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Memberships are unavailable.")
+        return {"items": container.business_membership.list(session.principal_id, tenant_id)}
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/owner-contacts")
+    def owner_contacts(tenant_id: UUID, request: Request) -> dict[str, str]:
+        session = _authenticate_business(request, container)
+        if container.business_membership is None:
+            raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Owner contacts are unavailable.")
+        return container.business_membership.owner_contacts(session.principal_id, tenant_id)
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/owner-contacts")
+    def update_owner_contacts(
+        tenant_id: UUID,
+        body: OwnerContactUpdateBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, str]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_membership is None:
+            raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Owner contacts are unavailable.")
+        if container.registration_test_otp is None:
+            raise ApiProblem(
+                503, "CONTACT_VERIFICATION_UNAVAILABLE", "Verification is unavailable."
+            )
+        if not hmac.compare_digest(body.otp, container.registration_test_otp):
+            raise ApiProblem(401, "INVALID_CONTACT_OTP", "Invalid contact verification code.")
+        current = container.business_membership.owner_contacts(session.principal_id, tenant_id)
+        return container.business_membership.update_owner_contacts(
+            session.principal_id,
+            tenant_id,
+            email=body.value if body.channel == "email" else current["email"],
+            mobile=body.value if body.channel == "mobile" else current["mobile"],
+            reason=body.reason,
+        )
+
+    @app.patch("/api/v1/business/tenants/{tenant_id}/memberships/{membership_id}")
+    def change_business_membership(
+        tenant_id: UUID,
+        membership_id: UUID,
+        body: MembershipChangeBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_membership is None:
+            raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Memberships are unavailable.")
+        return container.business_membership.change(
+            session.principal_id,
+            tenant_id,
+            membership_id,
+            new_role=body.role,
+            reason=body.reason,
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/usage")
+    def business_usage(
+        tenant_id: UUID,
+        request: Request,
+        action_code: str = "TRY_ON",
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> dict[str, Any]:
+        session = _authenticate_business(request, container)
+        if container.business_platform is None or container.plan_usage is None:
+            raise ApiProblem(503, "USAGE_UNAVAILABLE", "Usage is unavailable.")
+        if date_from and date_to and date_from > date_to:
+            raise ApiProblem(
+                422, "INVALID_DATE_RANGE", "The start date must be before the end date."
+            )
+        if date_to and date_to > date.today():
+            raise ApiProblem(422, "INVALID_DATE_RANGE", "The end date cannot be after today.")
+        container.business_platform.overview(session.principal_id, tenant_id)
+        return asdict(
+            container.plan_usage.for_account(
+                session.account_id,
+                tenant_id=tenant_id,
+                action_code=action_code,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/platform")
+    def business_platform_context(tenant_id: UUID, request: Request) -> dict[str, Any]:
+        session = _authenticate_business(request, container)
+        if container.platform_identity is None:
+            raise ApiProblem(503, "PLATFORM_UNAVAILABLE", "Platform context is unavailable.")
+        return asdict(
+            container.platform_identity.context(
+                session.principal_id,
+                session.account_id,
+                "BUSINESS",
+                tenant_id=tenant_id,
+            )
+        )
+
+    @app.get("/api/v1/business/workspaces")
+    def business_workspaces(request: Request) -> dict[str, Any]:
+        session = _authenticate_business(request, container)
+        if container.platform_identity is None:
+            raise ApiProblem(503, "PLATFORM_UNAVAILABLE", "Platform context is unavailable.")
+        return {
+            "items": container.platform_identity.business_workspaces(
+                session.principal_id, session.account_id
+            )
+        }
+
     @app.post("/api/v1/auth/email-otp/request")
     def request_otp(body: OtpRequestBody) -> dict[str, Any]:
         realm: AuthRealm = "BUSINESS" if body.purpose == "BUSINESS_SIGN_IN" else "SHOP"
@@ -348,19 +1564,94 @@ def create_app(
             "message": result.message,
         }
 
+    @app.post("/api/v1/business/register", status_code=201)
+    def register_business(
+        body: BusinessRegistrationBody,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        if container.business_onboarding is None:
+            raise ApiProblem(503, "REGISTRATION_UNAVAILABLE", "Registration is unavailable.")
+        if container.registration_test_otp is None:
+            raise ApiProblem(
+                503,
+                "REGISTRATION_VERIFICATION_UNAVAILABLE",
+                "Signup verification is not configured.",
+            )
+        valid_email_otp = hmac.compare_digest(body.email_otp, container.registration_test_otp)
+        valid_mobile_otp = hmac.compare_digest(body.mobile_otp, container.registration_test_otp)
+        if not valid_email_otp or not valid_mobile_otp:
+            raise ApiProblem(
+                401, "INVALID_SIGNUP_OTP", "Invalid email or mobile verification code."
+            )
+        logo_content: bytes | None = None
+        logo_mime: str | None = None
+        if body.company_logo_data_url:
+            try:
+                header, encoded = body.company_logo_data_url.split(",", maxsplit=1)
+                logo_mime = header.removeprefix("data:").split(";", maxsplit=1)[0]
+                if ";base64" not in header:
+                    raise ValueError
+                logo_content = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error):
+                raise ApiProblem(
+                    422, "INVALID_COMPANY_LOGO", "Upload a valid company logo."
+                ) from None
+        registration = container.business_onboarding.register(
+            idempotency_key=idempotency_key,
+            business_name=body.business_name,
+            email=body.email,
+            primary_mobile=body.primary_mobile,
+            operating_profile=body.operating_profile,
+            jurisdiction=body.jurisdiction,
+            website_url=body.website_url,
+            invoice_details=InvoiceDetails(
+                requested=body.tax_invoice_requested,
+                legal_name=body.legal_name,
+                tax_identifier=body.tax_identifier,
+                billing_address=body.billing_address,
+            ),
+        )
+        if logo_content is not None and logo_mime is not None:
+            stored_logo = container.media.store_business_logo(
+                registration.account_id, logo_content, logo_mime
+            )
+            if container.business_shop is None:
+                raise ApiProblem(503, "BUSINESS_LOGO_UNAVAILABLE", "Company logo is unavailable.")
+            container.business_shop.set_logo(
+                registration.principal_id, registration.tenant_id, stored_logo.asset_id
+            )
+        recommendation = recommendation_for(body.operating_profile)
+        return {
+            "registration_id": registration.registration_id,
+            "tenant_id": registration.tenant_id,
+            "slug": registration.slug,
+            "next_step": "VERIFY_EMAIL_OTP",
+            "workspace": {
+                "catalog_label": recommendation.catalog_label,
+                "required_catalog_fields": recommendation.required_catalog_fields,
+                "eligible_offerings": recommendation.eligible_offerings,
+            },
+        }
+
     @app.post("/api/v1/auth/email-otp/verify")
     def verify_otp(body: OtpVerifyBody, response: Response) -> dict[str, Any]:
         try:
             result = container.otp.verify_code(body.challenge_id, body.code)
         except OtpAuthenticationError:
             raise ApiProblem(401, "INVALID_OTP", "Invalid or expired sign-in code.") from None
-        try:
-            container.profiles.require(result.account_id)
-            has_person_profile = True
-        except ProfileError:
-            has_person_profile = False
+        has_person_profile = False
+        if result.realm == "SHOP":
+            try:
+                container.profiles.require(result.account_id)
+                has_person_profile = True
+            except ProfileError:
+                pass
+        cookie_name = CONSUMER_SESSION_COOKIE if result.realm == "SHOP" else BUSINESS_SESSION_COOKIE
+        response.delete_cookie(
+            LEGACY_SESSION_COOKIE, path="/", secure=container.secure_cookie, httponly=True
+        )
         response.set_cookie(
-            "wearo_session",
+            cookie_name,
             result.session_token,
             max_age=EmailOtpPolicy().session_ttl.days * 86400,
             httponly=True,
@@ -378,18 +1669,172 @@ def create_app(
             "expires_at": result.expires_at,
         }
 
+    @app.post("/api/v1/auth/agent-otp/verify")
+    def verify_agent_otp(body: OtpVerifyBody, response: Response) -> dict[str, Any]:
+        try:
+            result = container.otp.verify_code(body.challenge_id, body.code)
+        except OtpAuthenticationError:
+            raise ApiProblem(401, "INVALID_OTP", "Invalid or expired sign-in code.") from None
+        if result.realm != "BUSINESS" or container.business_agents is None:
+            raise ApiProblem(401, "INVALID_OTP", "Invalid or expired sign-in code.")
+        container.business_agents.context(result.principal_id, "http://localhost")
+        response.set_cookie(
+            AGENT_SESSION_COOKIE,
+            result.session_token,
+            max_age=EmailOtpPolicy().session_ttl.days * 86400,
+            httponly=True,
+            secure=container.secure_cookie,
+            samesite="lax",
+            path="/",
+        )
+        return {
+            "id": result.principal_id,
+            "account_id": result.account_id,
+            "type": "AGENT",
+            "verified": True,
+            "csrf_token": result.csrf_token,
+            "expires_at": result.expires_at,
+        }
+
+    @app.post("/api/v1/agent/logout")
+    def agent_logout(
+        request: Request,
+        response: Response,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, bool]:
+        token = request.cookies.get(AGENT_SESSION_COOKIE, "")
+        _authenticate_agent(request, container, mutation=True, csrf_token=x_csrf_token)
+        container.sessions.logout(token, x_csrf_token or "")
+        response.delete_cookie(
+            AGENT_SESSION_COOKIE, path="/", secure=container.secure_cookie, httponly=True
+        )
+        return {"ok": True}
+
     @app.post("/api/v1/auth/logout")
     def logout(
         request: Request,
         response: Response,
         x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
     ) -> dict[str, bool]:
-        _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
-        container.sessions.logout(request.cookies["wearo_session"], x_csrf_token or "")
-        response.delete_cookie(
-            "wearo_session", path="/", secure=container.secure_cookie, httponly=True
-        )
+        cookie_name, token = _authenticated_cookie(request, container, x_csrf_token)
+        container.sessions.logout(token, x_csrf_token or "")
+        response.delete_cookie(cookie_name, path="/", secure=container.secure_cookie, httponly=True)
         return {"ok": True}
+
+    @app.get("/api/v1/auth/business/csrf")
+    def refresh_business_csrf(request: Request) -> dict[str, str]:
+        token = request.cookies.get(BUSINESS_SESSION_COOKIE, "")
+        try:
+            csrf_token = container.sessions.refresh_csrf(token, expected_realm="BUSINESS")
+        except SessionAuthenticationError:
+            raise ApiProblem(401, "AUTHENTICATION_REQUIRED", "Authentication required.") from None
+        return {"csrf_token": csrf_token}
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/catalog/collections", status_code=201)
+    def create_catalog_collection(
+        tenant_id: UUID,
+        body: CollectionBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, Any]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.catalog is None:
+            raise ApiProblem(503, "CATALOG_UNAVAILABLE", "Catalog management is unavailable.")
+        collection = container.catalog.create_collection(
+            session.principal_id,
+            CatalogCollection(
+                collection_id=uuid4(),
+                tenant_id=tenant_id,
+                account_id=session.account_id,
+                name=body.name,
+                description=body.description,
+                publish_state=body.publish_state,
+            ),
+        )
+        return asdict(collection)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/catalog/items")
+    def list_catalog_items(tenant_id: UUID, request: Request) -> dict[str, Any]:
+        session = _authenticate_business(request, container)
+        if container.catalog is None:
+            raise ApiProblem(503, "CATALOG_UNAVAILABLE", "Catalog management is unavailable.")
+        return {
+            "items": [
+                _catalog_item_json(item)
+                for item in container.catalog.store.list_items(session.principal_id, tenant_id)
+            ]
+        }
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/catalog/items", status_code=201)
+    def create_catalog_item(
+        tenant_id: UUID,
+        body: CatalogItemBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, Any]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.catalog is None:
+            raise ApiProblem(503, "CATALOG_UNAVAILABLE", "Catalog management is unavailable.")
+        item = container.catalog.create_item(
+            session.principal_id,
+            CatalogItem(
+                item_id=uuid4(),
+                tenant_id=tenant_id,
+                account_id=session.account_id,
+                category_id=body.category_id,
+                item_code=body.item_code,
+                title=body.title,
+                attributes=body.attributes,
+                price_minor=body.price_minor,
+                currency=body.currency,
+                publish_state=body.publish_state,
+                collection_ids=tuple(body.collection_ids),
+            ),
+        )
+        return _catalog_item_json(item)
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/catalog/items/{item_id}")
+    def revise_catalog_item(
+        tenant_id: UUID,
+        item_id: UUID,
+        body: CatalogItemBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, Any]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.catalog is None:
+            raise ApiProblem(503, "CATALOG_UNAVAILABLE", "Catalog management is unavailable.")
+        item = container.catalog.revise_item(
+            session.principal_id,
+            CatalogItem(
+                item_id=item_id,
+                tenant_id=tenant_id,
+                account_id=session.account_id,
+                category_id=body.category_id,
+                item_code=body.item_code,
+                title=body.title,
+                attributes=body.attributes,
+                price_minor=body.price_minor,
+                currency=body.currency,
+                publish_state=body.publish_state,
+                collection_ids=tuple(body.collection_ids),
+            ),
+        )
+        return _catalog_item_json(item)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/catalog/items/{item_id}/unpublish")
+    def unpublish_catalog_item(
+        tenant_id: UUID,
+        item_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, Any]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.catalog is None:
+            raise ApiProblem(503, "CATALOG_UNAVAILABLE", "Catalog management is unavailable.")
+        return _catalog_item_json(
+            container.catalog.unpublish(session.principal_id, tenant_id, item_id)
+        )
 
     @app.post("/api/v1/assets", status_code=201)
     async def upload_asset(
@@ -531,6 +1976,12 @@ def create_app(
         used = usage.successful_generations if usage else 0
         ist = current.astimezone(IST)
         reset_local = datetime.combine(ist.date() + timedelta(days=1), time(), ist.tzinfo)
+        token_cost = None
+        if container.plan_usage is not None:
+            usage_snapshot = container.plan_usage.for_account(
+                session.account_id, action_code="TRY_ON", date_from=ist.date(), date_to=ist.date()
+            )
+            token_cost = usage_snapshot.action_cost
         return {
             "successful_limit": container.quota.maximum,
             "successful_used": used,
@@ -540,6 +1991,10 @@ def create_app(
                 else container.quota.maximum - used
             ),
             "unlimited": not container.quota.limit_enabled,
+            "token_cost_per_try_on": token_cost,
+            "tokens_consumed_today": (
+                usage_snapshot.provider_total_tokens if container.plan_usage is not None else None
+            ),
             "resets_at": reset_local.astimezone(UTC),
             "active_job_id": (
                 usage.active_job_id if usage and container.quota.limit_enabled else None
@@ -573,6 +2028,14 @@ def create_app(
         item_image, _ = container.media.read_prepared(
             body.item_asset_id, session.account_id, "GARMENT"
         )
+        sponsored_remaining = None
+        if body.sponsored_session_id is not None:
+            if container.sponsored_tryons is None:
+                raise ApiProblem(503, "SPONSORED_SESSION_UNAVAILABLE", "Session is unavailable.")
+            sponsored = container.sponsored_tryons.status(
+                body.sponsored_session_id, session.account_id, session.principal_id
+            )
+            sponsored_remaining = int(str(sponsored["try_ons_remaining"]))
         quote = container.preflight.quote(
             account_id=session.account_id,
             principal_id=session.principal_id,
@@ -580,6 +2043,8 @@ def create_app(
             item_asset_id=body.item_asset_id,
             person_image=person_image,
             item_image=item_image,
+            bypass_daily_quota=body.sponsored_session_id is not None,
+            sponsored_remaining=sponsored_remaining,
         )
         return {
             "quote_id": quote.quote_id,
@@ -786,6 +2251,17 @@ def create_app_from_env() -> FastAPI:
             EmailOtpPolicy(),
             pepper=pepper,
             fixed_test_code=fixed_test_code,
+            sms_provider=(
+                HttpSmsDeliveryProvider(
+                    os.environ["WEARO_SMS_ENDPOINT"],
+                    os.environ["WEARO_SMS_API_KEY"],
+                    os.environ["WEARO_SMS_SENDER"],
+                )
+                if os.environ.get("WEARO_SMS_ENDPOINT")
+                and os.environ.get("WEARO_SMS_API_KEY")
+                and os.environ.get("WEARO_SMS_SENDER")
+                else None
+            ),
         ),
         sessions=BrowserSessionService(
             PostgresBrowserSessionStore(engine), SessionPolicy(), pepper=pepper
@@ -795,6 +2271,36 @@ def create_app_from_env() -> FastAPI:
         profiles=profile_service,
         quota=quota_service,
         renders=PostgresRenderRuntime(engine, enforce_daily_allowance=daily_limit_enabled),
+        catalog=CatalogService(PostgresCatalogStore(engine)),
+        business_platform=PostgresBusinessPlatform(engine),
+        plan_usage=PostgresPlanUsage(engine),
+        platform_identity=PostgresPlatformIdentity(engine),
+        business_onboarding=PostgresBusinessOnboarding(engine),
+        business_billing=PostgresBusinessBilling(engine),
+        business_membership=PostgresBusinessMembership(engine),
+        wallet_billing=PostgresWalletBilling(engine),
+        wallet_transactions=PostgresWalletTransactions(engine),
+        topups=PostgresTopUps(
+            engine,
+            HttpPaymentGateway(
+                os.environ["WEARO_PAYMENT_ORDER_ENDPOINT"],
+                os.environ["WEARO_PAYMENT_API_KEY"],
+            )
+            if os.environ.get("WEARO_PAYMENT_ORDER_ENDPOINT")
+            and os.environ.get("WEARO_PAYMENT_API_KEY")
+            else UnavailablePaymentGateway(),
+            os.environ.get("WEARO_PAYMENT_WEBHOOK_SECRET", "").encode(),
+        ),
+        sensitive_audit=PostgresSensitiveAudit(engine),
+        business_agents=PostgresBusinessAgents(engine),
+        business_shop=PostgresBusinessShop(engine),
+        business_allowances=PostgresBusinessAllowances(engine),
+        communications=PostgresCommunicationsGovernance(engine),
+        business_reports=PostgresBusinessReports(engine),
+        support_cases=PostgresSupportCases(engine),
+        support_access=PostgresSupportAccess(engine),
+        sponsored_tryons=PostgresSponsoredTryOns(engine),
+        registration_test_otp=fixed_test_code,
         preflight=preflight,
         secure_cookie=secure_cookie,
     )

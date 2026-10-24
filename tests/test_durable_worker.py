@@ -32,6 +32,7 @@ class Runtime:
         result_asset_id: UUID,
         provider_request_id: str,
         quality_details: dict[str, object],
+        provider_usage: dict[str, object] | None = None,
         now: datetime | None = None,
     ) -> DurableRenderJob:
         assert self.job is not None and quality_details["accepted"] is True

@@ -7,12 +7,14 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from apps.api.wearo_api.database import normalize_database_url
+from apps.api.wearo_api.environment import load_wearo_environment
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+load_wearo_environment()
 raw_database_url = os.environ.get("WEARO_DATABASE_URL")
 if not raw_database_url:
     raise RuntimeError("WEARO_DATABASE_URL is required; database credentials are never committed")

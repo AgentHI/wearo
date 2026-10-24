@@ -120,6 +120,24 @@ def test_valid_quote_captures_approved_route_allowance_and_limitation() -> None:
     assert "not a sizing" in result.limitation and quotes.items == [result]
 
 
+def test_sponsored_quote_uses_business_allowance_when_personal_quota_is_used() -> None:
+    service, quotes, account, principal, person_asset_id = setup(remaining=0)
+    result = service.quote(
+        account_id=account,
+        principal_id=principal,
+        person_asset_id=person_asset_id,
+        item_asset_id=uuid4(),
+        person_image=b"p",
+        item_image=b"i",
+        bypass_daily_quota=True,
+        sponsored_remaining=2,
+        now=NOW,
+    )
+
+    assert result.remaining_before == 2
+    assert quotes.items == [result]
+
+
 @pytest.mark.parametrize(
     ("options", "code"),
     [

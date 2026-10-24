@@ -35,6 +35,7 @@ class RenderResponse:
     region: str
     request_id: str | None
     attempts: int
+    usage: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -323,6 +324,8 @@ class OpenAIImageEditAdapter:
         self, response: HttpResponse, final_event: dict[str, object], attempts: int
     ) -> RenderResponse:
         image = self._event_image(final_event)
+        raw_usage = final_event.get("usage")
+        usage = dict(raw_usage) if isinstance(raw_usage, dict) else None
         return RenderResponse(
             image,
             "image/png",
@@ -331,4 +334,5 @@ class OpenAIImageEditAdapter:
             self.region,
             response.headers.get("x-request-id"),
             attempts,
+            usage,
         )

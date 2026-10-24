@@ -63,6 +63,13 @@ class MemoryStore:
             self.sessions[key] = replace(self.sessions[key], revoked_at=revoked_at)
         return len(ids)
 
+    def replace_csrf(self, session_id: UUID, csrf_hash: bytes, updated_at: datetime) -> bool:
+        session = self.sessions.get(session_id)
+        if session is None or session.revoked_at is not None or session.expires_at <= updated_at:
+            return False
+        self.sessions[session_id] = replace(session, csrf_hash=csrf_hash)
+        return True
+
 
 def make_service() -> tuple[BrowserSessionService, MemoryStore, str, str, BrowserSession]:
     store = MemoryStore()
@@ -104,6 +111,16 @@ def test_rotation_invalidates_old_token() -> None:
     with pytest.raises(SessionAuthenticationError):
         service.authenticate(token, expected_realm="SHOP", now=NOW)
     assert service.authenticate(credentials.session_token, expected_realm="SHOP", now=NOW)
+
+
+def test_csrf_refresh_repairs_a_stale_browser_token() -> None:
+    service, _, token, old_csrf, _ = make_service()
+    refreshed = service.refresh_csrf(token, expected_realm="SHOP", now=NOW)
+    with pytest.raises(SessionAuthenticationError):
+        service.authenticate(
+            token, expected_realm="SHOP", csrf_token=old_csrf, mutation=True, now=NOW
+        )
+    service.authenticate(token, expected_realm="SHOP", csrf_token=refreshed, mutation=True, now=NOW)
 
 
 def test_logout_and_principal_revocation_fail_closed() -> None:

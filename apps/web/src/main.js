@@ -3,9 +3,11 @@ import "@fontsource/inter/latin-600.css";
 import "@fontsource/inter/latin-700.css";
 import { renderBusinessApp } from "./business-app.js";
 import { renderConsumerApp } from "./consumer-app.js";
+import { renderAgentApp } from "./agent-app.js";
 import "./styles.css";
 
 function currentExperience(pathname) {
+  if (pathname.startsWith("/agent")) return "agent";
   return pathname.startsWith("/business") ? "business" : "consumer";
 }
 
@@ -35,16 +37,17 @@ function showConsumerSplash() {
 const root = document.querySelector("#app");
 const experience = currentExperience(window.location.pathname);
 
-if (experience === "business") {
+if (experience === "agent") {
+  renderAgentApp(root);
+} else if (experience === "business") {
   renderBusinessApp(root, window.location.pathname);
 } else {
   showConsumerSplash();
   renderConsumerApp(root, window.location.pathname);
-  if ("serviceWorker" in navigator && import.meta.env.PROD) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js", { scope: "/app/" });
-    });
-  }
+}
+
+if ("serviceWorker" in navigator && (import.meta.env.PROD || experience === "agent")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js", { scope: "/" }));
 }
 
 export { currentExperience, showConsumerSplash };

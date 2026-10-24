@@ -48,12 +48,13 @@ class PostgresEmailOtpStore:
         self.engine = engine
 
     def resolve_identity(self, normalized_email: str, realm: AuthRealm) -> OtpIdentity | None:
+        channel = "EMAIL" if "@" in normalized_email else "PHONE"
         with self.engine.connect() as connection:
             row = connection.execute(
                 text(
                     IDENTITY_SELECT
                     + """
-                      WHERE identity.channel = 'EMAIL'
+                      WHERE identity.channel = :channel
                         AND identity.normalized_value = :email
                         AND CASE principal.principal_type
                                 WHEN 'CONSUMER' THEN 'SHOP'
@@ -61,7 +62,7 @@ class PostgresEmailOtpStore:
                             END = :realm
                     """
                 ),
-                {"email": normalized_email, "realm": realm},
+                {"channel": channel, "email": normalized_email, "realm": realm},
             ).one_or_none()
         return _identity_from_row(row) if row is not None else None
 
@@ -257,24 +258,44 @@ class DevelopmentPostgresOtpStore(PostgresEmailOtpStore):
 
     def resolve_identity(self, normalized_email: str, realm: AuthRealm) -> OtpIdentity | None:
         channel = "EMAIL" if "@" in normalized_email else "PHONE"
+        legacy_destination = (
+            normalized_email[3:]
+            if channel == "PHONE"
+            and normalized_email.startswith("+91")
+            and len(normalized_email) == 13
+            else normalized_email
+        )
         with self.engine.begin() as connection:
             connection.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                 {"key": f"{channel}:{normalized_email}:{realm}"},
             )
-            row = connection.execute(
-                text(
-                    IDENTITY_SELECT
-                    + """
+            identity_lookup = (
+                IDENTITY_SELECT  # noqa: S608 - static SQL with bound parameters
+                + """
                       WHERE identity.channel = :channel
-                        AND identity.normalized_value = :destination
+                        AND identity.normalized_value IN (:destination, :legacy_destination)
                         AND CASE principal.principal_type
                                 WHEN 'CONSUMER' THEN 'SHOP'
                                 ELSE 'BUSINESS'
                             END = :realm
+                      ORDER BY EXISTS (
+                          SELECT 1 FROM person_profiles profile
+                          WHERE profile.account_id=identity.account_id
+                            AND profile.status='ACTIVE'
+                      ) DESC,
+                      (identity.normalized_value=:destination) DESC
+                      LIMIT 1
                     """
-                ),
-                {"channel": channel, "destination": normalized_email, "realm": realm},
+            )
+            row = connection.execute(
+                text(identity_lookup),
+                {
+                    "channel": channel,
+                    "destination": normalized_email,
+                    "legacy_destination": legacy_destination,
+                    "realm": realm,
+                },
             ).one_or_none()
             if row is not None:
                 return _identity_from_row(row)
@@ -430,3 +451,16 @@ class PostgresBrowserSessionStore:
                 {"principal": principal_id, "revoked_at": revoked_at},
             )
         return result.rowcount
+
+    def replace_csrf(self, session_id: UUID, csrf_hash: bytes, updated_at: datetime) -> bool:
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text(
+                    """UPDATE sessions SET csrf_token_hash=:csrf_hash, updated_at=:updated_at
+                    WHERE session_id=:session AND revoked_at IS NULL
+                      AND expires_at > :updated_at
+                    RETURNING session_id"""
+                ),
+                {"session": session_id, "csrf_hash": csrf_hash, "updated_at": updated_at},
+            ).scalar_one_or_none()
+        return updated is not None

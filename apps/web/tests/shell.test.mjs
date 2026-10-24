@@ -7,6 +7,7 @@ const css = await readFile(new URL("src/styles.css", root), "utf8");
 const html = await readFile(new URL("index.html", root), "utf8");
 const main = await readFile(new URL("src/main.js", root), "utf8");
 const business = await readFile(new URL("src/business-app.js", root), "utf8");
+const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
 const consumer = await readFile(new URL("src/consumer-app.js", root), "utf8");
 const worker = await readFile(new URL("public/sw.js", root), "utf8");
 const manifest = JSON.parse(await readFile(new URL("public/manifest.webmanifest", root), "utf8"));
@@ -24,27 +25,94 @@ test("business and consumer route families are separated", () => {
   assert.match(main, /pathname\.startsWith\("\/business"\)/);
   assert.match(main, /renderBusinessApp/);
   assert.match(main, /renderConsumerApp/);
-  for (const route of ["dashboard", "catalog", "customers", "billing", "settings"]) {
+  for (const route of ["dashboard", "experience", "customers", "billing", "settings"]) {
     assert.match(business, new RegExp(route));
   }
   for (const route of ["/app/sign-in", "/app/try-on", "/app/history", "/app/profile"]) {
     assert.match(consumer, new RegExp(route));
   }
+  assert.match(business, /BUSINESS_AUTH_KEY/);
+  assert.match(business, /BUSINESS_SIGN_IN/);
+  assert.match(business, /\/business\/workspaces/);
+  assert.match(business, /replaceState\(\{\}, "", "\/business\/sign-in"\)/);
+  assert.match(business, /business-logout/);
+  assert.match(business, /\/auth\/logout/);
 });
 
 test("business app exposes onboarding, billing, dashboard, and honest payment state", () => {
   for (const text of [
     "Create your business workspace",
     "Plans & billing",
-    "Try-on activity",
-    "Catalogue",
+    "Wearo experience",
     "no charge was made",
     "Payment method",
   ]) {
     assert.match(business, new RegExp(text, "i"));
   }
-  assert.match(business, /sessionStorage\.setItem\(\s*"wearo_business_draft"/);
+  assert.match(business, /\/business\/register/);
+  assert.match(business, /wearo_business_registration_key/);
+  assert.match(business, /Total try-ons/);
+  assert.match(business, /Actual LLM tokens/);
+  assert.match(business, /Tokens remaining/);
+  assert.match(business, /Estimated try-ons remaining/);
+  assert.match(business, /\/business\/billing#token-topup/);
+  assert.match(business, /Today/);
+  assert.match(business, /Past week/);
+  assert.match(business, /Past month/);
+  assert.match(business, /Custom duration/);
+  assert.match(business, /date_from/);
+  assert.match(business, /signup-verify-code/);
+  assert.match(business, /Resend in \$\{remaining\}s/);
+  assert.match(business, /2 \* 60 \* 60 \* 1000/);
+  assert.match(business, /3 - failedSignupOtpAttempts/);
+  assert.match(business, /VERIFY_EMAIL_OTP|Verify your email/);
+  assert.match(business, /tax_invoice_requested/);
+  assert.match(business, /I need tax-ready business invoices/);
+  assert.match(business, /invoice-details/);
+  assert.match(business, /operating-profile-guidance/);
+  assert.match(business, /No generation offering until jewellery quality approval/);
+  assert.doesNotMatch(business, /Add product|Add item|Catalogue/);
+  assert.match(business, /\/billing-profile/);
+  assert.match(business, /Save for future invoices/);
+  assert.match(business, /Issued invoices were not changed/);
+  assert.match(business, /X-CSRF-Token/);
+  assert.match(business, /\/owner-contacts/);
+  assert.match(business, /Owner sign-in contacts/);
+  assert.match(business, /Current email/);
+  assert.match(business, /Current mobile/);
+  assert.match(business, /SMS sent/);
+  assert.match(business, /Verify and update/);
   assert.match(business, /aria-current="page"/);
+  assert.match(business, /\/usage\?action_code=TRY_ON/);
+  assert.match(business, /previews used/);
+  assert.match(business, /After one try-on/);
+  assert.match(business, /Wearo Tokens price product actions/);
+  assert.match(business, /\/platform\/pricing/);
+  assert.match(business, /\/platform\/recredit-policy/);
+  assert.match(business, /Token transaction history/);
+  assert.match(business, /token-transactions\.csv/);
+  assert.match(business, /Secure token top-up/);
+  assert.match(business, /topup-orders/);
+  assert.match(business, /Payment reconciliation/);
+  assert.match(business, /Sensitive action audit/);
+  assert.match(business, /Request profile change/);
+  assert.match(business, /actual token costs vary by action/i);
+  assert.match(business, /verified work email or primary mobile/i);
+  assert.match(business, /Business agents/);
+  assert.match(business, /Agent app URL/);
+  assert.match(business, /Copy app URL/);
+  assert.match(business, /result\.agent_url/);
+  assert.match(business, /replace\(\/\^\\\/shop\\\/\//);
+  assert.match(business, /Download QR poster/);
+  assert.match(business, /id="shop-url"[^>]*target="_blank"[^>]*rel="noopener"/);
+  assert.match(business, /General try-on allowance/);
+  assert.match(business, /resets every 24 hours/);
+  assert.doesNotMatch(business, /user-allowance-form/);
+  assert.match(business, /Communications and legal history/);
+  assert.match(business, /Financial reconciliation/);
+  assert.match(business, /Support and billing issues/);
+  assert.match(business, /Support data access/);
+  assert.match(business, /Eligible reversals restore Wearo Tokens/);
 });
 
 test("consumer PWA preserves profile, consent, item, and live render flow", () => {
@@ -76,6 +144,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /result\.has_person_profile/);
   assert.match(consumer, /sessionStorage\.setItem\(AUTH_KEY/);
   assert.match(consumer, /auth\.hasProfile \? "home" : "profile"/);
+  assert.match(consumer, /const isShopEntry = pathname\.startsWith\("\/shop\/"\)/);
   assert.match(consumer, /Uploading your wearable item/);
   assert.match(consumer, /elements\.namedItem\("item_upload"\)/);
   assert.match(consumer, /id="open-camera"/);
@@ -132,12 +201,17 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.wearable-source-actions/);
   assert.match(css, /\.camera-dialog/);
   assert.match(consumer, /aria-live="polite"/);
+  assert.match(consumer, /function normalizeShopMobile/);
+  assert.match(consumer, /return `\+91\$\{digits\}`/);
+  assert.match(consumer, /<h1>Wearo\.ai<\/h1>/);
+  assert.match(consumer, /shop-welcome__wearo-logo/);
+  assert.doesNotMatch(consumer, /<h1>\$\{escapeHtml\(shopName\)\}<\/h1>/);
 });
 
 test("PWA is scoped to the consumer app and never caches private API traffic", () => {
   assert.match(html, /manifest\.webmanifest/);
   assert.equal(manifest.start_url, "/app/");
-  assert.equal(manifest.scope, "/app/");
+  assert.equal(manifest.scope, "/");
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.name, "Wearo");
   assert.equal(manifest.short_name, "Wearo");
@@ -146,10 +220,39 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-consumer-v2/);
-  assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/app\/" \}\)/);
+  assert.match(worker, /wearo-shell-v12/);
+  assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);
+});
+
+test("agent PWA supports mobile OTP, business QR, and customer allowance top-ups", () => {
+  assert.match(main, /pathname\.startsWith\("\/agent"\)/);
+  assert.match(main, /renderAgentApp/);
+  assert.match(agent, /BUSINESS_SIGN_IN/);
+  assert.match(agent, /\/auth\/agent-otp\/verify/);
+  assert.match(agent, /\/agent\/logout/);
+  assert.match(agent, /Resend OTP/);
+  assert.match(agent, /30 days/);
+  assert.match(agent, /\/agent\/shop-qr\.png/);
+  assert.match(agent, /\/agent\/allowances/);
+  assert.match(agent, /<span>Remaining<\/span>/);
+  assert.match(agent, /<span>Allotted<\/span>/);
+  assert.match(agent, /<span>Used<\/span>/);
+  assert.doesNotMatch(agent, /Open customer app/);
+  assert.match(agent, /beforeinstallprompt/);
+  assert.match(agent, />Install<\/button>/);
+  assert.match(agent, /agent-invite-screen/);
+  assert.match(agent, /agent-open-tryons/);
+  assert.match(agent, /agent-tryons-screen/);
+  assert.match(agent, /agent-back/);
+  assert.match(agent, /View customer balance/);
+  assert.match(agent, /Welcome back,/);
+  assert.match(agent, /agent-wordmark-name">Wearo\.ai/);
+  assert.match(agent, /\/public\/shops\/\$\{encodeURIComponent\(launch\.business\)\}\/logo/);
+  assert.match(agent, /result\.customer \|\| \(result\.user/);
+  assert.match(agent, /customer app now shows the updated balance/i);
+  assert.match(worker, /"\/agent\/"/);
 });
 
 test("consumer PWA has a three-second animated branded launch splash", () => {

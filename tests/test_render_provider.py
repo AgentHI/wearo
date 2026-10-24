@@ -66,7 +66,13 @@ class MultipartTransport:
                         "partial_image_index": 0,
                     }
                 )
-                on_event({"type": "image_edit.completed", "b64_json": data[0]["b64_json"]})
+                on_event(
+                    {
+                        "type": "image_edit.completed",
+                        "b64_json": data[0]["b64_json"],
+                        "usage": response.body.get("usage"),
+                    }
+                )
         return response
 
 
@@ -125,7 +131,15 @@ def test_permanent_failure_invalid_response_and_jewellery_fail_closed() -> None:
 def openai_success() -> HttpResponse:
     return HttpResponse(
         200,
-        {"data": [{"b64_json": base64.b64encode(b"openai-result").decode()}]},
+        {
+            "data": [{"b64_json": base64.b64encode(b"openai-result").decode()}],
+            "usage": {
+                "total_tokens": 100,
+                "input_tokens": 50,
+                "output_tokens": 50,
+                "input_tokens_details": {"text_tokens": 10, "image_tokens": 40},
+            },
+        },
         {"x-request-id": "openai-request-1"},
     )
 
@@ -171,6 +185,12 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert result.image == b"openai-result"
     assert result.provider == "OPENAI" and result.region == "global"
     assert result.request_id == "openai-request-1" and result.attempts == 1
+    assert result.usage == {
+        "total_tokens": 100,
+        "input_tokens": 50,
+        "output_tokens": 50,
+        "input_tokens_details": {"text_tokens": 10, "image_tokens": 40},
+    }
     assert partials == [(b"openai-result", "image/png", 0)]
     assert [file.filename for file in files] == ["person.jpg", "item.png"]
 

@@ -99,6 +99,13 @@ class PostgresMediaRuntime:
     def store_result(self, account_id: UUID, content: bytes, content_type: str) -> UUID:
         return self._store(account_id, "RENDER_RESULT", content, content_type).asset_id
 
+    def store_business_logo(
+        self, account_id: UUID, content: bytes, content_type: str
+    ) -> StoredMedia:
+        if len(content) > 2 * 1024 * 1024:
+            raise MediaRuntimeError("INVALID_IMAGE_SIZE", "Upload a company logo under 2 MB.")
+        return self._store(account_id, "BUSINESS_LOGO", content, content_type)
+
     def _store(
         self, account_id: UUID, purpose: str, content: bytes, content_type: str
     ) -> StoredMedia:
@@ -121,7 +128,7 @@ class PostgresMediaRuntime:
             ) from None
 
         digest = hashlib.sha256(content).hexdigest()
-        if purpose in self.purposes.values():
+        if purpose in {*self.purposes.values(), "BUSINESS_LOGO"}:
             with self.engine.connect() as connection:
                 existing = connection.execute(
                     text(
@@ -187,10 +194,14 @@ class PostgresMediaRuntime:
                         "hash": digest,
                         "mime": normalized_type,
                         "purpose": purpose,
-                        "retention_state": ("ACTIVE" if purpose == "PERSON_SOURCE" else "EXPIRING"),
+                        "retention_state": (
+                            "ACTIVE"
+                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO"}
+                            else "EXPIRING"
+                        ),
                         "delete_after": (
                             None
-                            if purpose == "PERSON_SOURCE"
+                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO"}
                             else datetime.now(UTC) + timedelta(days=30)
                         ),
                     },

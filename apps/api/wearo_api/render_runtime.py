@@ -213,8 +213,25 @@ class PostgresRenderRuntime:
                 )
                 return _job_from_row(canonical)
 
+            sponsored = bool(
+                connection.execute(
+                    text(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM business_sponsored_tryons sponsored
+                            JOIN business_sponsored_sessions session
+                              ON session.session_id = sponsored.session_id
+                            WHERE sponsored.request_key = 'sponsored:' || :key
+                              AND session.consumer_account_id = :account
+                        )
+                        """
+                    ),
+                    {"key": key, "account": account_id},
+                ).scalar_one()
+            )
             usage = None
-            if self.enforce_daily_allowance:
+            if self.enforce_daily_allowance and not sponsored:
                 usage = connection.execute(
                     text(
                         """
@@ -238,7 +255,7 @@ class PostgresRenderRuntime:
                         "now": current,
                     },
                 ).scalar_one_or_none()
-            if self.enforce_daily_allowance and usage is None:
+            if self.enforce_daily_allowance and not sponsored and usage is None:
                 raise DurableRenderError(
                     "DAILY_ALLOWANCE_UNAVAILABLE",
                     "Daily allowance is used or another generation is active.",
@@ -686,6 +703,7 @@ class PostgresRenderRuntime:
         result_asset_id: UUID,
         provider_request_id: str,
         quality_details: dict[str, Any],
+        provider_usage: dict[str, Any] | None = None,
         now: datetime | None = None,
     ) -> DurableRenderJob:
         current = now or datetime.now(UTC)
@@ -712,7 +730,8 @@ class PostgresRenderRuntime:
                             disclosure_version,
                             provider,
                             provider_region,
-                            provider_request_id
+                            provider_request_id,
+                            provider_usage
                         )
                     SELECT
                         :result,
@@ -727,7 +746,8 @@ class PostgresRenderRuntime:
                         'beta-v1',
                         q.provider,
                         q.provider_region,
-                        :provider_request
+                        :provider_request,
+                        CAST(:provider_usage AS jsonb)
                     FROM render_jobs AS j
                     JOIN render_quotes AS q ON q.quote_id = j.quote_id
                     WHERE j.job_id = :job
@@ -738,12 +758,29 @@ class PostgresRenderRuntime:
                     "result_asset": result_asset_id,
                     "quality": json.dumps(quality_details),
                     "provider_request": provider_request_id,
+                    "provider_usage": json.dumps(provider_usage) if provider_usage else None,
                     "job": job_id,
                 },
             )
             self._finish_job(connection, job_id, "DELIVERED", None, current)
+            sponsored = bool(
+                connection.execute(
+                    text(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM business_sponsored_tryons sponsored
+                            JOIN render_jobs job
+                              ON job.idempotency_key = substring(sponsored.request_key FROM 11)
+                            WHERE job.job_id = :job
+                        )
+                        """
+                    ),
+                    {"job": job_id},
+                ).scalar_one()
+            )
             usage_updated = None
-            if self.enforce_daily_allowance:
+            if self.enforce_daily_allowance and not sponsored:
                 usage_updated = connection.execute(
                     text(
                         """
@@ -766,9 +803,9 @@ class PostgresRenderRuntime:
                         "now": current,
                     },
                 ).scalar_one_or_none()
-            if self.enforce_daily_allowance and usage_updated is None:
+            if self.enforce_daily_allowance and not sponsored and usage_updated is None:
                 raise DurableRenderError("QUOTA_STATE_CONFLICT", "Daily allowance cannot settle.")
-            if not self.enforce_daily_allowance:
+            if not self.enforce_daily_allowance or sponsored:
                 connection.execute(
                     text(
                         """

@@ -22,7 +22,7 @@ class EmailOtpPolicy:
     max_requests_per_window: int = 5
     request_window: timedelta = timedelta(hours=1)
     max_verification_attempts: int = 5
-    session_ttl: timedelta = timedelta(days=7)
+    session_ttl: timedelta = timedelta(days=30)
 
     def __post_init__(self) -> None:
         if min(self.max_requests_per_window, self.max_verification_attempts) < 1:
@@ -113,6 +113,12 @@ class EmailDeliveryProvider(Protocol):
     ) -> None: ...
 
 
+class SmsDeliveryProvider(Protocol):
+    def send_sign_in_code(
+        self, *, to_mobile: str, code: str, expires_at: datetime, realm: AuthRealm
+    ) -> None: ...
+
+
 def normalize_email(value: str) -> str:
     normalized = value.strip().casefold()
     if len(normalized) > 320 or normalized.count("@") != 1:
@@ -138,7 +144,19 @@ def normalize_test_destination(value: str) -> str:
     digits = "".join(character for character in compact if character.isdigit())
     if not 7 <= len(digits) <= 15:
         return ""
-    return f"+{digits}" if compact.startswith("+") else digits
+    if compact.startswith("+"):
+        return f"+{digits}"
+    if len(digits) == 10 and digits[0] in "6789":
+        return f"+91{digits}"
+    return digits
+
+
+def normalize_destination(value: str) -> str:
+    email = normalize_email(value)
+    if email:
+        return email
+    mobile = normalize_test_destination(value)
+    return mobile if mobile.startswith("+") else ""
 
 
 def _secret_hash(pepper: bytes, purpose: bytes, value: str) -> bytes:
@@ -154,6 +172,7 @@ class EmailOtpService:
         *,
         pepper: bytes,
         fixed_test_code: str | None = None,
+        sms_provider: SmsDeliveryProvider | None = None,
     ) -> None:
         if len(pepper) < 32:
             raise ValueError("OTP pepper must contain at least 32 bytes")
@@ -168,6 +187,7 @@ class EmailOtpService:
         ):
             raise ValueError("fixed test OTP must contain 4 to 8 ASCII digits")
         self.fixed_test_code = fixed_test_code
+        self.sms_provider = sms_provider
 
     def request_code(
         self, email: str, realm: AuthRealm, *, now: datetime | None = None
@@ -176,7 +196,9 @@ class EmailOtpService:
         public_challenge_id = uuid4()
         public_expiry = current + self.policy.challenge_ttl
         normalized = (
-            normalize_test_destination(email) if self.fixed_test_code else normalize_email(email)
+            normalize_test_destination(email)
+            if self.fixed_test_code
+            else normalize_destination(email)
         )
         email_hash = _secret_hash(self.pepper, b"email", normalized or "invalid")
         recent = self.store.recent_request_times(
@@ -201,12 +223,20 @@ class EmailOtpService:
         )
         self.store.create_challenge(challenge)
         if self.fixed_test_code is None:
-            self.provider.send_sign_in_code(
-                to_email=identity.normalized_email,
-                code=code,
-                expires_at=challenge.expires_at,
-                realm=realm,
-            )
+            if "@" in identity.normalized_email:
+                self.provider.send_sign_in_code(
+                    to_email=identity.normalized_email,
+                    code=code,
+                    expires_at=challenge.expires_at,
+                    realm=realm,
+                )
+            elif self.sms_provider is not None:
+                self.sms_provider.send_sign_in_code(
+                    to_mobile=identity.normalized_email,
+                    code=code,
+                    expires_at=challenge.expires_at,
+                    realm=realm,
+                )
             return OtpRequestResult(public_challenge_id, public_expiry)
         channel = "email" if "@" in normalized else "SMS"
         return OtpRequestResult(
