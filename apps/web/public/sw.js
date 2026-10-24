@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-shell-v18";
+const CACHE_NAME = "wearo-shell-v19";
 const APP_SHELL = ["/app/", "/agent/", "/manifest.webmanifest", "/agent.webmanifest", "/wearo-brand.png"];
 
 self.addEventListener("install", (event) => {
@@ -22,7 +22,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));

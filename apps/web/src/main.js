@@ -47,7 +47,13 @@ if (experience === "agent") {
 }
 
 if ("serviceWorker" in navigator && (import.meta.env.PROD || experience === "agent")) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js", { scope: "/" }));
+  window.addEventListener("load", async () => {
+    const registration = await navigator.serviceWorker.register("/sw.js", {
+      scope: "/",
+      updateViaCache: "none",
+    });
+    await registration.update();
+  });
 }
 
 export { currentExperience, showConsumerSplash };
