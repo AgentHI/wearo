@@ -218,7 +218,8 @@ class OpenAIImageEditAdapter:
     region = "global"
     endpoint = "https://api.openai.com/v1/images/edits"
     prompt = (
-        "Use the first image as the customer and the second image as the wearable reference. "
+        "Use the exact customer shown in the first image and the second image as the wearable "
+        "reference. Do not substitute or redraw the customer as a different person. "
         "Identify the primary wearable shown in the second image. If the reference is contextual, "
         "isolate only the intended garment or jewellery and ignore any reference person, "
         "mannequin, clothing used only to display jewellery, hands, props, and background. Apply "

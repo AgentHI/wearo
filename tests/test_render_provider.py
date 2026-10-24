@@ -166,7 +166,8 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert fields["quality"] == "high" and fields["size"] == "1024x1536"
     assert fields["stream"] == "true" and fields["partial_images"] == "1"
     assert fields["prompt"] == (
-        "Use the first image as the customer and the second image as the wearable reference. "
+            "Use the exact customer shown in the first image and the second image as the wearable "
+            "reference. Do not substitute or redraw the customer as a different person. "
         "Identify the primary wearable shown in the second image. If the reference is contextual, "
         "isolate only the intended garment or jewellery and ignore any reference person, "
         "mannequin, clothing used only to display jewellery, hands, props, and background. Apply "

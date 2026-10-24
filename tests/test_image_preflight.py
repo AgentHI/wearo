@@ -29,11 +29,13 @@ def test_valid_apparel_input_passes() -> None:
     assert result.accepted and result.item_kind == "APPAREL"
 
 
-def test_invalid_file_size_and_lighting_fail_before_analyzer() -> None:
+def test_invalid_file_and_lighting_fail_but_low_resolution_reaches_analyzer() -> None:
     service = ImagePreflightService(FixedAnalyzer(valid()))
     assert service.validate(b"not-image", image_bytes()).code == "PERSON_FILE"
     assert service.validate(image_bytes(0), image_bytes()).code == "PERSON_LIGHTING"
-    assert service.validate(image_bytes(size=(200, 200)), image_bytes()).code == "PERSON_TOO_SMALL"
+    result = service.validate(image_bytes(size=(200, 200)), image_bytes())
+    assert result.accepted
+    assert (result.width, result.height) == (200, 200)
 
 
 def test_adult_safety_and_framing_are_hard_stops() -> None:

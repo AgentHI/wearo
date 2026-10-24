@@ -57,10 +57,6 @@ class ImagePreflightService:
         if isinstance(item, PreflightResult):
             return item
         person_width, person_height, brightness = person
-        if person_width < 512 or person_height < 512:
-            return PreflightResult(
-                False, "PERSON_TOO_SMALL", "Use a clearer photo at least 512 px wide and tall."
-            )
         if brightness < 30 or brightness > 235:
             return PreflightResult(
                 False, "PERSON_LIGHTING", "Retake the photo in even, natural lighting."
