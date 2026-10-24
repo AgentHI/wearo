@@ -102,7 +102,7 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(business, /Agent app URL/);
   assert.match(business, /Copy app URL/);
   assert.match(business, /result\.agent_url/);
-  assert.match(business, /replace\(\/\^\\\/shop\\\/\//);
+  assert.doesNotMatch(business, /url\.pathname\.replace\(\/\^\\\/shop/);
   assert.match(business, /Download QR poster/);
   assert.match(business, /id="shop-url"[^>]*target="_blank"[^>]*rel="noopener"/);
   assert.match(business, /General try-on allowance/);

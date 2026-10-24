@@ -539,6 +539,11 @@ def _job_json(job: DurableRenderJob) -> dict[str, Any]:
     }
 
 
+def _public_origin(request: Request) -> str:
+    """Return the configured browser origin, falling back to the request host."""
+    return os.environ.get("WEARO_CONSUMER_ORIGIN", str(request.base_url)).rstrip("/")
+
+
 def create_app(
     container: ApiContainer,
     *,
@@ -811,7 +816,7 @@ def create_app(
         session = _authenticate_agent(request, container)
         if container.business_agents is None:
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agent access is unavailable.")
-        origin = os.environ.get("WEARO_CONSUMER_ORIGIN", str(request.base_url)).rstrip("/")
+        origin = _public_origin(request)
         return container.business_agents.context(session.principal_id, origin, business, key)
 
     @app.get("/api/v1/public/agent-manifest")
@@ -849,7 +854,7 @@ def create_app(
         session = _authenticate_agent(request, container)
         if container.business_agents is None:
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agent access is unavailable.")
-        origin = os.environ.get("WEARO_CONSUMER_ORIGIN", str(request.base_url)).rstrip("/")
+        origin = _public_origin(request)
         context = container.business_agents.context(session.principal_id, origin, business, key)
         return Response(
             qr_poster(str(context["shop_url"]), str(context["display_name"])),
@@ -864,7 +869,7 @@ def create_app(
         if container.business_agents is None or container.business_allowances is None:
             raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
         context = container.business_agents.context(
-            session.principal_id, str(request.base_url), business, key
+            session.principal_id, _public_origin(request), business, key
         )
         allowance = container.business_allowances.get(
             session.principal_id, UUID(str(context["tenant_id"])), mobile, agent=True
@@ -893,7 +898,7 @@ def create_app(
         if container.business_agents is None or container.business_allowances is None:
             raise ApiProblem(503, "ALLOWANCE_UNAVAILABLE", "Allowances are unavailable.")
         context = container.business_agents.context(
-            session.principal_id, str(request.base_url), business, key
+            session.principal_id, _public_origin(request), business, key
         )
         allowance = container.business_allowances.adjust_user(
             session.principal_id,
@@ -1134,7 +1139,7 @@ def create_app(
         session = _authenticate_business(request, container)
         if container.business_shop is None:
             raise ApiProblem(503, "SHOP_LINK_UNAVAILABLE", "Shop link is unavailable.")
-        origin = os.environ.get("WEARO_CONSUMER_ORIGIN", "http://localhost:5173").rstrip("/")
+        origin = _public_origin(request)
         return container.business_shop.details(session.principal_id, tenant_id, origin)
 
     @app.get("/api/v1/business/tenants/{tenant_id}/shop-qr.png")
@@ -1145,7 +1150,7 @@ def create_app(
         details = container.business_shop.details(
             session.principal_id,
             tenant_id,
-            os.environ.get("WEARO_CONSUMER_ORIGIN", "http://localhost:5173").rstrip("/"),
+            _public_origin(request),
         )
         logo = None
         if details["logo_asset_id"] is not None:
@@ -1164,7 +1169,7 @@ def create_app(
         if container.business_shop is None:
             raise ApiProblem(503, "BUSINESS_LOGO_UNAVAILABLE", "Company logo is unavailable.")
         details = container.business_shop.details(
-            session.principal_id, tenant_id, str(request.base_url).rstrip("/")
+            session.principal_id, tenant_id, _public_origin(request)
         )
         if details["logo_asset_id"] is None:
             raise ApiProblem(404, "BUSINESS_LOGO_NOT_FOUND", "No company logo has been uploaded.")

@@ -15,15 +15,7 @@ async function copyToClipboard(value) {
 }
 
 function agentUrlFromShopLink(result) {
-  if (typeof result.agent_url === "string" && result.agent_url.trim()) return result.agent_url;
-  if (typeof result.shop_url !== "string" || !result.shop_url.trim()) return "";
-  try {
-    const url = new URL(result.shop_url, window.location.origin);
-    url.pathname = url.pathname.replace(/^\/shop\//, "/agent/");
-    return url.toString();
-  } catch {
-    return "";
-  }
+  return typeof result.agent_url === "string" ? result.agent_url.trim() : "";
 }
 
 function fileToDataUrl(file) {
