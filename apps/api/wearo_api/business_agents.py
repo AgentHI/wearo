@@ -77,7 +77,7 @@ class PostgresBusinessAgents:
                     WHERE identity.channel='PHONE'
                       AND identity.normalized_value=:mobile
                       AND principal.principal_type='BUSINESS'
-                      AND (:agent_principal IS NULL
+                      AND (CAST(:agent_principal AS uuid) IS NULL
                            OR identity.principal_id <> CAST(:agent_principal AS uuid))
                     LIMIT 1"""
                 ),
