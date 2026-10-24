@@ -276,6 +276,12 @@ function homeView() {
       <p id="tryon-status" class="form-status status-panel" role="status" aria-live="polite"></p>
       <div class="notice" role="note"><strong>Visual preview only.</strong> This is not a fit, size, measurement, material, or purchase guarantee.</div>
     </section>
+    <dialog id="photo-picker-dialog" class="photo-picker-dialog" aria-labelledby="photo-picker-title">
+      <div class="photo-picker-dialog__panel">
+        <header><div><p class="eyebrow">Your photo library</p><h2 id="photo-picker-title">Choose a photo</h2><p>Pick the angle that best matches this wearable.</p></div><button id="close-photo-picker" class="camera-dialog__close" type="button" aria-label="Close photo picker">×</button></header>
+        <div id="photo-picker-grid" class="photo-picker-grid"></div>
+      </div>
+    </dialog>
     <dialog id="camera-dialog" class="camera-dialog" aria-labelledby="camera-title">
       <div class="camera-dialog__panel">
         <header><div><p class="eyebrow">Wearable camera</p><h2 id="camera-title">Take a photo</h2></div><button id="close-camera" class="camera-dialog__close" type="button" aria-label="Close camera">×</button></header>
@@ -324,7 +330,16 @@ function profileView(auth) {
             </button>
           </div>
         </div>
-        <p class="field-help">JPEG, PNG or WebP · Maximum 7 MB per photo. Originals remain private.</p>
+        <div class="profile-library">
+          <div class="profile-library__heading">
+            <div><strong>Your photo library</strong><small id="profile-photo-count">0 of 10 photos</small></div>
+            <label class="profile-library__add"><span aria-hidden="true">＋</span> Add photos
+              <input name="additional_photos" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+            </label>
+          </div>
+          <div id="profile-photo-library" class="profile-library__grid" aria-live="polite"></div>
+        </div>
+        <p class="field-help">Store up to 10 JPEG, PNG or WebP photos · Maximum 7 MB each. Originals remain private.</p>
         <div class="field-row"><label>Height <span>Optional, cm</span><input name="height" type="number" min="80" max="260" inputmode="decimal" /></label><label>Weight <span>Optional, kg</span><input name="weight" type="number" min="20" max="350" inputmode="decimal" /></label></div>
         <p class="field-help">Used only as visual guidance, never for sizing or measurements.</p>
       </section>
@@ -372,6 +387,11 @@ function historyView() {
 function setButtonBusy(button, busy, busyLabel, idleLabel) {
   button.disabled = busy;
   button.setAttribute("aria-busy", String(busy));
+  if (button.classList.contains("icon-button")) {
+    button.setAttribute("aria-label", busy ? busyLabel : idleLabel);
+    button.title = busy ? busyLabel : idleLabel;
+    return;
+  }
   button.textContent = busy ? busyLabel : idleLabel;
 }
 
@@ -585,14 +605,18 @@ function attachProfileFlow(auth) {
   const form = document.querySelector("#profile-form");
   const fullBodyInput = form.elements.namedItem("full_body");
   const closeUpInput = form.elements.namedItem("close_up");
+  const additionalPhotosInput = form.elements.namedItem("additional_photos");
   const consentFields = document.querySelector("#consent-fields");
   const fullBodyPreview = document.querySelector("#full-body-preview");
   const closeUpPreview = document.querySelector("#close-up-preview");
   const submit = document.querySelector("#save-profile");
   const status = document.querySelector("#profile-status");
+  const photoLibrary = document.querySelector("#profile-photo-library");
+  const photoCount = document.querySelector("#profile-photo-count");
   let existingProfile = null;
   const previewUrls = new Map();
   const selectedProfileFiles = new Map();
+  let additionalFiles = [];
 
   const setConsentRequired = (required) => {
     consentFields.hidden = !required;
@@ -625,6 +649,36 @@ function attachProfileFlow(auth) {
     }];
   };
 
+  const renderPhotoLibrary = () => {
+    const replacedTypes = new Set([
+      selectedProfileFiles.has("full_body") ? "FULL_BODY" : null,
+      selectedProfileFiles.has("close_up") ? "CLOSE_UP" : null,
+    ].filter(Boolean));
+    const saved = currentImages().filter((image) => !replacedTypes.has(image.photo_type));
+    const entries = [
+      ...saved.map((image) => ({
+        src: `${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}`,
+        label: image.label,
+        primary: image.is_primary,
+      })),
+      ...Array.from(selectedProfileFiles.entries()).map(([name]) => ({
+        src: previewUrls.get(name),
+        label: name === "full_body" ? "New full-body photo" : "New close-up photo",
+        pending: true,
+      })),
+      ...additionalFiles.map((file, index) => ({
+        src: previewUrls.get(`additional_${index}`),
+        label: `New photo ${index + 1}`,
+        pending: true,
+      })),
+    ];
+    photoCount.textContent = `${entries.length} of 10 photos`;
+    photoLibrary.innerHTML = entries.length
+      ? entries.map((entry) => `<figure class="profile-library__item"><img src="${entry.src}" alt="${escapeHtml(entry.label)}" /><figcaption>${entry.primary ? "Primary" : entry.pending ? "Ready to save" : escapeHtml(entry.label)}</figcaption></figure>`).join("")
+      : '<p class="profile-library__empty">Your saved photos will appear here.</p>';
+    additionalPhotosInput.disabled = entries.length >= 10;
+  };
+
   if (auth.hasProfile) {
     submit.disabled = true;
     submit.setAttribute("aria-busy", "true");
@@ -650,6 +704,7 @@ function attachProfileFlow(auth) {
             "Your saved close-up profile photo",
           );
         }
+        renderPhotoLibrary();
         submit.disabled = false;
         submit.setAttribute("aria-busy", "false");
         setStatus(status, "Your profile is ready to update.", "success");
@@ -670,6 +725,7 @@ function attachProfileFlow(auth) {
   } else {
     setConsentRequired(true);
     setStatus(status, "Add your photo and consent to continue.");
+    renderPhotoLibrary();
   }
 
   const selectProfilePhoto = (input, file, preview, label) => {
@@ -680,6 +736,7 @@ function attachProfileFlow(auth) {
     const nextUrl = URL.createObjectURL(file);
     previewUrls.set(input.name, nextUrl);
     showPersonImage(preview, nextUrl, label);
+    renderPhotoLibrary();
     setStatus(status, "Photo selected. Review consent, then save your profile.");
   };
 
@@ -690,6 +747,29 @@ function attachProfileFlow(auth) {
   };
   attachPhotoPreview(fullBodyInput, fullBodyPreview, "Selected full-body profile photo");
   attachPhotoPreview(closeUpInput, closeUpPreview, "Selected close-up profile photo");
+
+  additionalPhotosInput.addEventListener("change", () => {
+    const replacedTypes = new Set([
+      selectedProfileFiles.has("full_body") ? "FULL_BODY" : null,
+      selectedProfileFiles.has("close_up") ? "CLOSE_UP" : null,
+    ].filter(Boolean));
+    const savedCount = currentImages().filter((image) => !replacedTypes.has(image.photo_type)).length;
+    const available = Math.max(0, 10 - savedCount - selectedProfileFiles.size);
+    const chosen = Array.from(additionalPhotosInput.files || []).slice(0, available);
+    for (const url of previewUrls.entries()) {
+      if (String(url[0]).startsWith("additional_")) URL.revokeObjectURL(url[1]);
+    }
+    additionalFiles = chosen;
+    chosen.forEach((file, index) => previewUrls.set(`additional_${index}`, URL.createObjectURL(file)));
+    setConsentRequired(chosen.length > 0 || selectedProfileFiles.size > 0 || !existingProfile);
+    renderPhotoLibrary();
+    setStatus(
+      status,
+      chosen.length < (additionalPhotosInput.files?.length || 0)
+        ? `You can keep up to 10 photos. The first ${chosen.length} selected photos were added.`
+        : `${chosen.length} photo${chosen.length === 1 ? "" : "s"} selected. Review consent, then save.`,
+    );
+  });
 
   const profilePhotoTargets = {
     full_body: {
@@ -739,11 +819,11 @@ function attachProfileFlow(auth) {
     }
     if (!form.reportValidity()) return;
     setButtonBusy(submit, true, "Saving profile…", auth.hasProfile ? "Save profile changes" : "Save profile and continue");
-    const newPhotos = [fullBodyFile, closeUpFile].filter(Boolean);
+    const newPhotos = [fullBodyFile, closeUpFile, ...additionalFiles].filter(Boolean);
     setStatus(status, newPhotos.length ? "Uploading your private profile photos…" : "Saving your profile details…");
     try {
       let images = currentImages().map((image) => ({ ...image }));
-      const savePhoto = async (file, photoType, label) => {
+      const savePhoto = async (file, photoType, label, replaceSameType = true) => {
         if (!file) return;
         const person = await upload("PERSON", file, auth);
         setStatus(status, "Recording your photo consent…");
@@ -763,7 +843,7 @@ function attachProfileFlow(auth) {
           },
           auth,
         );
-        images = images.filter((image) => image.photo_type !== photoType);
+        if (replaceSameType) images = images.filter((image) => image.photo_type !== photoType);
         images.push({
           person_asset_id: person.asset_id,
           consent_id: consent.id,
@@ -774,12 +854,16 @@ function attachProfileFlow(auth) {
       };
       await savePhoto(fullBodyFile, "FULL_BODY", "Full body");
       await savePhoto(closeUpFile, "CLOSE_UP", "Close-up");
+      for (const [index, file] of additionalFiles.entries()) {
+        await savePhoto(file, "OTHER", `Photo ${images.length + 1}`, false);
+      }
       if (!images.some((image) => image.photo_type === "FULL_BODY")) {
         throw new Error("Choose a full-body photo to create your profile.");
       }
+      const primaryAssetId = images.find((image) => image.photo_type === "FULL_BODY")?.person_asset_id;
       images = images.map((image) => ({
         ...image,
-        is_primary: image.photo_type === "FULL_BODY",
+        is_primary: image.person_asset_id === primaryAssetId,
       }));
       await api(
         "/me/person-profile",
@@ -846,6 +930,9 @@ function attachHomeFlow(auth) {
   const closeCameraButton = document.querySelector("#close-camera");
   const itemThumb = document.querySelector("#item-thumb");
   const personPhotoSelector = document.querySelector("#person-photo-selector");
+  const photoPickerDialog = document.querySelector("#photo-picker-dialog");
+  const photoPickerGrid = document.querySelector("#photo-picker-grid");
+  const closePhotoPicker = document.querySelector("#close-photo-picker");
   const preview = document.querySelector("#preview-canvas");
   const submit = document.querySelector("#generate-button");
   const status = document.querySelector("#tryon-status");
@@ -886,28 +973,32 @@ function attachHomeFlow(auth) {
           }];
       const selected = images.find((image) => image.is_primary) || images[0];
       selectedPersonAssetId = selected?.person_asset_id || null;
-      personPhotoSelector.innerHTML = `
-        <legend>Use person photo</legend>
-        <div class="person-photo-options">
-          ${images
-            .map((image) => {
-              const assetId = escapeHtml(image.person_asset_id);
-              const label = escapeHtml(image.label || (image.photo_type === "CLOSE_UP" ? "Close-up" : "Full body"));
-              return `
-                <label class="person-photo-option">
-                  <input type="radio" name="person_asset_id" value="${assetId}" ${image.person_asset_id === selectedPersonAssetId ? "checked" : ""} required />
-                  <img src="${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}" alt="${label} profile photo" />
-                  <span>${label}</span>
-                </label>`;
-            })
-            .join("")}
-        </div>`;
-      personPhotoSelector.addEventListener("change", (event) => {
-        if (event.target.name === "person_asset_id") {
-          selectedPersonAssetId = event.target.value;
+      const photoLabel = (image) => image.label || (image.photo_type === "CLOSE_UP" ? "Close-up" : "Full body");
+      const renderSelectedPhoto = () => {
+        const current = images.find((image) => image.person_asset_id === selectedPersonAssetId) || images[0];
+        const label = escapeHtml(photoLabel(current));
+        personPhotoSelector.innerHTML = `<legend>Use person photo</legend><div class="selected-person-photo"><img src="${API_BASE}/assets/${encodeURIComponent(current.person_asset_id)}" alt="${label} profile photo" /><div><small>Selected photo</small><strong>${label}</strong><span>${images.length} saved photo${images.length === 1 ? "" : "s"}</span></div><button id="open-photo-picker" type="button">Choose</button></div>`;
+        personPhotoSelector.querySelector("#open-photo-picker").addEventListener("click", () => photoPickerDialog.showModal());
+      };
+      photoPickerGrid.innerHTML = images.map((image) => {
+        const assetId = escapeHtml(image.person_asset_id);
+        const label = escapeHtml(photoLabel(image));
+        return `<button class="photo-picker-option${image.person_asset_id === selectedPersonAssetId ? " is-selected" : ""}" type="button" data-person-asset-id="${assetId}" aria-pressed="${image.person_asset_id === selectedPersonAssetId}"><img src="${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}" alt="${label} profile photo" /><span><strong>${label}</strong><small>${image.is_primary ? "Primary photo" : "Tap to select"}</small></span><i aria-hidden="true">✓</i></button>`;
+      }).join("");
+      photoPickerGrid.querySelectorAll("[data-person-asset-id]").forEach((option) => {
+        option.addEventListener("click", () => {
+          selectedPersonAssetId = option.dataset.personAssetId;
+          photoPickerGrid.querySelectorAll("[data-person-asset-id]").forEach((item) => {
+            const active = item.dataset.personAssetId === selectedPersonAssetId;
+            item.classList.toggle("is-selected", active);
+            item.setAttribute("aria-pressed", String(active));
+          });
+          renderSelectedPhoto();
+          photoPickerDialog.close();
           setStatus(status, "Person photo selected. Add a wearable when ready.", "success");
-        }
+        });
       });
+      renderSelectedPhoto();
       submit.disabled = false;
     } catch (error) {
       setStatus(status, error.message, "error");
@@ -918,6 +1009,11 @@ function attachHomeFlow(auth) {
       }
     }
   };
+
+  closePhotoPicker.addEventListener("click", () => photoPickerDialog.close());
+  photoPickerDialog.addEventListener("click", (event) => {
+    if (event.target === photoPickerDialog) photoPickerDialog.close();
+  });
 
   const showGeneratedPreview = (assetId) => {
     if (!assetId) return;
@@ -1372,9 +1468,9 @@ function attachHistoryFlow(auth) {
                   <strong>${formatLookDate(look.created_at)}</strong>
                   <small>Available until ${formatLookDate(look.expires_at)}</small>
                   <div class="look-card__actions">
-                    <button type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download saved look from ${formatLookDate(look.created_at)}">Download</button>
-                    <button type="button" data-share-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Share saved look from ${formatLookDate(look.created_at)}">Share</button>
-                    <button type="button" data-delete-look data-render-id="${escapeHtml(look.render_id)}" aria-label="Delete saved look from ${formatLookDate(look.created_at)}">Delete</button>
+                    <button class="icon-button" type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download" title="Download"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg></button>
+                    <button class="icon-button" type="button" data-share-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Share" title="Share"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" /></svg></button>
+                    <button class="icon-button" type="button" data-delete-look data-render-id="${escapeHtml(look.render_id)}" aria-label="Delete" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-2 4 1 14h8l1-14M10 11v6m4-6v6" /></svg></button>
                   </div>
                 </div>
               </article>`;

@@ -139,6 +139,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "Take photo",
     "Take full-body photo",
     "Take close-up photo",
+    "Your photo library",
+    "0 of 10 photos",
+    "Choose a photo",
     "3 successful previews per day",
     "Refresh try-on balance",
     "Allotted",
@@ -204,7 +207,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.queue-card/);
   assert.match(css, /\.queue-card__remove/);
   assert.match(css, /\.look-card__actions/);
-  assert.match(css, /\.person-photo-options/);
+  assert.match(css, /\.selected-person-photo/);
+  assert.match(css, /\.photo-picker-dialog/);
+  assert.match(css, /\.profile-library__grid/);
   assert.match(css, /\.profile-photo-grid/);
   assert.match(css, /\.profile-camera-button/);
   assert.match(css, /\.wearable-source-actions/);
@@ -229,7 +234,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v17/);
+  assert.match(worker, /wearo-shell-v18/);
   assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);

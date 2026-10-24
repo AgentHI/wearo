@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-shell-v17";
+const CACHE_NAME = "wearo-shell-v18";
 const APP_SHELL = ["/app/", "/agent/", "/manifest.webmanifest", "/agent.webmanifest", "/wearo-brand.png"];
 
 self.addEventListener("install", (event) => {

@@ -96,12 +96,10 @@ class PersonProfileService:
         if profile.weight_kg is not None and not Decimal(20) <= profile.weight_kg <= Decimal(350):
             raise ProfileError("weight guidance is outside supported bounds")
         if profile.images:
-            if len(profile.images) > 6:
-                raise ProfileError("a profile supports up to six photos")
+            if len(profile.images) > 10:
+                raise ProfileError("a profile supports up to 10 photos")
             if len({image.asset_id for image in profile.images}) != len(profile.images):
                 raise ProfileError("profile photos must be unique")
-            if len({image.photo_type for image in profile.images}) != len(profile.images):
-                raise ProfileError("profile photo types must be unique")
             if any(
                 image.photo_type not in {"FULL_BODY", "CLOSE_UP", "OTHER"}
                 for image in profile.images

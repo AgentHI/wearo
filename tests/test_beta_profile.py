@@ -132,6 +132,33 @@ def test_profile_supports_reusable_full_body_and_close_up_photos() -> None:
         )
 
 
+def test_profile_supports_ten_photos_and_rejects_an_eleventh() -> None:
+    service = PersonProfileService(MemoryProfileStore())
+    item = profile(uuid4())
+    full_body = ProfileImage(
+        uuid4(), item.person_asset_id, item.consent_id, "FULL_BODY", "Full body", True
+    )
+    other_photos = tuple(
+        ProfileImage(uuid4(), uuid4(), uuid4(), "OTHER", f"Photo {index}", False)
+        for index in range(2, 11)
+    )
+    ten_photo_profile = replace(item, images=(full_body, *other_photos))
+
+    service.save(ten_photo_profile, now=NOW)
+
+    with pytest.raises(ProfileError, match="up to 10 photos"):
+        service.save(
+            replace(
+                ten_photo_profile,
+                images=(
+                    *ten_photo_profile.images,
+                    ProfileImage(uuid4(), uuid4(), uuid4(), "OTHER", "Photo 11", False),
+                ),
+            ),
+            now=NOW,
+        )
+
+
 def test_only_successes_consume_three_per_ist_day_and_one_job_is_active() -> None:
     service = DailyQuotaService(MemoryQuotaStore())
     account = uuid4()

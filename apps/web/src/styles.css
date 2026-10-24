@@ -380,8 +380,11 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .look-card__meta { display: grid; gap: .2rem; padding: .75rem; }
 .look-card__meta strong { color: var(--brand-plum); font-size: .82rem; }
 .look-card__meta small { color: var(--ink-mauve); font-size: .68rem; line-height: 1.35; }
-.look-card__actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; margin-top: .45rem; }
-.look-card__actions button { min-height: 2.25rem; padding: .35rem; border: 1px solid var(--border-mauve); border-radius: .55rem; color: var(--brand-plum); background: white; font-size: .7rem; font-weight: 700; }
+.look-card__actions { display: flex; gap: .45rem; justify-content: flex-end; margin-top: .45rem; }
+.look-card__actions button { min-height: 2.5rem; padding: .35rem; border: 1px solid var(--border-mauve); border-radius: .65rem; color: var(--brand-plum); background: white; font-size: .7rem; font-weight: 700; }
+.look-card__actions .icon-button { display: grid; width: 2.5rem; flex: 0 0 2.5rem; place-items: center; cursor: pointer; }
+.look-card__actions .icon-button svg { width: 1.2rem; height: 1.2rem; overflow: visible; fill: none; stroke: currentcolor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.look-card__actions .icon-button[aria-busy="true"] svg { animation: allowance-refresh-spin .8s linear infinite; }
 .look-card__actions button:last-child { color: #8f2d3b; }
 .look-card__actions button:disabled { cursor: wait; opacity: .65; }
 .profile-card { display: flex; align-items: center; gap: .8rem; padding: 1rem; border: 1px solid var(--border-mauve); border-radius: 1rem; background: white; }
@@ -430,12 +433,26 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .person-photo-selector { display: grid; gap: .55rem; margin: 0; padding: .7rem; border: 1px solid var(--border-mauve); border-radius: .9rem; background: var(--surface-soft); }
 .person-photo-selector legend { padding: 0 .25rem; color: var(--brand-plum); font-size: .78rem; font-weight: 700; }
 .person-photo-selector > p { margin: 0; color: var(--ink-mauve); font-size: .72rem; }
-.person-photo-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
-.person-photo-option { position: relative; display: grid; min-width: 0; gap: .3rem; padding: .3rem; border: 2px solid transparent; border-radius: .7rem; background: white; cursor: pointer; }
-.person-photo-option:has(input:checked) { border-color: var(--brand-plum); box-shadow: 0 0 0 2px rgb(59 23 70 / 10%); }
-.person-photo-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.person-photo-option img { width: 100%; aspect-ratio: 1; border-radius: .5rem; object-fit: cover; }
-.person-photo-option span { overflow: hidden; color: var(--brand-plum); font-size: .65rem; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.selected-person-photo { display: grid; grid-template-columns: 3.25rem minmax(0, 1fr) auto; align-items: center; gap: .6rem; }
+.selected-person-photo img { width: 3.25rem; aspect-ratio: 1; border-radius: .65rem; object-fit: cover; }
+.selected-person-photo > div { display: grid; min-width: 0; }
+.selected-person-photo small, .selected-person-photo span { color: var(--ink-mauve); font-size: .62rem; }
+.selected-person-photo strong { overflow: hidden; color: var(--brand-plum); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.selected-person-photo button { padding: .48rem .6rem; border: 1px solid var(--brand-plum); border-radius: 999px; color: var(--brand-plum); background: white; font: inherit; font-size: .67rem; font-weight: 800; cursor: pointer; }
+.photo-picker-dialog { width: min(calc(100% - 1rem), 36rem); max-height: min(42rem, calc(100dvh - 1rem)); padding: 0; overflow: hidden; border: 0; border-radius: 1.35rem; color: var(--ink-charcoal); background: white; box-shadow: var(--shadow-lg); }
+.photo-picker-dialog::backdrop { background: rgb(37 17 41 / 62%); backdrop-filter: blur(.2rem); }
+.photo-picker-dialog__panel { display: grid; max-height: inherit; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; padding: 1rem; }
+.photo-picker-dialog header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.photo-picker-dialog header p:last-child { margin: .25rem 0 0; color: var(--ink-mauve); font-size: .78rem; }
+.photo-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; overflow-y: auto; overscroll-behavior: contain; }
+.photo-picker-option { position: relative; display: grid; min-width: 0; grid-template-columns: 3.6rem minmax(0, 1fr); align-items: center; gap: .6rem; padding: .42rem; border: 2px solid transparent; border-radius: .85rem; color: inherit; background: var(--surface-soft); text-align: left; cursor: pointer; }
+.photo-picker-option.is-selected { border-color: var(--brand-plum); background: white; box-shadow: 0 .4rem 1.2rem rgb(59 23 70 / 10%); }
+.photo-picker-option img { width: 3.6rem; aspect-ratio: 1; border-radius: .62rem; object-fit: cover; }
+.photo-picker-option span { display: grid; min-width: 0; }
+.photo-picker-option strong { overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.photo-picker-option small { color: var(--ink-mauve); font-size: .6rem; }
+.photo-picker-option i { position: absolute; top: .32rem; right: .32rem; display: none; width: 1.15rem; aspect-ratio: 1; place-items: center; border-radius: 50%; color: white; background: var(--brand-plum); font-size: .65rem; font-style: normal; }
+.photo-picker-option.is-selected i { display: grid; }
 .wearable-picker { display: grid; flex: 1; align-content: start; gap: .45rem; padding: .7rem; border: 1px dashed var(--brand-gold); border-radius: .9rem; background: #fffdf8; }
 .wearable-picker__thumb { display: grid; width: 100%; aspect-ratio: 1; place-items: center; overflow: hidden; border-radius: .7rem; color: var(--brand-plum); background: var(--state-lilac); font-size: 2rem; }
 .wearable-picker__thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -468,6 +485,18 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .profile-camera-button { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .45rem; padding: .6rem .8rem; border: 1px solid var(--brand-plum); border-radius: .7rem; color: white; background: var(--brand-plum); font-size: .78rem; font-weight: 700; }
 .profile-camera-button:hover { background: var(--brand-aubergine); }
 .profile-camera-button svg { width: 1.2rem; height: 1.2rem; flex: 0 0 auto; }
+.profile-library { display: grid; gap: .7rem; padding-top: .9rem; border-top: 1px solid var(--border-mauve); }
+.profile-library__heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.profile-library__heading > div { display: grid; }
+.profile-library__heading small { color: var(--ink-mauve); font-size: .7rem; }
+.profile-library__add { position: relative; display: inline-flex; align-items: center; gap: .25rem; padding: .5rem .7rem; border: 1px solid var(--brand-plum); border-radius: 999px; color: var(--brand-plum); font-size: .72rem; font-weight: 800; cursor: pointer; }
+.profile-library__add:has(input:disabled) { opacity: .45; cursor: default; }
+.profile-library__add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.profile-library__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
+.profile-library__item { position: relative; min-width: 0; margin: 0; overflow: hidden; border-radius: .7rem; background: var(--surface-soft); }
+.profile-library__item img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.profile-library__item figcaption { position: absolute; right: .2rem; bottom: .2rem; left: .2rem; overflow: hidden; padding: .2rem .3rem; border-radius: .35rem; color: white; background: rgb(37 17 41 / 76%); font-size: .55rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.profile-library__empty { grid-column: 1 / -1; margin: 0; padding: 1rem; border-radius: .7rem; color: var(--ink-mauve); background: var(--surface-soft); font-size: .75rem; text-align: center; }
 .person-preview { display: grid; min-height: 15rem; place-items: center; align-content: center; overflow: hidden; border-radius: .9rem; color: var(--brand-plum); background: radial-gradient(circle at 50% 25%, white, var(--state-lilac)); }
 .person-preview > span { font-size: 2rem; }
 .person-preview img { width: 100%; height: 100%; max-height: 28rem; object-fit: contain; }
@@ -530,6 +559,9 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .wearable-picker__thumb { grid-row: 1 / 3; }
   .wearable-source-actions, .wearable-picker .camera-permission-note { grid-column: 1 / -1; }
   .profile-photo-grid { grid-template-columns: 1fr; }
+  .profile-library__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .photo-picker-dialog { width: 100%; max-height: 82dvh; margin: auto 0 0; border-radius: 1.35rem 1.35rem 0 0; }
+  .photo-picker-grid { grid-template-columns: 1fr; }
   .person-preview { min-height: 13rem; }
 }
 

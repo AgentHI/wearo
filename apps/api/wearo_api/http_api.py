@@ -275,7 +275,7 @@ class ProfileBody(BaseModel):
 
     person_asset_id: UUID | None = None
     consent_id: UUID | None = None
-    images: list[ProfileImageBody] = Field(default_factory=list, max_length=6)
+    images: list[ProfileImageBody] = Field(default_factory=list, max_length=10)
     height_cm: float | None = Field(default=None, ge=80, le=260)
     weight_kg: float | None = Field(default=None, ge=20, le=350)
 
