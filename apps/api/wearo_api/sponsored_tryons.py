@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 
 
 class SponsoredTryOnError(ValueError):
@@ -19,6 +19,40 @@ class PostgresSponsoredTryOns:
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
+
+    @staticmethod
+    def _sync_session_allowance(
+        connection: Connection, session_id: UUID, current: datetime
+    ) -> None:
+        connection.execute(
+            text(
+                """UPDATE business_sponsored_sessions session
+                SET allowance_limit=GREATEST(
+                      policy.default_try_on_limit + COALESCE(user_allowance.limit_adjustment, 0),
+                      0
+                    ),
+                    status=CASE
+                      WHEN session.expires_at <= :now THEN 'EXPIRED'
+                      WHEN session.try_ons_used >= GREATEST(
+                        policy.default_try_on_limit
+                          + COALESCE(user_allowance.limit_adjustment, 0), 0
+                      ) THEN 'EXHAUSTED'
+                      ELSE 'ACTIVE'
+                    END,
+                    updated_at=:now
+                FROM business_participants participant
+                JOIN business_allowance_policies policy
+                  ON policy.tenant_id=participant.tenant_id
+                 AND policy.account_id=participant.business_account_id
+                LEFT JOIN business_user_allowances user_allowance
+                  ON user_allowance.tenant_id=participant.tenant_id
+                 AND user_allowance.account_id=participant.business_account_id
+                 AND user_allowance.normalized_mobile=participant.normalized_mobile
+                WHERE session.session_id=:session
+                  AND session.participant_id=participant.participant_id"""
+            ),
+            {"session": session_id, "now": current},
+        )
 
     def activate(
         self,
@@ -127,7 +161,19 @@ class PostgresSponsoredTryOns:
                 .one_or_none()
             )
             if existing is not None:
-                return self._session(existing, context["display_name"])
+                self._sync_session_allowance(connection, existing["session_id"], current)
+                refreshed = (
+                    connection.execute(
+                        text(
+                            """SELECT session_id, allowance_limit, try_ons_used, status, expires_at
+                            FROM business_sponsored_sessions WHERE session_id=:session"""
+                        ),
+                        {"session": existing["session_id"]},
+                    )
+                    .mappings()
+                    .one()
+                )
+                return self._session(refreshed, context["display_name"])
             allowance = int(
                 connection.execute(
                     text(
@@ -198,7 +244,9 @@ class PostgresSponsoredTryOns:
     def status(
         self, session_id: UUID, consumer_account_id: UUID, consumer_principal_id: UUID
     ) -> dict[str, object]:
-        with self.engine.connect() as connection:
+        current = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            self._sync_session_allowance(connection, session_id, current)
             row = (
                 connection.execute(
                     text(
@@ -241,6 +289,7 @@ class PostgresSponsoredTryOns:
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                 {"key": f"sponsored:{session_id}:{key}"},
             )
+            self._sync_session_allowance(connection, session_id, current)
             session = (
                 connection.execute(
                     text(
@@ -439,6 +488,7 @@ class PostgresSponsoredTryOns:
             "business_name": str(business_name),
             "expires_at": row["expires_at"],
             "status": row["status"],
+            "try_ons_allotted": int(row["allowance_limit"]),
             "try_ons_used": int(row["try_ons_used"]),
             "try_ons_remaining": max(
                 int(row["allowance_limit"]) - int(row["try_ons_used"]), 0

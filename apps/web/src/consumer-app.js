@@ -864,7 +864,7 @@ function attachHomeFlow(auth) {
     sponsoredSession = await ensureSponsoredSession(auth);
     const card = document.querySelector("#sponsored-session-card");
     card.hidden = false;
-    card.innerHTML = `<strong>${escapeHtml(sponsoredSession.business_name)} sponsored session</strong><p>${sponsoredSession.try_ons_remaining} try-on${sponsoredSession.try_ons_remaining === 1 ? "" : "s"} remaining · Valid for 24 hours from verification.</p>`;
+    card.innerHTML = `<strong>${escapeHtml(sponsoredSession.business_name)} sponsored session</strong><div class="sponsored-session-stats"><span><small>Allotted</small><b>${sponsoredSession.try_ons_allotted}</b></span><span><small>Used</small><b>${sponsoredSession.try_ons_used}</b></span><span><small>Available</small><b>${sponsoredSession.try_ons_remaining}</b></span></div><p>Valid for 24 hours from verification.</p>`;
     allowanceCount.textContent = sponsoredSession.try_ons_remaining;
     allowanceCopy.textContent = sponsoredSession.try_ons_remaining;
     allowanceNote.textContent = `Sponsored by ${sponsoredSession.business_name} · Valid until ${new Date(sponsoredSession.expires_at).toLocaleString()}.`;

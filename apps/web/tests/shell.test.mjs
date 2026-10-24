@@ -141,6 +141,8 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "Take close-up photo",
     "3 successful previews per day",
     "Refresh try-on balance",
+    "Allotted",
+    "Available",
   ]) {
     assert.match(consumer, new RegExp(text, "i"));
   }
@@ -227,7 +229,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v15/);
+  assert.match(worker, /wearo-shell-v17/);
   assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);
