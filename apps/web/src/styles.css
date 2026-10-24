@@ -299,6 +299,11 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .allowance-card > div { display: flex; align-items: center; gap: .75rem; }
 .allowance-card > span { color: var(--ink-mauve); font-size: .75rem; }
 .allowance-card p { margin: .1rem 0 0; color: var(--ink-mauve); font-size: .75rem; }
+.allowance-card .allowance-actions { display: grid; flex: 0 0 auto; gap: .35rem; justify-items: center; color: var(--ink-mauve); font-size: .75rem; }
+.allowance-refresh { display: grid; width: 2.25rem; min-height: 2.25rem; padding: 0; place-items: center; border: 1px solid var(--border-mauve); border-radius: 50%; color: var(--brand-plum); background: var(--surface-soft); font: inherit; font-size: 1.25rem; font-weight: 700; cursor: pointer; }
+.allowance-refresh:hover { border-color: var(--brand-plum); background: white; }
+.allowance-refresh[aria-busy="true"] { animation: allowance-refresh-spin .8s linear infinite; }
+@keyframes allowance-refresh-spin { to { transform: rotate(360deg); } }
 .allowance-ring { display: grid; width: 2.8rem; height: 2.8rem; place-items: center; border: 4px solid var(--brand-gold); border-radius: 50%; color: var(--brand-plum); font-weight: 700; }
 .mobile-section { margin-top: 2rem; }
 .section-heading h2 { font-size: 1.5rem; }

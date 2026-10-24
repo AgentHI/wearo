@@ -51,10 +51,13 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   }
   assert.match(business, /\/business\/register/);
   assert.match(business, /wearo_business_registration_key/);
-  assert.match(business, /Total try-ons/);
-  assert.match(business, /Actual LLM tokens/);
+  assert.match(business, /Total tokens/);
+  assert.match(business, /Tokens consumed/);
+  assert.match(business, /Average tokens per try-on/);
   assert.match(business, /Tokens remaining/);
   assert.match(business, /Estimated try-ons remaining/);
+  assert.match(business, /Average try-ons/);
+  assert.doesNotMatch(business, /Actual LLM tokens/);
   assert.match(business, /\/business\/billing#token-topup/);
   assert.match(business, /Today/);
   assert.match(business, /Past week/);
@@ -134,6 +137,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "Take full-body photo",
     "Take close-up photo",
     "3 successful previews per day",
+    "Refresh try-on balance",
   ]) {
     assert.match(consumer, new RegExp(text, "i"));
   }
@@ -220,7 +224,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v12/);
+  assert.match(worker, /wearo-shell-v14/);
   assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);

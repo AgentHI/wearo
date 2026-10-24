@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from apps.api.wearo_api.plan_usage import usage_snapshot
 
 
@@ -12,10 +14,16 @@ def test_usage_snapshot_explains_before_and_after_billable_action() -> None:
         previews_used=4,
         action_code="TRY_ON",
         action_cost=20,
+        tokens_purchased=200,
+        reporting_hours=48,
     )
     assert snapshot.previews_remaining == 6
     assert snapshot.balance_after_action == 85
-    assert snapshot.estimated_previews == 5
+    assert snapshot.tokens_purchased == 200
+    assert snapshot.average_tokens_per_preview == 10
+    assert snapshot.estimated_previews == 10
+    assert snapshot.average_previews_per_day == 2
+    assert snapshot.average_previews_per_hour == pytest.approx(0.0833, rel=0.01)
 
 
 def test_unlimited_preview_plan_has_no_misleading_remaining_count() -> None:

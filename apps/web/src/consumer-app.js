@@ -242,7 +242,7 @@ function homeView() {
       <a class="profile-shortcut" href="/app/profile"><span>○</span> Edit profile</a>
     </header>
     <section id="sponsored-session-card" class="notice sponsored-session-card" hidden aria-live="polite"></section>
-    <section class="allowance-card" aria-label="Daily beta allowance"><div><span id="allowance-count" class="allowance-ring">—</span><div><strong><span id="allowance-copy">Loading</span> previews available</strong><p id="allowance-note">Beta testing · 3 successful previews per day.</p></div></div><span>Beta · Today</span></section>
+    <section class="allowance-card" aria-label="Daily beta allowance"><div><span id="allowance-count" class="allowance-ring">—</span><div><strong><span id="allowance-copy">Loading</span> previews available</strong><p id="allowance-note">Beta testing · 3 successful previews per day.</p></div></div><div class="allowance-actions"><span>Beta · Today</span><button id="refresh-allowance" class="allowance-refresh" type="button" aria-label="Refresh try-on balance" title="Refresh try-on balance">↻</button></div></section>
     <section class="tryon-studio" aria-labelledby="tryon-title">
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
       <div class="tryon-workspace">
@@ -852,6 +852,7 @@ function attachHomeFlow(auth) {
   const allowanceCount = document.querySelector("#allowance-count");
   const allowanceCopy = document.querySelector("#allowance-copy");
   const allowanceNote = document.querySelector("#allowance-note");
+  const allowanceRefresh = document.querySelector("#refresh-allowance");
   let itemPreviewUrl = null;
   let selectedItemFile = null;
   let generationActive = false;
@@ -939,7 +940,7 @@ function attachHomeFlow(auth) {
     try {
       if (readShopContext()) {
         await refreshSponsoredSession();
-        return;
+        return true;
       }
       const allowance = await api("/me/daily-allowance", {}, auth);
       allowanceCount.textContent = allowance.unlimited ? "∞" : allowance.remaining;
@@ -947,15 +948,30 @@ function attachHomeFlow(auth) {
       allowanceNote.textContent = allowance.unlimited
         ? `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · ${allowance.tokens_consumed_today ?? 0} actual LLM tokens today.`
         : `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · ${allowance.tokens_consumed_today ?? 0} actual LLM tokens · Resets at midnight IST.`;
+      return true;
     } catch (error) {
       if (error.status === 401) {
         clearAuth();
         window.location.assign("/app/sign-in");
-        return;
+        return false;
       }
       setStatus(status, error.message, "error");
+      return false;
     }
   };
+
+  allowanceRefresh.addEventListener("click", async () => {
+    allowanceRefresh.disabled = true;
+    allowanceRefresh.setAttribute("aria-busy", "true");
+    try {
+      if (await refreshAllowance()) {
+        setStatus(status, "Try-on balance refreshed.", "success");
+      }
+    } finally {
+      allowanceRefresh.disabled = false;
+      allowanceRefresh.removeAttribute("aria-busy");
+    }
+  });
 
   const waitForRender = async (renderId, onStatusChange) => {
     for (let attempt = 0; attempt < 60; attempt += 1) {

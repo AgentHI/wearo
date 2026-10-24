@@ -210,11 +210,12 @@ function dashboardView() {
   return `
     <header class="page-heading"><div><p class="eyebrow">Workspace overview</p><h1>Good morning.</h1><p>Monitor your virtual try-on operation and token consumption.</p></div><form id="overview-period" class="period-filter"><label><span>Reporting period</span><select name="period"><option value="today">Today</option><option value="week">Past week</option><option value="month" selected>Past month</option><option value="custom">Custom duration</option></select></label><div id="overview-custom-dates" class="period-filter__dates" hidden><label><span>From</span><input name="dateFrom" type="date" /></label><label><span>To</span><input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply</button></div></form></header>
     <section class="metric-grid overview-metrics" aria-label="Workspace token and try-on summary">
-      <article><div><p>Total try-ons</p><span class="metric-icon">↗</span></div><strong id="overview-tryons">—</strong><small>Completed try-ons so far</small></article>
-      <article><div><p>Actual LLM tokens</p><span class="metric-icon">−</span></div><strong id="overview-tokens-used">—</strong><small>Reported by the image model</small></article>
-      <article><div><p>Tokens remaining</p><span class="metric-icon">T</span></div><strong id="overview-token-balance">—</strong><small>Available Wearo Token balance</small></article>
-      <article><div><p>Estimated try-ons remaining</p><span class="metric-icon">≈</span></div><strong id="overview-estimated-tryons">—</strong><small>Based on the current try-on rate</small></article>
-      <article><div><p>Unique participants</p><span class="metric-icon">♙</span></div><strong id="overview-unique-participants">—</strong><small>Participants in the selected period</small></article>
+      <article><div><p>Total tokens</p><span class="metric-icon">＋</span></div><strong id="overview-total-tokens">—</strong><small>Tokens purchased or credited</small></article>
+      <article><div><p>Tokens consumed</p><span class="metric-icon">−</span></div><strong id="overview-tokens-used">—</strong><small>Used in the selected period</small></article>
+      <article><div><p>Average tokens per try-on</p><span class="metric-icon">÷</span></div><strong id="overview-average-tokens">—</strong><small>Consumed tokens ÷ completed try-ons</small></article>
+      <article><div><p>Tokens remaining</p><span class="metric-icon">T</span></div><strong id="overview-token-balance">—</strong><small>Current available token balance</small></article>
+      <article><div><p>Estimated try-ons remaining</p><span class="metric-icon">≈</span></div><strong id="overview-estimated-tryons">—</strong><small>Based on average tokens per try-on</small></article>
+      <article><div><p>Average try-ons</p><span class="metric-icon">↗</span></div><strong id="overview-average-tryons">—</strong><small id="overview-average-hourly">Per day · per hour</small></article>
       <article class="metric-topup"><div><p>Need more Wearo Tokens?</p><small>Choose a token pack and continue through secure payment.</small></div><a class="button button--primary" href="/business/billing#token-topup">Top up tokens</a></article>
     </section>
     <section class="dashboard-grid">
@@ -225,13 +226,15 @@ function dashboardView() {
 
 async function loadOverviewUsage(dateRange = {}) {
   const fields = {
-    previews_used: document.querySelector("#overview-tryons"),
+    tokens_purchased: document.querySelector("#overview-total-tokens"),
     tokens_used: document.querySelector("#overview-tokens-used"),
+    average_tokens: document.querySelector("#overview-average-tokens"),
     token_balance: document.querySelector("#overview-token-balance"),
     estimated_previews: document.querySelector("#overview-estimated-tryons"),
-    unique_participants: document.querySelector("#overview-unique-participants"),
+    average_tryons: document.querySelector("#overview-average-tryons"),
+    average_hourly: document.querySelector("#overview-average-hourly"),
   };
-  if (!fields.previews_used) return;
+  if (!fields.tokens_purchased) return;
   const tenantId = localStorage.getItem("wearo_business_tenant_id");
   if (!tenantId) {
     Object.values(fields).forEach((field) => { field.textContent = "Sign in"; });
@@ -242,13 +245,20 @@ async function loadOverviewUsage(dateRange = {}) {
     if (dateRange.dateFrom) query.set("date_from", dateRange.dateFrom);
     if (dateRange.dateTo) query.set("date_to", dateRange.dateTo);
     const usage = await businessApi(`/business/tenants/${tenantId}/usage?${query}`);
-    fields.previews_used.textContent = String(usage.previews_used);
-    fields.tokens_used.textContent = String(usage.provider_total_tokens);
+    const formatAverage = (value) => value == null ? "Not available" : Number(value).toFixed(1);
+    fields.tokens_purchased.textContent = String(usage.tokens_purchased);
+    fields.tokens_used.textContent = String(usage.tokens_used);
+    fields.average_tokens.textContent = formatAverage(usage.average_tokens_per_preview);
     fields.token_balance.textContent = String(usage.token_balance);
     fields.estimated_previews.textContent = usage.estimated_previews == null
       ? "Rate unavailable"
       : String(usage.estimated_previews);
-    fields.unique_participants.textContent = String(usage.unique_participants);
+    fields.average_tryons.textContent = usage.average_previews_per_day == null
+      ? "Not available"
+      : `${Number(usage.average_previews_per_day).toFixed(1)} / day`;
+    fields.average_hourly.textContent = usage.average_previews_per_hour == null
+      ? "No completed try-ons in this period"
+      : `${Number(usage.average_previews_per_hour).toFixed(2)} try-ons per hour`;
   } catch {
     Object.values(fields).forEach((field) => { field.textContent = "Unavailable"; });
   }

@@ -10,6 +10,7 @@ from sqlalchemy import Engine, text
 @dataclass(frozen=True)
 class UsageSnapshot:
     plan_code: str
+    tokens_purchased: int
     token_balance: int
     tokens_used: int
     preview_limit: int | None
@@ -23,6 +24,9 @@ class UsageSnapshot:
     provider_input_tokens: int
     provider_output_tokens: int
     provider_total_tokens: int
+    average_tokens_per_preview: float | None
+    average_previews_per_day: float | None
+    average_previews_per_hour: float | None
 
 
 def usage_snapshot(
@@ -38,14 +42,18 @@ def usage_snapshot(
     provider_input_tokens: int = 0,
     provider_output_tokens: int = 0,
     provider_total_tokens: int = 0,
+    tokens_purchased: int = 0,
+    reporting_hours: float | None = None,
 ) -> UsageSnapshot:
     remaining = None if preview_limit is None else max(preview_limit - previews_used, 0)
     after = None if action_cost is None else max(token_balance - action_cost, 0)
-    estimates = None
-    if action_cost is not None and action_cost > 0:
-        estimates = token_balance // action_cost
+    average_tokens = tokens_used / previews_used if previews_used > 0 else None
+    estimates = int(token_balance // average_tokens) if average_tokens else None
+    average_hourly = previews_used / reporting_hours if reporting_hours else None
+    average_daily = average_hourly * 24 if average_hourly is not None else None
     return UsageSnapshot(
         plan_code=plan_code,
+        tokens_purchased=tokens_purchased,
         token_balance=token_balance,
         tokens_used=tokens_used,
         preview_limit=preview_limit,
@@ -59,6 +67,9 @@ def usage_snapshot(
         provider_input_tokens=provider_input_tokens,
         provider_output_tokens=provider_output_tokens,
         provider_total_tokens=provider_total_tokens,
+        average_tokens_per_preview=average_tokens,
+        average_previews_per_day=average_daily,
+        average_previews_per_hour=average_hourly,
     )
 
 
@@ -104,6 +115,9 @@ class PostgresPlanUsage:
                     text(
                         """
                     SELECT COALESCE(sum(amount), 0) AS balance,
+                           COALESCE(sum(amount) FILTER (
+                               WHERE entry_type = 'CREDIT' AND amount > 0
+                           ), 0) AS purchased,
                            COALESCE(-sum(amount) FILTER (
                                WHERE entry_type = 'DEBIT' AND amount < 0
                                  AND (CAST(:period_start AS timestamptz) IS NULL
@@ -280,4 +294,10 @@ class PostgresPlanUsage:
             provider_input_tokens=int(provider_usage["input"]),
             provider_output_tokens=int(provider_usage["output"]),
             provider_total_tokens=int(provider_usage["total"]),
+            tokens_purchased=int(ledger["purchased"]),
+            reporting_hours=(
+                max((period_end - period_start).total_seconds() / 3600, 1)
+                if period_start is not None and period_end is not None
+                else None
+            ),
         )

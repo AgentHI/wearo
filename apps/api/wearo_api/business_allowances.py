@@ -314,6 +314,30 @@ class PostgresBusinessAllowances:
                     "actor": principal_id,
                 },
             )
+            if action == "ADD":
+                connection.execute(
+                    text(
+                        """UPDATE business_sponsored_sessions session
+                        SET allowance_limit=session.allowance_limit + :amount,
+                            status=CASE WHEN session.status='EXHAUSTED'
+                              THEN 'ACTIVE' ELSE session.status END,
+                            updated_at=:now
+                        FROM business_participants participant
+                        WHERE session.participant_id=participant.participant_id
+                          AND session.tenant_id=:tenant
+                          AND session.business_account_id=:account
+                          AND participant.normalized_mobile=:mobile
+                          AND session.status IN ('ACTIVE', 'EXHAUSTED')
+                          AND session.expires_at > :now"""
+                    ),
+                    {
+                        "tenant": tenant_id,
+                        "account": account_id,
+                        "mobile": normalized,
+                        "amount": amount,
+                        "now": now,
+                    },
+                )
             self._audit(
                 connection,
                 account_id,
