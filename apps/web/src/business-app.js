@@ -208,7 +208,7 @@ function signupView() {
 
 function dashboardView() {
   return `
-    <header class="page-heading"><div><p class="eyebrow">Workspace overview</p><h1>Good morning.</h1><p>Monitor your virtual try-on operation and token consumption.</p></div><form id="overview-period" class="period-filter"><label><span>Reporting period</span><select name="period"><option value="today">Today</option><option value="week">Past week</option><option value="month" selected>Past month</option><option value="custom">Custom duration</option></select></label><div id="overview-custom-dates" class="period-filter__dates" hidden><label><span>From</span><input name="dateFrom" type="date" /></label><label><span>To</span><input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply</button></div></form></header>
+    <header class="page-heading"><div><p class="eyebrow">Workspace overview</p><h1 id="dashboard-greeting">Welcome.</h1><p>Monitor your virtual try-on operation and token consumption.</p></div><form id="overview-period" class="period-filter"><label><span>Reporting period</span><select name="period"><option value="today">Today</option><option value="week">Past week</option><option value="month" selected>Past month</option><option value="custom">Custom duration</option></select></label><div id="overview-custom-dates" class="period-filter__dates" hidden><label><span>From</span><input name="dateFrom" type="date" /></label><label><span>To</span><input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply</button></div></form></header>
     <section class="metric-grid overview-metrics" aria-label="Workspace token and try-on summary">
       <article><div><p>Total tokens</p><span class="metric-icon">＋</span></div><strong id="overview-total-tokens">—</strong><small>Tokens purchased or credited</small></article>
       <article><div><p>Tokens consumed</p><span class="metric-icon">−</span></div><strong id="overview-tokens-used">—</strong><small>Used in the selected period</small></article>
@@ -222,6 +222,13 @@ function dashboardView() {
       <article class="panel"><div class="panel__heading"><div><h2>Launch readiness</h2><p>Complete these before customer traffic.</p></div></div><ul class="readiness-list"><li class="done"><span>✓</span>Workspace created</li><li><span>2</span>Connect billing</li><li><span>3</span>Connect your business app</li><li><span>4</span>Pass quality evaluation</li></ul></article>
       <article class="panel panel--wide"><div class="panel__heading"><div><h2>Recent activity</h2><p>Operational events, never private customer photos.</p></div></div><div class="table-empty"><span aria-hidden="true">◎</span><strong>Your activity feed is ready</strong><p>Events will appear when your team starts configuring the workspace.</p></div></article>
     </section>`;
+}
+
+function dashboardGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return "Good morning.";
+  if (hour < 17) return "Good afternoon.";
+  return "Good evening.";
 }
 
 async function loadOverviewUsage(dateRange = {}) {
@@ -1066,6 +1073,7 @@ function attachBusinessInteractions(section) {
     });
   }
   if (section === "dashboard") {
+    document.querySelector("#dashboard-greeting").textContent = dashboardGreeting();
     const periodForm = document.querySelector("#overview-period");
     const customDates = document.querySelector("#overview-custom-dates");
     const isoDate = (value) => [

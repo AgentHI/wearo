@@ -58,6 +58,9 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(business, /Estimated try-ons remaining/);
   assert.match(business, /Average try-ons/);
   assert.doesNotMatch(business, /Actual LLM tokens/);
+  assert.match(business, /function dashboardGreeting/);
+  assert.match(business, /Good afternoon\./);
+  assert.match(business, /Good evening\./);
   assert.match(business, /\/business\/billing#token-topup/);
   assert.match(business, /Today/);
   assert.match(business, /Past week/);
@@ -224,7 +227,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v14/);
+  assert.match(worker, /wearo-shell-v15/);
   assert.match(main, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);
