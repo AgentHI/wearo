@@ -105,6 +105,26 @@ def test_read_and_mutation_require_correct_realm_and_csrf() -> None:
             service.authenticate(token, now=NOW, **kwargs)
 
 
+def test_pending_account_is_limited_to_explicitly_allowed_idempotent_flow() -> None:
+    service, store, token, csrf, session = make_service()
+    pending = replace(session, account_status="DELETION_PENDING")
+    store.sessions[session.session_id] = pending
+
+    with pytest.raises(SessionAuthenticationError):
+        service.authenticate(token, expected_realm="SHOP", now=NOW)
+    assert (
+        service.authenticate(
+            token,
+            expected_realm="SHOP",
+            csrf_token=csrf,
+            mutation=True,
+            now=NOW,
+            allowed_account_statuses=frozenset({"ACTIVE", "DELETION_PENDING"}),
+        )
+        == pending
+    )
+
+
 def test_rotation_invalidates_old_token() -> None:
     service, _, token, _, _ = make_service()
     credentials = service.rotate(token, now=NOW)

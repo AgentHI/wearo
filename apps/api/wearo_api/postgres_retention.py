@@ -87,6 +87,7 @@ class PostgresLifecycleStore:
                     """
                     UPDATE media_assets
                     SET deletion_state = 'DELETED',
+                        object_key = NULL,
                         deleted_at = :deleted_at,
                         updated_at = :deleted_at
                     WHERE asset_id = :asset AND deletion_state = 'QUEUED'

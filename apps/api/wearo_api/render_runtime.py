@@ -123,6 +123,26 @@ class PostgresRenderRuntime:
 
     maximum_daily_generations = 3
 
+    @staticmethod
+    def _link_sponsored_render(
+        connection: Connection, job_id: UUID, account_id: UUID, key: str
+    ) -> bool:
+        links = connection.execute(
+            text(
+                """
+                UPDATE business_sponsored_tryons sponsored
+                SET render_job_id = :job
+                FROM business_sponsored_sessions session
+                WHERE session.session_id = sponsored.session_id
+                  AND sponsored.request_key = 'sponsored:' || :key
+                  AND session.consumer_account_id = :account
+                  AND sponsored.render_job_id IS NULL
+                """
+            ),
+            {"job": job_id, "key": key, "account": account_id},
+        )
+        return links.rowcount > 0
+
     def __init__(self, engine: Engine, *, enforce_daily_allowance: bool = True) -> None:
         self.engine = engine
         self.enforce_daily_allowance = enforce_daily_allowance
@@ -153,6 +173,7 @@ class PostgresRenderRuntime:
                 .one_or_none()
             )
             if existing is not None:
+                self._link_sponsored_render(connection, existing["job_id"], account_id, key)
                 return _job_from_row(existing)
 
             quote = connection.execute(
@@ -211,25 +232,10 @@ class PostgresRenderRuntime:
                     .mappings()
                     .one()
                 )
+                self._link_sponsored_render(connection, canonical["job_id"], account_id, key)
                 return _job_from_row(canonical)
 
-            sponsored = bool(
-                connection.execute(
-                    text(
-                        """
-                        SELECT EXISTS (
-                            SELECT 1
-                            FROM business_sponsored_tryons sponsored
-                            JOIN business_sponsored_sessions session
-                              ON session.session_id = sponsored.session_id
-                            WHERE sponsored.request_key = 'sponsored:' || :key
-                              AND session.consumer_account_id = :account
-                        )
-                        """
-                    ),
-                    {"key": key, "account": account_id},
-                ).scalar_one()
-            )
+            sponsored = self._link_sponsored_render(connection, job_id, account_id, key)
             usage = None
             if self.enforce_daily_allowance and not sponsored:
                 usage = connection.execute(
@@ -770,9 +776,7 @@ class PostgresRenderRuntime:
                         SELECT EXISTS (
                             SELECT 1
                             FROM business_sponsored_tryons sponsored
-                            JOIN render_jobs job
-                              ON job.idempotency_key = substring(sponsored.request_key FROM 11)
-                            WHERE job.job_id = :job
+                            WHERE sponsored.render_job_id = :job
                         )
                         """
                     ),

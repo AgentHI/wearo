@@ -38,6 +38,7 @@ class MemoryOtpStore:
         self.requests: list[tuple[bytes, AuthRealm, datetime]] = []
         self.challenges: dict[UUID, EmailOtpChallenge] = {}
         self.sessions: list[tuple[OtpIdentity, bytes, bytes]] = []
+        self.session_creation_allowed = True
 
     def resolve_identity(self, normalized_email: str, realm: AuthRealm) -> OtpIdentity | None:
         return next(
@@ -91,8 +92,11 @@ class MemoryOtpStore:
         csrf_token_hash: bytes,
         expires_at: datetime,
         created_at: datetime,
-    ) -> None:
+    ) -> bool:
+        if not self.session_creation_allowed:
+            return False
         self.sessions.append((identity, session_token_hash, csrf_token_hash))
+        return True
 
 
 def make_service() -> tuple[EmailOtpService, MemoryOtpStore, RecordingProvider]:
@@ -133,6 +137,87 @@ def test_valid_code_creates_hashed_session_and_cannot_replay() -> None:
     assert result.session_token.encode() not in store.sessions[0][1]
     with pytest.raises(OtpAuthenticationError, match="invalid or expired"):
         service.verify_code(challenge_id, code, now=NOW)
+
+
+def test_pending_consumer_can_verify_before_backend_deletion_deadline() -> None:
+    identity = OtpIdentity(
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        "returning@example.com",
+        "SHOP",
+        "DELETION_PENDING",
+    )
+    store = MemoryOtpStore(identity)
+    provider = RecordingProvider()
+    service = EmailOtpService(store, provider, EmailOtpPolicy(), pepper=PEPPER)
+
+    challenge = service.request_code("returning@example.com", "SHOP", now=NOW)
+    result = service.verify_code(challenge.challenge_id, provider.messages[0][1], now=NOW)
+
+    assert result.account_status == "DELETION_PENDING"
+
+
+def test_pending_business_identity_remains_ineligible() -> None:
+    identity = OtpIdentity(
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        "owner@example.com",
+        "BUSINESS",
+        "DELETION_PENDING",
+    )
+    store = MemoryOtpStore(identity)
+    provider = RecordingProvider()
+    service = EmailOtpService(store, provider, EmailOtpPolicy(), pepper=PEPPER)
+
+    service.request_code("owner@example.com", "BUSINESS", now=NOW)
+
+    assert provider.messages == []
+    assert store.challenges == {}
+
+
+def test_permanently_deleted_identity_cannot_request_login_code() -> None:
+    identity = OtpIdentity(
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        "deleted@example.com",
+        "SHOP",
+        "DISABLED",
+    )
+    store = MemoryOtpStore(identity)
+    provider = RecordingProvider()
+    service = EmailOtpService(store, provider, EmailOtpPolicy(), pepper=PEPPER)
+
+    response = service.request_code("deleted@example.com", "SHOP", now=NOW)
+
+    assert response.message == "If the address is eligible, a sign-in code has been sent."
+    assert provider.messages == []
+    assert store.challenges == {}
+
+
+def test_code_issued_before_permanent_deletion_cannot_create_session_after_deletion() -> None:
+    service, store, provider = make_service()
+    challenge_id, code = request_valid_code(service, store, provider)
+    identity = next(iter(store.identities.values()))
+    store.identities[identity.identity_id] = replace(identity, status="DISABLED")
+
+    with pytest.raises(OtpAuthenticationError, match="invalid or expired"):
+        service.verify_code(challenge_id, code, now=NOW)
+
+    assert store.sessions == []
+
+
+def test_session_creation_revalidates_account_against_concurrent_permanent_deletion() -> None:
+    service, store, provider = make_service()
+    challenge_id, code = request_valid_code(service, store, provider)
+    store.session_creation_allowed = False
+
+    with pytest.raises(OtpAuthenticationError, match="invalid or expired"):
+        service.verify_code(challenge_id, code, now=NOW)
+
+    assert store.sessions == []
 
 
 def test_expiry_and_attempt_limit_fail_closed() -> None:

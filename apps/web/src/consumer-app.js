@@ -121,6 +121,7 @@ function normalizeShopMobile(value) {
 
 function consumerRoute(pathname) {
   if (pathname.startsWith("/app/sign-in")) return "sign-in";
+  if (pathname.startsWith("/app/account-status")) return "account-status";
   if (pathname.startsWith("/app/history")) return "history";
   if (pathname.startsWith("/app/profile")) return "profile";
   if (pathname === "/shop" || pathname.startsWith("/shop/") || pathname.startsWith("/app/try-on")) return "home";
@@ -131,12 +132,14 @@ function resolvedRoute(pathname, auth) {
   let route = consumerRoute(pathname);
   if (!auth && route !== "sign-in") route = "sign-in";
   if (auth && route === "sign-in") route = auth.hasProfile ? "home" : "profile";
-  if (auth && !auth.hasProfile && route !== "profile") route = "profile";
+  if (auth?.accountStatus === "DELETION_PENDING") route = "account-status";
+  if (auth && !auth.hasProfile && !["profile", "account-status"].includes(route)) route = "profile";
   const expectedPath = {
     "sign-in": "/app/sign-in",
     home: "/app/",
     history: "/app/history",
     profile: "/app/profile",
+    "account-status": "/app/account-status",
   }[route];
   const isShopEntry = pathname.startsWith("/shop/");
   if (!isShopEntry && window.location.pathname !== expectedPath) window.history.replaceState({}, "", expectedPath);
@@ -202,7 +205,7 @@ function consumerFrame(route, content, authenticated, shopDetails = null) {
         </div>
       </header>
       <main id="main" class="consumer-main consumer-main--${route}">${content}</main>
-      ${authenticated ? `<nav class="bottom-nav" aria-label="Consumer app">${nav}</nav>` : ""}
+      ${authenticated && route !== "account-status" ? `<nav class="bottom-nav" aria-label="Consumer app">${nav}</nav>` : ""}
     </div>`;
 }
 
@@ -357,7 +360,6 @@ function profileView(auth) {
       </fieldset>
       <button id="save-profile" class="button button--primary button--full" type="submit">${setup ? "Save profile and continue" : "Save profile changes"}</button>
       <p id="profile-status" class="form-status status-panel" role="status" aria-live="polite"></p>
-      ${setup ? "" : '<button id="delete-profile" class="text-button" type="button">Delete saved profile</button>'}
     </form>
     <dialog id="profile-camera-dialog" class="camera-dialog" aria-labelledby="profile-camera-title">
       <div class="camera-dialog__panel">
@@ -374,6 +376,34 @@ function profileView(auth) {
       <div><span>◷</span><div><strong>Retention</strong><small>Product and accepted result media: 30 days</small></div></div>
       <div><span>⌾</span><div><strong>Privacy</strong><small>Not authorised for model training</small></div></div>
       <button id="logout" type="button"><span>↗</span><div><strong>Sign out</strong><small>End this session on this device</small></div></button>
+      <button id="open-cancellation" class="account-menu__danger" type="button"><span>⌫</span><div><strong>Cancel subscription &amp; delete account</strong><small>Account and photos remain recoverable for 30 days</small></div></button>
+    </section>
+    <dialog id="cancellation-dialog" class="cancellation-dialog" aria-labelledby="cancellation-title" aria-describedby="cancellation-description">
+      <div class="cancellation-dialog__panel">
+        <header><div><p class="eyebrow">Account settings</p><h2 id="cancellation-title">Cancel subscription and delete account?</h2></div><button id="close-cancellation" class="camera-dialog__close" type="button" aria-label="Close cancellation confirmation">×</button></header>
+        <div id="cancellation-description" class="cancellation-dialog__details">
+          <p>This will delete all your profile and try-on photos permanently after 30 days. Do you want to continue?</p>
+          <p>Your account remains unchanged unless you explicitly select Yes, Cancel.</p>
+        </div>
+        <p id="cancellation-status" class="form-status status-panel" role="status" aria-live="polite"></p>
+        <div class="cancellation-dialog__actions">
+          <button id="keep-subscription" class="button button--quiet" type="button">No, Keep My Account</button>
+          <button id="confirm-cancellation" class="button button--danger" type="button">Yes, Cancel</button>
+        </div>
+      </div>
+    </dialog>`;
+}
+
+function pendingDeletionView() {
+  return `
+    <section class="pending-deletion" aria-labelledby="pending-deletion-title">
+      <div class="pending-deletion__icon" aria-hidden="true">◷</div>
+      <p class="eyebrow">Cancellation confirmed</p>
+      <h1 id="pending-deletion-title">Your account is scheduled for deletion</h1>
+      <p id="pending-deletion-message" class="lede">Loading your deletion date…</p>
+      <div class="notice" role="note">Your profile and try-on photos remain retained until the scheduled deletion date.</div>
+      <button id="pending-logout" class="button button--quiet button--full" type="button">Sign out</button>
+      <p id="pending-deletion-status" class="form-status status-panel" role="status" aria-live="polite"></p>
     </section>`;
 }
 
@@ -578,18 +608,22 @@ function attachSignInFlow() {
           : form.elements.destination.value.trim(),
         displayName: form.elements.name?.value.trim() || "",
         identityVersion: AUTH_IDENTITY_VERSION,
+        accountStatus: "ACTIVE",
       };
       saveAuth(auth);
       if (shopContext) await ensureSponsoredSession(auth);
-      setStatus(
-        status,
-        auth.hasProfile ? "Signed in. Opening your fitting room…" : "Account ready. Let’s create your profile…",
-        "success",
-      );
+      const restorationDate = result.restored_from_deletion_at
+        ? new Date(result.restored_from_deletion_at).toLocaleDateString()
+        : null;
+      setStatus(status, restorationDate
+        ? `Account restored. It had been scheduled for permanent deletion on ${restorationDate}.`
+        : auth.hasProfile
+          ? "Signed in. Opening your fitting room…"
+          : "Account ready. Let’s create your profile…", "success");
       const nextLocation = shopContext
         ? window.location.href
         : (auth.hasProfile ? "/app/" : "/app/profile");
-      window.setTimeout(() => window.location.assign(nextLocation), 350);
+      window.setTimeout(() => window.location.assign(nextLocation), restorationDate ? 1200 : 350);
     } catch (error) {
       setStatus(status, error.message, "error");
       verifying = false;
@@ -621,6 +655,52 @@ function attachProfileFlow(auth) {
   const previewUrls = new Map();
   const selectedProfileFiles = new Map();
   let additionalFiles = [];
+
+  const cancellationDialog = document.querySelector("#cancellation-dialog");
+  const cancellationStatus = document.querySelector("#cancellation-status");
+  const confirmCancellation = document.querySelector("#confirm-cancellation");
+  document.querySelector("#open-cancellation").addEventListener("click", () => {
+    cancellationStatus.textContent = "";
+    cancellationDialog.showModal();
+  });
+  const closeCancellation = () => {
+    cancellationStatus.textContent = "";
+    cancellationDialog.close();
+  };
+  document.querySelector("#close-cancellation").addEventListener("click", closeCancellation);
+  document.querySelector("#keep-subscription").addEventListener("click", closeCancellation);
+  cancellationDialog.addEventListener("cancel", () => {
+    cancellationStatus.textContent = "";
+  });
+  confirmCancellation.addEventListener("click", async () => {
+    setButtonBusy(
+      confirmCancellation,
+      true,
+      "Cancelling subscription…",
+      "Yes, Cancel",
+    );
+    setStatus(cancellationStatus, "Confirming your cancellation…");
+    try {
+      const lifecycle = await api("/me/account", { method: "DELETE" }, auth);
+      auth.accountStatus = lifecycle.status;
+      auth.deletionAt = lifecycle.deletion_at;
+      saveAuth(auth);
+      setStatus(
+        cancellationStatus,
+        `Subscription cancelled. Your account is scheduled for deletion on ${new Date(lifecycle.deletion_at).toLocaleDateString()}.`,
+        "success",
+      );
+      window.setTimeout(() => window.location.assign("/app/account-status"), 500);
+    } catch (error) {
+      setStatus(cancellationStatus, error.message, "error");
+      setButtonBusy(
+        confirmCancellation,
+        false,
+        "Cancelling subscription…",
+        "Yes, Cancel",
+      );
+    }
+  });
 
   const setConsentRequired = (required) => {
     consentFields.hidden = !required;
@@ -921,22 +1001,6 @@ function attachProfileFlow(auth) {
     } catch (error) {
       setStatus(status, error.message, "error");
       setButtonBusy(submit, false, "Saving profile…", auth.hasProfile ? "Save profile changes" : "Save profile and continue");
-    }
-  });
-
-  document.querySelector("#delete-profile")?.addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    setButtonBusy(button, true, "Deleting…", "Delete saved profile");
-    setStatus(status, "Revoking profile access…");
-    try {
-      await api("/me/person-profile", { method: "DELETE" }, auth);
-      auth.hasProfile = false;
-      saveAuth(auth);
-      setStatus(status, "Profile deleted. Add a new photo to continue.", "success");
-      window.setTimeout(() => window.location.reload(), 350);
-    } catch (error) {
-      setStatus(status, error.message, "error");
-      setButtonBusy(button, false, "Deleting…", "Delete saved profile");
     }
   });
 
@@ -1526,6 +1590,36 @@ function attachHistoryFlow(auth) {
   loadLooks();
 }
 
+function attachPendingDeletionFlow(auth) {
+  const message = document.querySelector("#pending-deletion-message");
+  const status = document.querySelector("#pending-deletion-status");
+  api("/me/account", {}, auth)
+    .then((lifecycle) => {
+      if (lifecycle.status !== "DELETION_PENDING" || !lifecycle.deletion_at) {
+        auth.accountStatus = lifecycle.status;
+        delete auth.deletionAt;
+        saveAuth(auth);
+        window.location.assign("/app/");
+        return;
+      }
+      auth.accountStatus = lifecycle.status;
+      auth.deletionAt = lifecycle.deletion_at;
+      saveAuth(auth);
+      const deletionDate = new Date(lifecycle.deletion_at).toLocaleDateString();
+      message.textContent = `Your account is scheduled for permanent deletion on ${deletionDate}. Signing in before this date will restore your account.`;
+    })
+    .catch((error) => setStatus(status, error.message, "error"));
+
+  document.querySelector("#pending-logout").addEventListener("click", async () => {
+    try {
+      await api("/auth/logout", { method: "POST" }, auth);
+    } finally {
+      clearAuth();
+      window.location.assign("/app/sign-in");
+    }
+  });
+}
+
 export function renderConsumerApp(root, pathname) {
   document.documentElement.dataset.experience = "consumer";
   captureShopContext(pathname);
@@ -1546,8 +1640,9 @@ export function renderConsumerApp(root, pathname) {
     home: homeView,
     history: historyView,
     profile: () => profileView(auth),
+    "account-status": pendingDeletionView,
   };
-  const titles = { "sign-in": "Sign in", home: "Try on", history: "Looks", profile: "Profile" };
+  const titles = { "sign-in": "Sign in", home: "Try on", history: "Looks", profile: "Profile", "account-status": "Account status" };
   document.title = `${titles[route]} · Wearo`;
   root.innerHTML = consumerFrame(route, views[route](), Boolean(auth), shopDetails);
   attachInstallButton();
@@ -1555,6 +1650,7 @@ export function renderConsumerApp(root, pathname) {
   if (route === "profile") attachProfileFlow(auth);
   if (route === "home") attachHomeFlow(auth);
   if (route === "history") attachHistoryFlow(auth);
+  if (route === "account-status") attachPendingDeletionFlow(auth);
   if (auth && shopContext && route !== "home") {
     ensureSponsoredSession(auth).catch(() => { /* The home screen will show actionable errors. */ });
   }

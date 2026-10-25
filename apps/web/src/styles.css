@@ -41,6 +41,8 @@ p { line-height: 1.55; }
 .button--primary:hover { background: var(--brand-aubergine); }
 .button--quiet { color: var(--brand-plum); border-color: var(--border-mauve); background: white; }
 .button--quiet:hover { border-color: var(--brand-plum); }
+.button--danger { color: white; background: #8f2d3b; box-shadow: 0 .5rem 1.25rem rgb(143 45 59 / 18%); }
+.button--danger:hover { background: #70212d; }
 .button--full { width: 100%; }
 .button:disabled { cursor: not-allowed; opacity: .55; }
 .wordmark { display: inline-flex; flex: 0 0 auto; min-height: 44px; align-items: center; gap: .35rem; padding: .25rem .45rem; border: 1px solid var(--border-mauve); border-radius: .7rem; background: white; box-shadow: var(--shadow-sm); text-decoration: none; }
@@ -544,6 +546,22 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .consent-card legend { padding: 0 .35rem; color: var(--brand-plum); font-weight: 700; }
 .profile-editor > .button { margin: 0; }
 .account-menu button { width: 100%; border: 0; color: inherit; background: white; text-align: left; }
+.account-menu .account-menu__danger strong { color: #8f2d3b; }
+.account-menu .account-menu__danger > span { color: #8f2d3b; background: #f8e9e8; }
+.cancellation-dialog { width: min(calc(100% - 1.5rem), 30rem); padding: 0; border: 0; border-radius: 1.2rem; color: var(--ink-charcoal); background: white; box-shadow: var(--shadow-lg); }
+.cancellation-dialog::backdrop { background: rgb(37 17 41 / 72%); backdrop-filter: blur(.2rem); }
+.cancellation-dialog__panel { display: grid; gap: 1rem; padding: 1.25rem; }
+.cancellation-dialog header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.cancellation-dialog__details { padding: .9rem; border-radius: .8rem; background: #fff8f5; }
+.cancellation-dialog__details p { margin: 0; color: var(--ink-mauve); font-size: .85rem; }
+.cancellation-dialog__details p + p { margin-top: .7rem; color: var(--ink-charcoal); font-weight: 700; }
+.cancellation-dialog__actions { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
+.cancellation-dialog__actions .button { width: 100%; margin: 0; }
+.pending-deletion { display: grid; width: min(100%, 34rem); min-height: calc(100dvh - 8rem); align-content: center; justify-items: center; gap: .8rem; margin: auto; padding: 2rem 1rem; text-align: center; }
+.pending-deletion__icon { display: grid; width: 4.5rem; height: 4.5rem; place-items: center; border-radius: 50%; color: #8f2d3b; background: #f8e9e8; font-size: 2rem; }
+.pending-deletion h1 { max-width: 18ch; }
+.pending-deletion .lede { max-width: 34rem; margin: 0; }
+.pending-deletion .notice { width: 100%; margin: .5rem 0; text-align: left; }
 .bottom-nav { grid-template-columns: repeat(3, 1fr); }
 
 /* Agent PWA */

@@ -20,3 +20,9 @@ def test_added_allowance_reactivates_current_sponsored_session() -> None:
     assert "UPDATE business_sponsored_sessions session" in source
     assert "session.allowance_limit + :amount" in source
     assert "session.status='EXHAUSTED'" in source
+
+
+def test_anonymized_customers_are_not_exposed_in_business_search_or_lists() -> None:
+    source = Path("apps/api/wearo_api/business_allowances.py").read_text()
+    assert source.count("anonymized_at IS NULL") == 3
+    assert "job.job_id=sponsored.render_job_id" in source

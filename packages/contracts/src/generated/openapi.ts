@@ -674,6 +674,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current account cancellation lifecycle */
+        get: operations["get__me_account"];
+        put?: never;
+        post?: never;
+        /** Cancel the current account and begin its 30-day deletion grace period */
+        delete: operations["delete__me_account"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/person-profile": {
         parameters: {
             query?: never;
@@ -1028,6 +1046,25 @@ export interface components {
             csrf_token?: string;
             /** Format: date-time */
             expires_at?: string;
+            /**
+             * Format: date-time
+             * @description Original backend deletion deadline when this sign-in restored an account.
+             */
+            restored_from_deletion_at?: string | null;
+        };
+        AccountLifecycle: {
+            /** Format: uuid */
+            account_id: string;
+            /** @enum {string} */
+            status: "ACTIVE" | "DELETION_PENDING" | "PERMANENTLY_DELETED";
+            /** Format: date-time */
+            cancellation_at: string | null;
+            /** Format: date-time */
+            deletion_at: string | null;
+            /** Format: date-time */
+            permanently_deleted_at: string | null;
+            /** @enum {string|null} */
+            deletion_outcome: "COMPLETED" | null;
         };
         PersonProfileWrite: {
             /** Format: uuid */
@@ -4742,6 +4779,85 @@ export interface operations {
             };
             /** @description Rate limited */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get__me_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current backend-owned account lifecycle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountLifecycle"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    delete__me_account: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Anti-CSRF token bound to the browser session */
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Subscription disabled and account deletion scheduled */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountLifecycle"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Account is not active or cannot be cancelled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Client-supplied account, tenant, or deletion lifecycle fields are rejected */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

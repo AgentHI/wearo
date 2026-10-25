@@ -43,9 +43,8 @@ def test_business_usage_uses_each_table_actual_timestamp_columns() -> None:
     source = Path("apps/api/wearo_api/plan_usage.py").read_text()
     assert "business_sponsored_tryons sponsored" in source
     assert "business_sponsored_sessions session" in source
-    assert "job.account_id = session.consumer_account_id" in source
-    assert "job.tenant_id IS NULL" in source
-    assert "job.idempotency_key = substring(sponsored.request_key FROM 11)" in source
+    assert "job.job_id = sponsored.render_job_id" in source
+    assert "job.account_id = session.consumer_account_id" not in source
     assert "usage.action_code = :action" in source
     assert "COALESCE(sum(usage.token_cost) FILTER (" in source
     assert "count(DISTINCT session.participant_id)" in source

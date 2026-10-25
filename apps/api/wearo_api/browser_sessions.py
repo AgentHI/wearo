@@ -38,6 +38,7 @@ class BrowserSession:
     created_at: datetime
     expires_at: datetime
     revoked_at: datetime | None
+    account_status: str = "ACTIVE"
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ class BrowserSessionService:
         csrf_token: str | None = None,
         mutation: bool = False,
         now: datetime | None = None,
+        allowed_account_statuses: frozenset[str] = frozenset({"ACTIVE"}),
     ) -> BrowserSession:
         current = now or datetime.now(UTC)
         session = self.store.find_by_token_hash(self._hash(b"session", session_token))
@@ -94,6 +96,7 @@ class BrowserSessionService:
             and session.realm == expected_realm
             and session.revoked_at is None
             and session.expires_at > current
+            and session.account_status in allowed_account_statuses
         )
         csrf_valid = not mutation or (
             csrf_token is not None
@@ -124,7 +127,14 @@ class BrowserSessionService:
             raise SessionAuthenticationError("invalid or expired session")
         return SessionCredentials(new_token, new_csrf, expires_at)
 
-    def logout(self, session_token: str, csrf_token: str, *, now: datetime | None = None) -> None:
+    def logout(
+        self,
+        session_token: str,
+        csrf_token: str,
+        *,
+        now: datetime | None = None,
+        allowed_account_statuses: frozenset[str] = frozenset({"ACTIVE"}),
+    ) -> None:
         current = now or datetime.now(UTC)
         realm = self._realm(session_token)
         session = self.authenticate(
@@ -133,6 +143,7 @@ class BrowserSessionService:
             csrf_token=csrf_token,
             mutation=True,
             now=current,
+            allowed_account_statuses=allowed_account_statuses,
         )
         if not self.store.revoke(session.session_id, current):
             raise SessionAuthenticationError("invalid or expired session")

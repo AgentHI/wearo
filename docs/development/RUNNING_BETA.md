@@ -82,11 +82,21 @@ Run both commands from a scheduler with the same database and private-storage co
 ```sh
 UV_CACHE_DIR=.uv-cache uv run python -m apps.api.wearo_api.operations recover-leases
 UV_CACHE_DIR=.uv-cache uv run python -m apps.api.wearo_api.operations purge --limit 100
+UV_CACHE_DIR=.uv-cache uv run python -m apps.api.wearo_api.operations purge-accounts --limit 100
 ```
 
 The first fails processing work whose five-minute worker lease expired, removes it from the active
 queue, and releases its daily slot. The worker also performs this recovery before claiming its next
-job. The second purges due blobs and retains only the database tombstone.
+job. The second purges due blobs and permanently deletes accounts whose 30-day cancellation grace
+period has elapsed, retaining only non-personal database tombstones. The third is the account-only
+variant and should run from an infrastructure scheduler at least every five minutes, independently
+of API traffic or user sign-ins. It is safe to retry or overlap executions: eligible account rows
+are locked and authoritatively revalidated immediately before deletion, and only
+`DELETION_PENDING` rows whose backend deadline has passed are deleted. A login restoration that
+commits after candidate discovery causes deletion to stop. Re-running after a completed deletion
+is a no-op. Storage deletion errors make the operation fail with a non-zero exit and leave the
+account pending in PostgreSQL, so the scheduler can retry; storage backends must implement
+idempotent deletion of the original asset and all backend-owned derivatives.
 
 ## Render worker
 

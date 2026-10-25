@@ -2562,6 +2562,55 @@ paths:
                 $ref: '#/components/schemas/Error'
       security:
       - sessionCookie: []
+  /me/account:
+    get:
+      tags: [Identity]
+      summary: Read the current account cancellation lifecycle
+      operationId: get__me_account
+      responses:
+        '200':
+          description: Current backend-owned account lifecycle
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountLifecycle'}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
+    delete:
+      tags: [Identity]
+      summary: Cancel the current account and begin its 30-day deletion grace period
+      operationId: delete__me_account
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema: {type: string}
+        description: Anti-CSRF token bound to the browser session
+      responses:
+        '202':
+          description: Subscription disabled and account deletion scheduled
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountLifecycle'}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422':
+          description: Client-supplied account, tenant, or deletion lifecycle fields are rejected
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: Account is not active or cannot be cancelled
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
   /me/person-profile:
     get:
       tags: [Identity]
@@ -3837,10 +3886,35 @@ components:
         expires_at:
           type: string
           format: date-time
+        restored_from_deletion_at:
+          type: [string, 'null']
+          format: date-time
+          description: Original backend deletion deadline when this sign-in restored an account.
       required:
       - id
       - type
       - verified
+      additionalProperties: false
+    AccountLifecycle:
+      type: object
+      properties:
+        account_id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [ACTIVE, DELETION_PENDING, PERMANENTLY_DELETED]
+        cancellation_at: {type: [string, 'null'], format: date-time}
+        deletion_at: {type: [string, 'null'], format: date-time}
+        permanently_deleted_at: {type: [string, 'null'], format: date-time}
+        deletion_outcome:
+          type: [string, 'null']
+          enum: [COMPLETED, null]
+      required:
+      - account_id
+      - status
+      - cancellation_at
+      - deletion_at
+      - permanently_deleted_at
+      - deletion_outcome
       additionalProperties: false
     PersonProfileWrite:
       type: object

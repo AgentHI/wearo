@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
+from .account_lifecycle import AccountLifecycleError, PostgresAccountLifecycle
 from .beta_profile import (
     IST,
     DailyQuotaService,
@@ -166,6 +167,7 @@ class ApiContainer:
     support_cases: PostgresSupportCases | None = None
     support_access: PostgresSupportAccess | None = None
     sponsored_tryons: PostgresSponsoredTryOns | None = None
+    account_lifecycle: PostgresAccountLifecycle | None = None
     preflight: BetaRenderPreflightService | None = None
     secure_cookie: bool = True
     registration_test_otp: str | None = None
@@ -386,6 +388,7 @@ def _authenticate(
     *,
     mutation: bool = False,
     csrf_token: str | None = None,
+    allow_deletion_pending: bool = False,
 ) -> BrowserSession:
     token = request.cookies.get(CONSUMER_SESSION_COOKIE) or request.cookies.get(
         LEGACY_SESSION_COOKIE, ""
@@ -396,6 +399,11 @@ def _authenticate(
             expected_realm="SHOP",
             csrf_token=csrf_token,
             mutation=mutation,
+            allowed_account_statuses=(
+                frozenset({"ACTIVE", "DELETION_PENDING"})
+                if allow_deletion_pending
+                else frozenset({"ACTIVE"})
+            ),
         )
     except SessionAuthenticationError:
         status = 403 if token and mutation else 401
@@ -463,6 +471,7 @@ def _authenticated_cookie(
                 expected_realm=realm,
                 csrf_token=csrf_token,
                 mutation=True,
+                allowed_account_statuses=frozenset({"ACTIVE", "DELETION_PENDING"}),
             )
             return cookie_name, token
         except SessionAuthenticationError:
@@ -616,6 +625,7 @@ def create_app(
     @app.exception_handler(SupportCaseError)
     @app.exception_handler(SupportAccessError)
     @app.exception_handler(SponsoredTryOnError)
+    @app.exception_handler(AccountLifecycleError)
     @app.exception_handler(ConsentError)
     @app.exception_handler(MediaRuntimeError)
     @app.exception_handler(RenderPreflightError)
@@ -658,6 +668,7 @@ def create_app(
             "CATALOG_CONFLICT",
             "REGISTRATION_CONFLICT",
             "LAST_OWNER_REQUIRED",
+            "ACCOUNT_CANCELLATION_UNAVAILABLE",
         }:
             status = 409
         else:
@@ -744,6 +755,40 @@ def create_app(
                 session.principal_id, session.account_id, "CONSUMER"
             )
         )
+
+    @app.get("/api/v1/me/account")
+    def consumer_account_lifecycle(request: Request) -> dict[str, Any]:
+        session = _authenticate(request, container, allow_deletion_pending=True)
+        if container.account_lifecycle is None:
+            raise ApiProblem(
+                503, "ACCOUNT_LIFECYCLE_UNAVAILABLE", "Account lifecycle is unavailable."
+            )
+        return asdict(container.account_lifecycle.get(session.account_id, session.principal_id))
+
+    @app.delete("/api/v1/me/account", status_code=202)
+    async def cancel_consumer_account(
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, Any]:
+        session = _authenticate(
+            request,
+            container,
+            mutation=True,
+            csrf_token=x_csrf_token,
+            allow_deletion_pending=True,
+        )
+        if request.query_params or (await request.body()).strip():
+            raise ApiProblem(
+                422,
+                "ACCOUNT_LIFECYCLE_FIELDS_SERVER_MANAGED",
+                "Account identity and deletion timing are derived by the server.",
+            )
+        if container.account_lifecycle is None:
+            raise ApiProblem(
+                503, "ACCOUNT_CANCELLATION_UNAVAILABLE", "Account cancellation is unavailable."
+            )
+        lifecycle = container.account_lifecycle.cancel(session.account_id, session.principal_id)
+        return asdict(lifecycle)
 
     @app.get("/api/v1/business/tenants/{tenant_id}/overview")
     def business_overview(tenant_id: UUID, request: Request) -> dict[str, object]:
@@ -1645,8 +1690,18 @@ def create_app(
             result = container.otp.verify_code(body.challenge_id, body.code)
         except OtpAuthenticationError:
             raise ApiProblem(401, "INVALID_OTP", "Invalid or expired sign-in code.") from None
+        restored_from_deletion_at = None
+        if result.account_status == "DELETION_PENDING":
+            if container.account_lifecycle is None:
+                raise ApiProblem(
+                    503, "ACCOUNT_RESTORATION_UNAVAILABLE", "Account restoration is unavailable."
+                )
+            restored_from_deletion_at = container.account_lifecycle.restore(
+                result.account_id, result.principal_id
+            )
         has_person_profile = False
         if result.realm == "SHOP":
+            container.profiles.restore_requested(result.account_id)
             try:
                 container.profiles.require(result.account_id)
                 has_person_profile = True
@@ -1673,6 +1728,7 @@ def create_app(
             "has_person_profile": has_person_profile,
             "csrf_token": result.csrf_token,
             "expires_at": result.expires_at,
+            "restored_from_deletion_at": restored_from_deletion_at,
         }
 
     @app.post("/api/v1/auth/agent-otp/verify")
@@ -1723,7 +1779,11 @@ def create_app(
         x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
     ) -> dict[str, bool]:
         cookie_name, token = _authenticated_cookie(request, container, x_csrf_token)
-        container.sessions.logout(token, x_csrf_token or "")
+        container.sessions.logout(
+            token,
+            x_csrf_token or "",
+            allowed_account_statuses=frozenset({"ACTIVE", "DELETION_PENDING"}),
+        )
         response.delete_cookie(cookie_name, path="/", secure=container.secure_cookie, httponly=True)
         return {"ok": True}
 
@@ -2247,6 +2307,7 @@ def create_app_from_env() -> FastAPI:
             ),
             PostgresQuoteStore(engine),
         )
+    blob_store = FilesystemPrivateBlobStore(storage_root)
     container = ApiContainer(
         engine=engine,
         otp=EmailOtpService(
@@ -2272,7 +2333,7 @@ def create_app_from_env() -> FastAPI:
         sessions=BrowserSessionService(
             PostgresBrowserSessionStore(engine), SessionPolicy(), pepper=pepper
         ),
-        media=PostgresMediaRuntime(engine, FilesystemPrivateBlobStore(storage_root)),
+        media=PostgresMediaRuntime(engine, blob_store),
         consents=consent_service,
         profiles=profile_service,
         quota=quota_service,
@@ -2306,6 +2367,7 @@ def create_app_from_env() -> FastAPI:
         support_cases=PostgresSupportCases(engine),
         support_access=PostgresSupportAccess(engine),
         sponsored_tryons=PostgresSponsoredTryOns(engine),
+        account_lifecycle=PostgresAccountLifecycle(engine, blob_store),
         registration_test_otp=fixed_test_code,
         preflight=preflight,
         secure_cookie=secure_cookie,

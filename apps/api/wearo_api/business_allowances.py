@@ -180,6 +180,7 @@ class PostgresBusinessAllowances:
                         SELECT 1 FROM business_participants
                         WHERE tenant_id=:tenant AND business_account_id=:account
                           AND normalized_mobile=:mobile
+                          AND anonymized_at IS NULL
                         )"""
                     ),
                     {"tenant": tenant_id, "account": account_id, "mobile": normalized},
@@ -215,6 +216,7 @@ class PostgresBusinessAllowances:
                     text(
                         """SELECT count(*) FROM business_participants
                         WHERE tenant_id=:tenant AND business_account_id=:account
+                          AND anonymized_at IS NULL
                           AND (CAST(:search AS text) IS NULL
                                OR regexp_replace(normalized_mobile, '[^0-9]', '', 'g')
                                   LIKE :search)"""
@@ -237,8 +239,9 @@ class PostgresBusinessAllowances:
                         LEFT JOIN business_sponsored_tryons sponsored
                           ON sponsored.session_id=session.session_id
                         LEFT JOIN render_jobs job
-                          ON job.idempotency_key=substring(sponsored.request_key FROM 11)
+                          ON job.job_id=sponsored.render_job_id
                         WHERE p.tenant_id=:tenant AND p.business_account_id=:account
+                          AND p.anonymized_at IS NULL
                           AND (CAST(:search AS text) IS NULL
                                OR regexp_replace(p.normalized_mobile, '[^0-9]', '', 'g')
                                   LIKE :search)

@@ -104,12 +104,28 @@ def test_progressive_preview_is_private_ephemeral_blob(tmp_path: Path) -> None:
     assert media.read_progressive_preview(job_id) is None
 
 
-def test_deleting_original_also_deletes_cached_provider_inputs(tmp_path: Path) -> None:
+def test_deleting_asset_family_removes_original_thumbnail_and_generated_copies(
+    tmp_path: Path,
+) -> None:
     blobs = FilesystemPrivateBlobStore(tmp_path)
     key = "private/account/asset"
     person_key = f"{key}.prepared-{ImageInputPreprocessor.version}-person"
     garment_key = f"{key}.prepared-{ImageInputPreprocessor.version}-garment"
-    for candidate in (key, person_key, garment_key):
+    thumbnail_key = f"{key}.thumbnail.webp"
+    optimized_key = f"{key}.optimized.webp"
+    generated_key = f"{key}.generated-background-removed.png"
+    candidates = (
+        key,
+        person_key,
+        garment_key,
+        thumbnail_key,
+        optimized_key,
+        generated_key,
+    )
+    for candidate in candidates:
         blobs.put(candidate, b"image")
-    blobs.delete(key)
-    assert all(blobs.get(candidate) is None for candidate in (key, person_key, garment_key))
+    blobs.delete_asset_family(key)
+    assert all(blobs.get(candidate) is None for candidate in candidates)
+
+    blobs.delete_asset_family(key)
+    assert all(blobs.get(candidate) is None for candidate in candidates)

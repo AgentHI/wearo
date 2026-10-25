@@ -37,6 +37,13 @@ class MemoryProfileStore:
         self.profiles[account_id] = replace(item, status="DELETION_REQUESTED")
         return True
 
+    def restore_requested(self, account_id: UUID, restored_at: datetime) -> bool:
+        item = self.profiles.get(account_id)
+        if item is None or item.status != "DELETION_REQUESTED":
+            return False
+        self.profiles[account_id] = replace(item, status="ACTIVE")
+        return True
+
 
 class MemoryQuotaStore:
     def __init__(self) -> None:
@@ -102,6 +109,10 @@ def test_profile_is_reusable_owner_scoped_and_deletable() -> None:
     service.delete(item.profile_id, account, now=NOW)
     with pytest.raises(ProfileError):
         service.require(account)
+
+    assert service.restore_requested(account, now=NOW) is True
+    assert service.require(account) == item
+    assert service.restore_requested(account, now=NOW) is False
 
 
 def test_profile_guidance_bounds_are_not_measurement_claims() -> None:

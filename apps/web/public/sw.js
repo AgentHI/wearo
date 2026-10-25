@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-shell-v23";
+const CACHE_NAME = "wearo-shell-v26";
 const APP_SHELL = [
   "/app/",
   "/agent/",
@@ -37,6 +37,23 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(async () => (await caches.match(request))
           || caches.match(url.pathname.startsWith("/agent") ? "/agent/" : "/app/")),
+    );
+    return;
+  }
+
+  // A previously installed production worker can still control a later local Vite session.
+  // Keep source modules network-first so UI edits are never hidden by that stale worker.
+  if (url.pathname.startsWith("/src/")) {
+    event.respondWith(
+      fetch(request, { cache: "no-store" })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request)),
     );
     return;
   }

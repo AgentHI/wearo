@@ -51,15 +51,26 @@ class FilesystemPrivateBlobStore:
             return None
 
     def delete(self, key: str) -> None:
-        for candidate in (
-            key,
-            f"{key}.prepared-{ImageInputPreprocessor.version}-person",
-            f"{key}.prepared-{ImageInputPreprocessor.version}-garment",
-        ):
+        self.delete_asset_family(key)
+
+    def delete_asset_family(self, key: str) -> None:
+        """Delete an original object and every storage-owned derivative of it."""
+        target = self._path(key)
+        candidates = [target]
+        if target.parent.exists():
+            candidates.extend(
+                child
+                for child in target.parent.iterdir()
+                if child.is_file() and child.name.startswith(f"{target.name}.")
+            )
+        for candidate in candidates:
             try:
-                self._path(candidate).unlink()
+                candidate.unlink()
             except FileNotFoundError:
                 continue
+
+    def delete_render_preview(self, job_id: UUID) -> None:
+        self.delete_asset_family(f"private/previews/{job_id.hex}")
 
     def _path(self, key: str) -> Path:
         if not key.startswith("private/"):

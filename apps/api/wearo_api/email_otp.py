@@ -71,6 +71,7 @@ class OtpSessionResult:
     session_token: str
     csrf_token: str
     expires_at: datetime
+    account_status: str = "ACTIVE"
 
 
 class EmailOtpStore(Protocol):
@@ -104,7 +105,7 @@ class EmailOtpStore(Protocol):
         csrf_token_hash: bytes,
         expires_at: datetime,
         created_at: datetime,
-    ) -> None: ...
+    ) -> bool: ...
 
 
 class EmailDeliveryProvider(Protocol):
@@ -210,7 +211,11 @@ class EmailOtpService:
         )
         self.store.record_request(email_hash, realm, current)
         identity = self.store.resolve_identity(normalized, realm) if normalized else None
-        if not allowed or identity is None or identity.status != "ACTIVE":
+        eligible_status = identity is not None and (
+            identity.status == "ACTIVE"
+            or (realm == "SHOP" and identity.status == "DELETION_PENDING")
+        )
+        if not allowed or identity is None or not eligible_status:
             return OtpRequestResult(public_challenge_id, public_expiry)
 
         code = self.fixed_test_code or f"{secrets.randbelow(1_000_000):06d}"
@@ -255,7 +260,10 @@ class EmailOtpService:
         identity = self.store.get_identity(challenge.identity_id)
         valid_state = (
             identity is not None
-            and identity.status == "ACTIVE"
+            and (
+                identity.status == "ACTIVE"
+                or (identity.realm == "SHOP" and identity.status == "DELETION_PENDING")
+            )
             and challenge.consumed_at is None
             and challenge.expires_at > current
             and challenge.attempts < self.policy.max_verification_attempts
@@ -277,14 +285,16 @@ class EmailOtpService:
         session_token = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
         expires_at = current + self.policy.session_ttl
-        self.store.mark_identity_verified(identity.identity_id, current)
-        self.store.create_session(
+        session_created = self.store.create_session(
             identity=identity,
             session_token_hash=_secret_hash(self.pepper, b"session", session_token),
             csrf_token_hash=_secret_hash(self.pepper, b"csrf", csrf_token),
             expires_at=expires_at,
             created_at=current,
         )
+        if not session_created:
+            raise OtpAuthenticationError("invalid or expired sign-in code")
+        self.store.mark_identity_verified(identity.identity_id, current)
         return OtpSessionResult(
             principal_id=identity.principal_id,
             account_id=identity.account_id,
@@ -292,4 +302,5 @@ class EmailOtpService:
             session_token=session_token,
             csrf_token=csrf_token,
             expires_at=expires_at,
+            account_status=identity.status,
         )

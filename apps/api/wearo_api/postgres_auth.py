@@ -27,12 +27,17 @@ IDENTITY_SELECT = """
         identity.principal_id,
         identity.account_id,
         identity.normalized_value,
+        account.status AS account_status,
         CASE principal.principal_type
             WHEN 'CONSUMER' THEN 'SHOP'
             ELSE 'BUSINESS'
         END AS realm,
         CASE
             WHEN principal.status = 'ACTIVE' AND account.status = 'ACTIVE' THEN 'ACTIVE'
+            WHEN principal.status = 'ACTIVE'
+              AND account.status = 'DELETION_PENDING'
+              AND account.deletion_at > now()
+            THEN 'DELETION_PENDING'
             ELSE 'DISABLED'
         END AS effective_status
     FROM principal_identities AS identity
@@ -56,10 +61,20 @@ class PostgresEmailOtpStore:
                     + """
                       WHERE identity.channel = :channel
                         AND identity.normalized_value = :email
+                        AND principal.status = 'ACTIVE'
+                        AND (
+                            account.status = 'ACTIVE'
+                            OR (
+                                account.status = 'DELETION_PENDING'
+                                AND account.deletion_at > now()
+                            )
+                        )
                         AND CASE principal.principal_type
                                 WHEN 'CONSUMER' THEN 'SHOP'
                                 ELSE 'BUSINESS'
                             END = :realm
+                      ORDER BY (account.status = 'ACTIVE') DESC
+                      LIMIT 1
                     """
                 ),
                 {"channel": channel, "email": normalized_email, "realm": realm},
@@ -196,9 +211,22 @@ class PostgresEmailOtpStore:
             connection.execute(
                 text(
                     """
-                    UPDATE principal_identities
-                    SET verified_at = COALESCE(verified_at, :verified_at), updated_at = :verified_at
-                    WHERE identity_id = :identity
+                    UPDATE principal_identities identity
+                    SET verified_at = COALESCE(identity.verified_at, :verified_at),
+                        updated_at = :verified_at
+                    FROM principals principal, accounts account
+                    WHERE identity.identity_id = :identity
+                      AND principal.principal_id = identity.principal_id
+                      AND principal.account_id = identity.account_id
+                      AND account.account_id = identity.account_id
+                      AND principal.status = 'ACTIVE'
+                      AND (
+                          account.status = 'ACTIVE'
+                          OR (
+                              account.status = 'DELETION_PENDING'
+                              AND account.deletion_at > :verified_at
+                          )
+                      )
                     """
                 ),
                 {"identity": identity_id, "verified_at": verified_at},
@@ -212,9 +240,9 @@ class PostgresEmailOtpStore:
         csrf_token_hash: bytes,
         expires_at: datetime,
         created_at: datetime,
-    ) -> None:
+    ) -> bool:
         with self.engine.begin() as connection:
-            connection.execute(
+            created = connection.execute(
                 text(
                     """
                     INSERT INTO sessions
@@ -228,17 +256,28 @@ class PostgresEmailOtpStore:
                             created_at,
                             updated_at
                         )
-                    VALUES
-                        (
-                            :account,
-                            :principal,
-                            :realm,
-                            :session_hash,
-                            :csrf_hash,
-                            :expires_at,
-                            :created_at,
-                            :created_at
-                        )
+                    SELECT
+                        :account,
+                        :principal,
+                        :realm,
+                        :session_hash,
+                        :csrf_hash,
+                        :expires_at,
+                        :created_at,
+                        :created_at
+                    FROM principals principal
+                    JOIN accounts account ON account.account_id = principal.account_id
+                    WHERE principal.principal_id = :principal
+                      AND principal.account_id = :account
+                      AND principal.status = 'ACTIVE'
+                      AND (
+                          account.status = 'ACTIVE'
+                          OR (
+                              account.status = 'DELETION_PENDING'
+                              AND account.deletion_at > :created_at
+                          )
+                      )
+                    RETURNING session_id
                     """
                 ),
                 {
@@ -250,7 +289,8 @@ class PostgresEmailOtpStore:
                     "expires_at": expires_at,
                     "created_at": created_at,
                 },
-            )
+            ).scalar_one_or_none()
+        return created is not None
 
 
 class DevelopmentPostgresOtpStore(PostgresEmailOtpStore):
@@ -275,6 +315,14 @@ class DevelopmentPostgresOtpStore(PostgresEmailOtpStore):
                 + """
                       WHERE identity.channel = :channel
                         AND identity.normalized_value IN (:destination, :legacy_destination)
+                        AND principal.status = 'ACTIVE'
+                        AND (
+                            account.status = 'ACTIVE'
+                            OR (
+                                account.status = 'DELETION_PENDING'
+                                AND account.deletion_at > now()
+                            )
+                        )
                         AND CASE principal.principal_type
                                 WHEN 'CONSUMER' THEN 'SHOP'
                                 ELSE 'BUSINESS'
@@ -300,6 +348,36 @@ class DevelopmentPostgresOtpStore(PostgresEmailOtpStore):
             if row is not None:
                 return _identity_from_row(row)
             if realm != "SHOP":
+                return None
+
+            non_deleted_identity_exists = bool(
+                connection.execute(
+                    text(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM principal_identities identity
+                            JOIN principals principal
+                              ON principal.principal_id = identity.principal_id
+                             AND principal.account_id = identity.account_id
+                            JOIN accounts account ON account.account_id = identity.account_id
+                            WHERE identity.channel = :channel
+                              AND identity.normalized_value IN (
+                                  :destination, :legacy_destination
+                              )
+                              AND principal.principal_type = 'CONSUMER'
+                              AND account.status <> 'PERMANENTLY_DELETED'
+                        )
+                        """
+                    ),
+                    {
+                        "channel": channel,
+                        "destination": normalized_email,
+                        "legacy_destination": legacy_destination,
+                    },
+                ).scalar_one()
+            )
+            if non_deleted_identity_exists:
                 return None
 
             account_id, principal_id, identity_id = uuid4(), uuid4(), uuid4()
@@ -356,17 +434,19 @@ class PostgresBrowserSessionStore:
                     text(
                         """
                     SELECT
-                        session_id,
-                        account_id,
-                        principal_id,
-                        auth_realm,
-                        session_token_hash,
-                        csrf_token_hash,
-                        COALESCE(rotated_at, created_at) AS credential_created_at,
-                        expires_at,
-                        revoked_at
-                    FROM sessions
-                    WHERE session_token_hash = :token_hash
+                        session.session_id,
+                        session.account_id,
+                        session.principal_id,
+                        session.auth_realm,
+                        session.session_token_hash,
+                        session.csrf_token_hash,
+                        COALESCE(session.rotated_at, session.created_at) AS credential_created_at,
+                        session.expires_at,
+                        session.revoked_at,
+                        account.status AS account_status
+                    FROM sessions session
+                    JOIN accounts account ON account.account_id = session.account_id
+                    WHERE session.session_token_hash = :token_hash
                     """
                     ),
                     {"token_hash": token_hash},
@@ -386,6 +466,7 @@ class PostgresBrowserSessionStore:
             created_at=row["credential_created_at"],
             expires_at=row["expires_at"],
             revoked_at=row["revoked_at"],
+            account_status=row["account_status"],
         )
 
     def replace_tokens(

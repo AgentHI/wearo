@@ -26,8 +26,8 @@ try {
 
   const api = JSON.parse(await readFile(bundledContract, "utf8"));
   assert.equal(api.openapi, "3.1.0", "The baseline must remain OpenAPI 3.1.0");
-  assert.equal(Object.keys(api.paths).length, 58, "Unexpected path inventory drift");
-  assert.equal(Object.keys(api.components.schemas).length, 49, "Unexpected schema inventory drift");
+  assert.equal(Object.keys(api.paths).length, 59, "Unexpected path inventory drift");
+  assert.equal(Object.keys(api.components.schemas).length, 50, "Unexpected schema inventory drift");
   assert(api.components.schemas.Error, "The shared Error schema is required");
 
   const operations = [];
@@ -71,7 +71,7 @@ try {
     }
   }
 
-  assert.equal(operations.length, 66, "Unexpected operation inventory drift");
+  assert.equal(operations.length, 68, "Unexpected operation inventory drift");
   const operationIds = operations.map(({ operation }) => operation.operationId);
   assert.equal(new Set(operationIds).size, operationIds.length, "operationId values must be unique");
 

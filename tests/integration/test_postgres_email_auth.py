@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import os
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -208,4 +208,118 @@ def test_development_fixed_code_bootstraps_email_and_phone_identities(engine: En
             connection.execute(
                 text("DELETE FROM email_otp_requests WHERE normalized_email_hash = ANY(:hashes)"),
                 {"hashes": normalized_hashes},
+            )
+
+
+def test_signup_after_permanent_deletion_creates_a_new_empty_account(engine: Engine) -> None:
+    old_account_id, old_principal_id, old_identity_id = uuid4(), uuid4(), uuid4()
+    destination = "returning-after-deletion@example.com"
+    destination_hash = hmac.new(PEPPER, b"email\0" + destination.encode(), hashlib.sha256).digest()
+    now = datetime.now(UTC)
+    cancelled_at = now - timedelta(days=31)
+    deletion_at = cancelled_at + timedelta(days=30)
+    created_accounts: list[object] = [old_account_id]
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO accounts
+                    (account_id, kind, status, cancellation_at, deletion_at,
+                     permanently_deleted_at, deletion_outcome)
+                VALUES
+                    (:account, 'CONSUMER', 'PERMANENTLY_DELETED', :cancelled_at,
+                     :deletion_at, :permanently_deleted_at, 'COMPLETED')
+                """
+            ),
+            {
+                "account": old_account_id,
+                "cancelled_at": cancelled_at,
+                "deletion_at": deletion_at,
+                "permanently_deleted_at": now,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO principals
+                    (principal_id, account_id, account_kind, principal_type, status)
+                VALUES (:principal, :account, 'CONSUMER', 'CONSUMER', 'CLOSED')
+                """
+            ),
+            {"principal": old_principal_id, "account": old_account_id},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO principal_identities
+                    (identity_id, account_id, principal_id, channel, normalized_value)
+                VALUES (:identity, :account, :principal, 'EMAIL', :destination)
+                """
+            ),
+            {
+                "identity": old_identity_id,
+                "account": old_account_id,
+                "principal": old_principal_id,
+                "destination": destination,
+            },
+        )
+
+    service = EmailOtpService(
+        DevelopmentPostgresOtpStore(engine),
+        RecordingProvider(),
+        EmailOtpPolicy(resend_cooldown=datetime.resolution),
+        pepper=PEPPER,
+        fixed_test_code="1324",
+    )
+    try:
+        challenge = service.request_code(destination, "SHOP", now=now)
+        new_session = service.verify_code(challenge.challenge_id, "1324", now=now)
+        created_accounts.append(new_session.account_id)
+
+        assert new_session.account_id != old_account_id
+        assert new_session.principal_id != old_principal_id
+        with engine.connect() as connection:
+            new_account: str = connection.execute(
+                text("SELECT status FROM accounts WHERE account_id=:account"),
+                {"account": new_session.account_id},
+            ).scalar_one()
+            personal_rows = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT
+                      (SELECT count(*) FROM person_profiles WHERE account_id=:account)
+                        AS profiles,
+                      (SELECT count(*) FROM media_assets WHERE account_id=:account) AS media,
+                      (SELECT count(*) FROM render_jobs WHERE account_id=:account) AS try_ons
+                    """
+                    ),
+                    {"account": new_session.account_id},
+                )
+                .mappings()
+                .one()
+            )
+        assert new_account == "ACTIVE"
+        assert dict(personal_rows) == {"profiles": 0, "media": 0, "try_ons": 0}
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM sessions WHERE account_id = ANY(:accounts)"),
+                {"accounts": created_accounts},
+            )
+            connection.execute(
+                text("DELETE FROM principal_identities WHERE account_id = ANY(:accounts)"),
+                {"accounts": created_accounts},
+            )
+            connection.execute(
+                text("DELETE FROM principals WHERE account_id = ANY(:accounts)"),
+                {"accounts": created_accounts},
+            )
+            connection.execute(
+                text("DELETE FROM accounts WHERE account_id = ANY(:accounts)"),
+                {"accounts": created_accounts},
+            )
+            connection.execute(
+                text("DELETE FROM email_otp_requests WHERE normalized_email_hash = :email_hash"),
+                {"email_hash": destination_hash},
             )

@@ -246,6 +246,102 @@ class PostgresProfileStore:
                 )
         return row is not None
 
+    def restore_requested(self, account_id: UUID, restored_at: datetime) -> bool:
+        """Restore a profile whose purge has not claimed or deleted any owned photo."""
+        with self.engine.begin() as connection:
+            profile = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT profile_id, person_asset_id
+                        FROM person_profiles requested
+                        WHERE requested.account_id = :account
+                          AND requested.status = 'DELETION_REQUESTED'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM person_profiles active
+                              WHERE active.account_id = requested.account_id
+                                AND active.status = 'ACTIVE'
+                          )
+                        ORDER BY requested.updated_at DESC, requested.profile_id
+                        FOR UPDATE OF requested
+                        LIMIT 1
+                        """
+                    ),
+                    {"account": account_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if profile is None:
+                return False
+            media = tuple(
+                connection.execute(
+                    text(
+                        """
+                        SELECT asset_id, deletion_state
+                        FROM media_assets
+                        WHERE account_id = :account
+                          AND asset_id IN (
+                              SELECT asset_id FROM person_profile_images
+                              WHERE profile_id = :profile AND account_id = :account
+                              UNION
+                              SELECT :legacy_asset
+                          )
+                        FOR UPDATE
+                        """
+                    ),
+                    {
+                        "account": account_id,
+                        "profile": profile["profile_id"],
+                        "legacy_asset": profile["person_asset_id"],
+                    },
+                ).mappings()
+            )
+            if not media or any(
+                item["deletion_state"] not in {"RETAINED", "REQUESTED"} for item in media
+            ):
+                return False
+            connection.execute(
+                text(
+                    """
+                    UPDATE person_profiles
+                    SET status = 'ACTIVE', delete_after = NULL, deleted_at = NULL,
+                        updated_at = :restored_at
+                    WHERE profile_id = :profile AND account_id = :account
+                      AND status = 'DELETION_REQUESTED'
+                    """
+                ),
+                {
+                    "account": account_id,
+                    "profile": profile["profile_id"],
+                    "restored_at": restored_at,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE media_assets
+                    SET deletion_state = 'RETAINED', delete_after = NULL, deleted_at = NULL,
+                        updated_at = :restored_at
+                    WHERE account_id = :account
+                      AND asset_id IN (
+                          SELECT asset_id FROM person_profile_images
+                          WHERE profile_id = :profile AND account_id = :account
+                          UNION
+                          SELECT :legacy_asset
+                      )
+                      AND deletion_state IN ('RETAINED', 'REQUESTED')
+                    """
+                ),
+                {
+                    "account": account_id,
+                    "profile": profile["profile_id"],
+                    "legacy_asset": profile["person_asset_id"],
+                    "restored_at": restored_at,
+                },
+            )
+        return True
+
 
 class PostgresConsentStore:
     def __init__(self, engine: Engine) -> None:

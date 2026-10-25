@@ -46,7 +46,8 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
             """
             CREATE TEMP TABLE plan_assignments (
               account_id uuid, tenant_id uuid, plan_code text, preview_limit integer,
-              effective_from timestamptz, effective_until timestamptz
+              effective_from timestamptz, effective_until timestamptz,
+              cancelled_at timestamptz
             );
             CREATE TEMP TABLE ledger_entries (
               account_id uuid, tenant_id uuid, entry_type text, amount bigint,
@@ -58,7 +59,7 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
             );
             CREATE TEMP TABLE business_sponsored_tryons (
               session_id uuid, business_account_id uuid, tenant_id uuid,
-              request_key text, usage_id uuid
+              request_key text, usage_id uuid, render_job_id uuid
             );
             CREATE TEMP TABLE business_sponsored_sessions (
               session_id uuid, business_account_id uuid, tenant_id uuid,
@@ -84,7 +85,7 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
     connection.execute(
         text(
             "INSERT INTO plan_assignments VALUES "
-            "(:account, :tenant, 'LAUNCH', NULL, '2026-01-01Z', NULL)"
+            "(:account, :tenant, 'LAUNCH', NULL, '2026-01-01Z', NULL, NULL)"
         ),
         scope,
     )
@@ -138,7 +139,7 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
         connection.execute(
             text(
                 "INSERT INTO business_sponsored_tryons VALUES "
-                "(:session, :account, :tenant, :request, :usage)"
+                "(:session, :account, :tenant, :request, :usage, :job)"
             ),
             values,
         )
@@ -175,3 +176,20 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
     assert snapshot.estimated_previews == 46
     assert snapshot.average_previews_per_day == 1.5
     assert snapshot.average_previews_per_hour == 0.0625
+
+    connection.execute(
+        text(
+            "UPDATE business_sponsored_sessions "
+            "SET consumer_account_id=NULL WHERE consumer_account_id IS NOT NULL"
+        )
+    )
+    anonymized_snapshot = PostgresPlanUsage(BoundConnectionEngine(connection)).for_account(  # type: ignore[arg-type]
+        account_id,
+        tenant_id=tenant_id,
+        action_code="TRY_ON",
+        date_from=date(2026, 10, 24),
+        date_to=date(2026, 10, 25),
+    )
+    assert anonymized_snapshot.previews_used == 3
+    assert anonymized_snapshot.unique_participants == 2
+    assert anonymized_snapshot.tokens_used == 60

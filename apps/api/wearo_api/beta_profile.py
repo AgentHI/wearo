@@ -71,6 +71,7 @@ class ProfileStore(Protocol):
     def request_delete(
         self, profile_id: UUID, account_id: UUID, delete_after: datetime
     ) -> bool: ...
+    def restore_requested(self, account_id: UUID, restored_at: datetime) -> bool: ...
 
 
 class QuotaStore(Protocol):
@@ -127,6 +128,9 @@ class PersonProfileService:
         current = now or datetime.now(UTC)
         if not self.store.request_delete(profile_id, account_id, current + timedelta(hours=24)):
             raise ProfileError("active person profile is required")
+
+    def restore_requested(self, account_id: UUID, *, now: datetime | None = None) -> bool:
+        return self.store.restore_requested(account_id, now or datetime.now(UTC))
 
 
 class DailyQuotaService:

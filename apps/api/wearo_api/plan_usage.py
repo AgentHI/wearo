@@ -119,6 +119,7 @@ class PostgresPlanUsage:
                     FROM plan_assignments
                     WHERE account_id = :account
                       AND tenant_id IS NOT DISTINCT FROM :tenant
+                      AND cancelled_at IS NULL
                       AND effective_from <= :now
                       AND (effective_until IS NULL OR effective_until > :now)
                     ORDER BY effective_from DESC LIMIT 1
@@ -237,9 +238,7 @@ class PostgresPlanUsage:
                              AND usage.account_id = sponsored.business_account_id
                              AND usage.tenant_id = sponsored.tenant_id
                             JOIN render_jobs job
-                              ON job.account_id = session.consumer_account_id
-                             AND job.tenant_id IS NULL
-                             AND job.idempotency_key = substring(sponsored.request_key FROM 11)
+                              ON job.job_id = sponsored.render_job_id
                             WHERE sponsored.business_account_id = :account
                               AND sponsored.tenant_id = :tenant
                               AND usage.action_code = :action
@@ -318,9 +317,7 @@ class PostgresPlanUsage:
                              AND session.business_account_id = sponsored.business_account_id
                              AND session.tenant_id = sponsored.tenant_id
                             JOIN render_jobs job
-                              ON job.account_id = session.consumer_account_id
-                             AND job.tenant_id IS NULL
-                             AND job.idempotency_key = substring(sponsored.request_key FROM 11)
+                              ON job.job_id = sponsored.render_job_id
                             JOIN render_results result ON result.job_id = job.job_id
                             WHERE sponsored.business_account_id = :account
                               AND sponsored.tenant_id = :tenant

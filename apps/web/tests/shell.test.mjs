@@ -142,7 +142,6 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "Wearable item",
     "Generate try-on",
     "not a fit",
-    "Delete saved profile",
     "Full-body photo",
     "Close-up face photo",
     "Use person photo",
@@ -157,6 +156,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "Refresh try-on balance",
     "Allotted",
     "Available",
+    "Cancel subscription",
+    "No, Keep My Account",
+    "Yes, Cancel",
   ]) {
     assert.match(consumer, new RegExp(text, "i"));
   }
@@ -168,6 +170,15 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /sessionStorage\.setItem\(AUTH_KEY/);
   assert.match(consumer, /auth\.hasProfile \? "home" : "profile"/);
   assert.match(consumer, /const isShopEntry = pathname\.startsWith\("\/shop\/"\)/);
+  assert.match(consumer, /id="open-cancellation"/);
+  assert.match(consumer, /id="cancellation-dialog"/);
+  assert.match(consumer, /open-cancellation"\)\.addEventListener\("click", \(\) => \{/);
+  assert.match(consumer, /cancellationDialog\.showModal\(\)/);
+  assert.match(consumer, /confirmCancellation\.addEventListener\("click", async \(\) => \{/);
+  assert.match(consumer, /api\("\/me\/account", \{ method: "DELETE" \}, auth\)/);
+  assert.doesNotMatch(consumer, /\/me\/account\/\$\{/);
+  assert.match(consumer, /profile: \(\) => profileView\(auth\)/);
+  assert.match(consumer, /Boolean\(auth\)/);
   assert.match(consumer, /Uploading your wearable item/);
   assert.match(consumer, /elements\.namedItem\("item_upload"\)/);
   assert.match(consumer, /id="open-camera"/);
@@ -239,6 +250,99 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.doesNotMatch(consumer, /<h1>\$\{escapeHtml\(shopName\)\}<\/h1>/);
 });
 
+test("authenticated B2C and B2B2C users get an own-account cancellation entry point", () => {
+  assert.match(consumer, /const shopContext = readShopContext\(\)/);
+  assert.match(consumer, /profile: \(\) => profileView\(auth\)/);
+  assert.match(consumer, /id="open-cancellation"[^>]*>.*Cancel subscription/s);
+  assert.match(consumer, /id="cancellation-dialog"/);
+
+  const entryHandler = consumer.match(
+    /open-cancellation"\)\.addEventListener\("click", \(\) => \{(?<body>[\s\S]*?)\n  \}\);/,
+  );
+  assert.ok(entryHandler?.groups?.body);
+  assert.match(entryHandler.groups.body, /cancellationDialog\.showModal\(\)/);
+  assert.doesNotMatch(entryHandler.groups.body, /api\(|fetch\(/);
+
+  assert.match(consumer, /api\("\/me\/account", \{ method: "DELETE" \}, auth\)/);
+  assert.doesNotMatch(consumer, /\/me\/account\/\$\{|account_id.*method: "DELETE"/s);
+});
+
+test("destructive account action uses the recoverable 30-day lifecycle", () => {
+  assert.match(
+    consumer,
+    /<strong>Sign out<\/strong>[\s\S]*id="open-cancellation"[\s\S]*<strong>Cancel subscription &amp; delete account<\/strong>/,
+  );
+  assert.match(consumer, /Account and photos remain recoverable for 30 days/);
+  assert.match(consumer, /Cancel subscription and delete account\?/);
+  assert.doesNotMatch(consumer, /id="delete-profile"|id="profile-deletion-dialog"/);
+  assert.doesNotMatch(
+    consumer,
+    /api\("\/me\/person-profile", \{ method: "DELETE" \}, auth\)/,
+  );
+});
+
+test("account cancellation requires explicit affirmative consent", () => {
+  assert.match(
+    consumer,
+    /This will delete all your profile and try-on photos permanently after 30 days\. Do you want to continue\?/,
+  );
+  assert.match(consumer, />No, Keep My Account<\/button>/);
+  assert.match(consumer, />Yes, Cancel<\/button>/);
+
+  const declineHandler = consumer.match(
+    /keep-subscription"\)\.addEventListener\("click", (?<handler>[^;]+)\);/,
+  );
+  assert.equal(declineHandler?.groups?.handler, "closeCancellation");
+
+  const closeHandler = consumer.match(
+    /close-cancellation"\)\.addEventListener\("click", (?<handler>[^;]+)\);/,
+  );
+  assert.equal(closeHandler?.groups?.handler, "closeCancellation");
+  const closeFunction = consumer.match(
+    /const closeCancellation = \(\) => \{(?<body>[\s\S]*?)\n  \};/,
+  );
+  assert.ok(closeFunction?.groups?.body);
+  assert.doesNotMatch(closeFunction.groups.body, /api\(|fetch\(/);
+
+  const dismissHandler = consumer.match(
+    /cancellationDialog\.addEventListener\("cancel", \(\) => \{(?<body>[\s\S]*?)\n  \}\);/,
+  );
+  assert.ok(dismissHandler?.groups?.body);
+  assert.doesNotMatch(dismissHandler.groups.body, /api\(|fetch\(/);
+
+  const affirmativeHandler = consumer.match(
+    /confirmCancellation\.addEventListener\("click", async \(\) => \{(?<body>[\s\S]*?)\n  \}\);/,
+  );
+  assert.ok(affirmativeHandler?.groups?.body);
+  assert.match(
+    affirmativeHandler.groups.body,
+    /api\("\/me\/account", \{ method: "DELETE" \}, auth\)/,
+  );
+  assert.equal(
+    consumer.match(/api\("\/me\/account", \{ method: "DELETE" \}, auth\)/g)?.length,
+    1,
+  );
+});
+
+test("pending cancellation status uses the backend date for B2C and B2B2C", () => {
+  assert.match(consumer, /if \(auth\?\.accountStatus === "DELETION_PENDING"\) route = "account-status"/);
+  assert.match(consumer, /!\["profile", "account-status"\]\.includes\(route\)/);
+  assert.match(consumer, /"account-status": pendingDeletionView/);
+  assert.match(consumer, /api\("\/me\/account", \{\}, auth\)/);
+  assert.match(consumer, /new Date\(lifecycle\.deletion_at\)\.toLocaleDateString\(\)/);
+  assert.match(
+    consumer,
+    /Your account is scheduled for permanent deletion on \$\{deletionDate\}\. Signing in before this date will restore your account\./,
+  );
+  assert.match(consumer, /result\.restored_from_deletion_at/);
+  assert.match(consumer, /Account restored\. It had been scheduled for permanent deletion on/);
+  const pendingFlow = consumer.match(
+    /function attachPendingDeletionFlow\(auth\) \{(?<body>[\s\S]*?)\n\}\n\nexport function renderConsumerApp/,
+  );
+  assert.ok(pendingFlow?.groups?.body);
+  assert.doesNotMatch(pendingFlow.groups.body, /Date\.now\(\)|30 \* 24/);
+});
+
 test("PWA is scoped to the consumer app and never caches private API traffic", () => {
   assert.match(html, /manifest\.webmanifest/);
   assert.equal(manifest.start_url, "/app/");
@@ -251,7 +355,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v23/);
+  assert.match(worker, /wearo-shell-v26/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);
