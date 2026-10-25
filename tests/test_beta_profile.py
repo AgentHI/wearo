@@ -132,6 +132,28 @@ def test_profile_supports_reusable_full_body_and_close_up_photos() -> None:
         )
 
 
+def test_profile_can_be_created_with_only_a_close_up_photo() -> None:
+    store = MemoryProfileStore()
+    service = PersonProfileService(store)
+    item = profile(uuid4())
+    close_up = ProfileImage(
+        uuid4(), item.person_asset_id, item.consent_id, "CLOSE_UP", "Close-up", True
+    )
+
+    service.save(replace(item, images=(close_up,)), now=NOW)
+
+    assert service.require(item.account_id).images == (close_up,)
+
+
+def test_profile_rejects_other_photos_without_full_body_or_close_up() -> None:
+    service = PersonProfileService(MemoryProfileStore())
+    item = profile(uuid4())
+    other = ProfileImage(uuid4(), item.person_asset_id, item.consent_id, "OTHER", "Other", True)
+
+    with pytest.raises(ProfileError, match="full-body or close-up"):
+        service.save(replace(item, images=(other,)), now=NOW)
+
+
 def test_profile_supports_ten_photos_and_rejects_an_eleventh() -> None:
     service = PersonProfileService(MemoryProfileStore())
     item = profile(uuid4())

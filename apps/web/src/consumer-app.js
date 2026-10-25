@@ -7,6 +7,7 @@ const SHOP_CONTEXT_KEY = "wearo_shop_context";
 const SHOP_DETAILS_KEY = "wearo_shop_details";
 const SHOP_DETAILS_VERSION = 4;
 const SPONSORED_SESSION_KEY = "wearo_sponsored_session";
+const TRY_ON_COMPLETE_SOUND = "/wearo-tryon-complete.wav";
 
 function captureShopContext(pathname) {
   const match = pathname.match(/^\/shop\/([^/]+)\/?$/);
@@ -302,14 +303,14 @@ function profileView(auth) {
       <div class="flow-progress" aria-label="Account setup progress"><span>1</span><i class="is-complete"></i><span class="is-active">2</span><i></i><span>3</span></div>
       <p class="eyebrow">${setup ? "Step 2 of 3" : "Personal profile"}</p>
       <h1>${setup ? "Create your profile" : "Update your profile"}</h1>
-      <p>Save photos for different try-ons. Use full-body for clothing and close-up for necklaces or earrings.</p>
+      <p>Add at least one photo. Use full-body for clothing and close-up for necklaces or earrings; adding both is optional.</p>
     </header>
     <form id="profile-form" class="profile-editor">
       <section class="consumer-card profile-photo-card">
         <div class="profile-photo-grid">
           <div class="profile-photo-slot">
             <div id="full-body-preview" class="person-preview"><span aria-hidden="true">◎</span><strong>${setup ? "Add a full-body photo" : "Loading…"}</strong></div>
-            <label class="upload-zone">Full-body photo ${setup ? "" : "(optional replacement)"}
+            <label class="upload-zone">Full-body photo ${setup ? "(optional if adding close-up)" : "(optional replacement)"}
               <input name="full_body" type="file" accept="image/jpeg,image/png,image/webp" />
               <small>Best for shirts, jeans, sarees, blouses and full outfits</small>
             </label>
@@ -320,7 +321,7 @@ function profileView(auth) {
           </div>
           <div class="profile-photo-slot">
             <div id="close-up-preview" class="person-preview"><span aria-hidden="true">◇</span><strong>Add a close-up photo</strong></div>
-            <label class="upload-zone">Close-up face photo (optional)
+            <label class="upload-zone">Close-up face photo ${setup ? "(optional if adding full-body)" : "(optional replacement)"}
               <input name="close_up" type="file" accept="image/jpeg,image/png,image/webp" />
               <small>Best for necklaces, earrings and face-level accessories</small>
             </label>
@@ -813,8 +814,11 @@ function attachProfileFlow(auth) {
     event.preventDefault();
     const fullBodyFile = selectedProfileFiles.get("full_body") || null;
     const closeUpFile = selectedProfileFiles.get("close_up") || null;
-    if (!fullBodyFile && !currentImages().some((image) => image.photo_type === "FULL_BODY")) {
-      setStatus(status, "Upload or take a full-body photo to create your profile.", "error");
+    const hasSavedRequiredPhoto = currentImages().some(
+      (image) => image.photo_type === "FULL_BODY" || image.photo_type === "CLOSE_UP",
+    );
+    if (!fullBodyFile && !closeUpFile && !hasSavedRequiredPhoto) {
+      setStatus(status, "Upload or take at least one full-body or close-up photo to create your profile.", "error");
       return;
     }
     if (!form.reportValidity()) return;
@@ -857,10 +861,13 @@ function attachProfileFlow(auth) {
       for (const [index, file] of additionalFiles.entries()) {
         await savePhoto(file, "OTHER", `Photo ${images.length + 1}`, false);
       }
-      if (!images.some((image) => image.photo_type === "FULL_BODY")) {
-        throw new Error("Choose a full-body photo to create your profile.");
+      if (!images.some((image) => image.photo_type === "FULL_BODY" || image.photo_type === "CLOSE_UP")) {
+        throw new Error("Choose at least one full-body or close-up photo to create your profile.");
       }
-      const primaryAssetId = images.find((image) => image.photo_type === "FULL_BODY")?.person_asset_id;
+      const primaryImage = images.find((image) => image.photo_type === "FULL_BODY")
+        || images.find((image) => image.is_primary)
+        || images.find((image) => image.photo_type === "CLOSE_UP");
+      const primaryAssetId = primaryImage?.person_asset_id;
       images = images.map((image) => ({
         ...image,
         is_primary: image.person_asset_id === primaryAssetId,
@@ -945,6 +952,39 @@ function attachHomeFlow(auth) {
   let generationActive = false;
   let selectedPersonAssetId = null;
   let sponsoredSession = null;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  const completionAudioContext = AudioContextClass ? new AudioContextClass() : null;
+  const fallbackCompletionSound = new Audio(TRY_ON_COMPLETE_SOUND);
+  fallbackCompletionSound.preload = "auto";
+  const completionSoundBuffer = completionAudioContext
+    ? fetch(TRY_ON_COMPLETE_SOUND, { cache: "force-cache" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Completion sound unavailable.");
+        return response.arrayBuffer();
+      })
+      .then((data) => completionAudioContext.decodeAudioData(data))
+      .catch(() => null)
+    : Promise.resolve(null);
+
+  const unlockCompletionSound = () => {
+    completionAudioContext?.resume().catch(() => {});
+  };
+
+  const playCompletionSound = () => {
+    completionSoundBuffer.then((buffer) => {
+      if (buffer && completionAudioContext) {
+        const source = completionAudioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(completionAudioContext.destination);
+        source.start(0);
+        return;
+      }
+      fallbackCompletionSound.currentTime = 0;
+      fallbackCompletionSound.play().catch(() => {
+        // A browser or device sound policy may still prevent playback.
+      });
+    });
+  };
 
   const refreshSponsoredSession = async () => {
     if (!readShopContext()) return null;
@@ -1017,7 +1057,28 @@ function attachHomeFlow(auth) {
 
   const showGeneratedPreview = (assetId) => {
     if (!assetId) return;
+    delete preview.dataset.state;
+    delete preview.dataset.partial;
+    preview.setAttribute("aria-label", "AI-generated try-on preview");
     preview.innerHTML = `<img src="${API_BASE}/assets/${encodeURIComponent(assetId)}" alt="AI-generated try-on preview" />`;
+  };
+
+  const showGeneratingPreview = () => {
+    delete preview.dataset.partial;
+    preview.dataset.state = "generating";
+    preview.setAttribute("aria-label", "Wearo is creating your try-on preview");
+    preview.innerHTML = `<div class="tryon-generation" role="status"><div class="tryon-generation__sky" aria-hidden="true"><i class="tryon-generation__twinkle tryon-generation__twinkle--one">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--two">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--three">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--four">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--five">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--six">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--seven">✧</i></div><strong>Creating your Wearo look</strong><small>Fitting your selected wearable to your photo…</small><div class="tryon-generation__progress" aria-hidden="true"><i></i></div></div>`;
+  };
+
+  const waitForGeneratingPreviewPaint = () => new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+  });
+
+  const showGenerationFailure = () => {
+    delete preview.dataset.partial;
+    preview.dataset.state = "failed";
+    preview.setAttribute("aria-label", "Try-on preview could not be created");
+    preview.innerHTML = `<span aria-hidden="true">✦</span><strong>Preview not created</strong><small>Review the message below and try again</small>`;
   };
 
   const loadLatestPreview = async () => {
@@ -1042,8 +1103,8 @@ function attachHomeFlow(auth) {
       allowanceCount.textContent = allowance.unlimited ? "∞" : allowance.remaining;
       allowanceCopy.textContent = allowance.unlimited ? "Unlimited" : allowance.remaining;
       allowanceNote.textContent = allowance.unlimited
-        ? `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · ${allowance.tokens_consumed_today ?? 0} actual LLM tokens today.`
-        : `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · ${allowance.tokens_consumed_today ?? 0} actual LLM tokens · Resets at midnight IST.`;
+        ? `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"}.`
+        : `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · Resets at midnight IST.`;
       return true;
     } catch (error) {
       if (error.status === 401) {
@@ -1069,10 +1130,9 @@ function attachHomeFlow(auth) {
     }
   });
 
-  const waitForRender = async (renderId, onStatusChange) => {
+  const waitForRender = async (renderId) => {
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const job = await api(`/renders/${renderId}`, {}, auth);
-      onStatusChange?.(job.status);
       if (job.status === "SUCCEEDED") return job;
       if (["FAILED", "CANCELLED"].includes(job.status)) {
         throw new Error(`Generation stopped: ${job.error_code || "UNKNOWN"}.`);
@@ -1081,61 +1141,6 @@ function attachHomeFlow(auth) {
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     throw new Error("Generation is taking longer than expected. Check again shortly.");
-  };
-
-  const watchProgressivePreview = (renderId) => {
-    let stopped = false;
-    let etag = null;
-    let previewUrl = null;
-    let activeRequest = null;
-    let wake = null;
-    const done = (async () => {
-      while (!stopped) {
-        try {
-          const headers = etag ? { "If-None-Match": etag } : {};
-          activeRequest = new AbortController();
-          const response = await fetch(
-            `${API_BASE}/renders/${encodeURIComponent(renderId)}/preview`,
-            { credentials: "same-origin", headers, signal: activeRequest.signal },
-          );
-          if (response.status === 200) {
-            const nextUrl = URL.createObjectURL(await response.blob());
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-            previewUrl = nextUrl;
-            etag = response.headers.get("ETag");
-            preview.dataset.partial = "true";
-            preview.innerHTML = `<img src="${nextUrl}" alt="Partial virtual try-on preview, still processing" />`;
-            setStatus(status, "A partial preview is ready. Refining the final image…");
-          } else if (response.status === 401) {
-            stopped = true;
-          }
-        } catch {
-          // A transient preview fetch must not start another generation request.
-        } finally {
-          activeRequest = null;
-        }
-        if (!stopped) {
-          await new Promise((resolve) => {
-            const timer = window.setTimeout(resolve, 2000);
-            wake = () => {
-              window.clearTimeout(timer);
-              resolve();
-            };
-          });
-          wake = null;
-        }
-      }
-    })();
-    return {
-      async stop() {
-        stopped = true;
-        activeRequest?.abort();
-        wake?.();
-        await done;
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        delete preview.dataset.partial;
-      },
-    };
   };
 
   const selectItemFile = (file, sourceLabel) => {
@@ -1166,6 +1171,7 @@ function attachHomeFlow(auth) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    unlockCompletionSound();
     if (!selectedItemFile) {
       setStatus(status, "Upload or take a wearable photo before generating.", "error");
       itemUploadInput.focus();
@@ -1176,6 +1182,8 @@ function attachHomeFlow(auth) {
       return;
     }
     generationActive = true;
+    showGeneratingPreview();
+    await waitForGeneratingPreviewPaint();
     setButtonBusy(submit, true, "Uploading wearable…", "Generate try-on");
     setStatus(status, "Uploading your wearable item…");
     try {
@@ -1227,21 +1235,13 @@ function attachHomeFlow(auth) {
         },
         auth,
       );
-      let progressive = null;
-      let result;
-      try {
-        result = await waitForRender(job.render_id, (jobStatus) => {
-          if (jobStatus === "PROCESSING" && !progressive) {
-            progressive = watchProgressivePreview(job.render_id);
-          }
-        });
-      } finally {
-        await progressive?.stop();
-      }
+      const result = await waitForRender(job.render_id);
       showGeneratedPreview(result.result_asset_id);
+      playCompletionSound();
       setStatus(status, "Your private try-on preview is ready.", "success");
       await refreshAllowance();
     } catch (error) {
+      showGenerationFailure();
       setStatus(status, error.message, "error");
     } finally {
       generationActive = false;

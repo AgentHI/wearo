@@ -1,5 +1,12 @@
-const CACHE_NAME = "wearo-shell-v19";
-const APP_SHELL = ["/app/", "/agent/", "/manifest.webmanifest", "/agent.webmanifest", "/wearo-brand.png"];
+const CACHE_NAME = "wearo-shell-v22";
+const APP_SHELL = [
+  "/app/",
+  "/agent/",
+  "/manifest.webmanifest",
+  "/agent.webmanifest",
+  "/wearo-brand.png",
+  "/wearo-tryon-complete.wav",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

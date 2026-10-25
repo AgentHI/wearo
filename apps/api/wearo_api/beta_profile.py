@@ -105,13 +105,11 @@ class PersonProfileService:
                 for image in profile.images
             ):
                 raise ProfileError("unsupported profile photo type")
-            if not any(image.photo_type == "FULL_BODY" for image in profile.images):
-                raise ProfileError("profile requires a full-body photo")
+            if not any(image.photo_type in {"FULL_BODY", "CLOSE_UP"} for image in profile.images):
+                raise ProfileError("profile requires a full-body or close-up photo")
             if sum(image.is_primary for image in profile.images) != 1:
                 raise ProfileError("profile requires exactly one primary photo")
             primary = next(image for image in profile.images if image.is_primary)
-            if primary.photo_type != "FULL_BODY":
-                raise ProfileError("the full-body photo must be primary")
             if (primary.asset_id, primary.consent_id) != (
                 profile.person_asset_id,
                 profile.consent_id,

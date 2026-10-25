@@ -174,6 +174,13 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /navigator\.mediaDevices\.getUserMedia/);
   assert.match(consumer, /facingMode: \{ ideal: "environment" \}/);
   assert.match(consumer, /canvas\.toBlob\(resolve, "image\/jpeg", 0\.92\)/);
+  assert.match(consumer, /wearo-tryon-complete\.wav/);
+  assert.match(consumer, /unlockCompletionSound\(\)/);
+  assert.match(consumer, /playCompletionSound\(\)/);
+  assert.match(consumer, /showGeneratingPreview\(\)/);
+  assert.match(consumer, /Creating your Wearo look/);
+  assert.match(css, /@keyframes tryon-twinkle/);
+  assert.doesNotMatch(css, /@keyframes tryon-orbit/);
   assert.match(consumer, /stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
   assert.match(consumer, /data-profile-camera="full_body"/);
   assert.match(consumer, /data-profile-camera="close_up"/);
@@ -186,6 +193,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /savePhoto\(closeUpFile, "CLOSE_UP"/);
   assert.match(consumer, /Local testing mode/);
   assert.match(consumer, /allowance\.unlimited/);
+  assert.doesNotMatch(consumer, /actual LLM tokens/i);
   assert.match(consumer, /Saving profile/);
   assert.match(consumer, /\/quotes/);
   assert.match(consumer, /\/renders/);
@@ -198,12 +206,8 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /data-cancel-render-id/);
   assert.match(consumer, /method: "DELETE"/);
   assert.match(consumer, /\["QUEUED", "PROCESSING"\]\.includes\(item\.status\)/);
-  assert.match(consumer, /watchProgressivePreview/);
-  assert.match(consumer, /jobStatus === "PROCESSING"/);
   assert.match(consumer, /loadLatestPreview/);
   assert.match(consumer, /result\.items\?\.\[0\]/);
-  assert.match(consumer, /partial virtual try-on preview/i);
-  assert.match(consumer, /If-None-Match/);
   assert.match(consumer, /result_asset_id/);
   assert.match(consumer, /Available until/);
   assert.match(consumer, /navigator\.share/);
@@ -245,11 +249,12 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v19/);
+  assert.match(worker, /wearo-shell-v22/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);
   assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(worker, /wearo-tryon-complete\.wav/);
   assert.doesNotMatch(worker, /cache\.put\([^)]*\/api\//);
 });
 
