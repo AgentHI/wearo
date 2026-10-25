@@ -209,14 +209,25 @@ function signupView() {
 function dashboardView() {
   return `
     <header class="page-heading"><div><p class="eyebrow">Workspace overview</p><h1 id="dashboard-greeting">Welcome.</h1><p>Monitor your virtual try-on operation and token consumption.</p></div><form id="overview-period" class="period-filter"><label><span>Reporting period</span><select name="period"><option value="today">Today</option><option value="week">Past week</option><option value="month" selected>Past month</option><option value="custom">Custom duration</option></select></label><div id="overview-custom-dates" class="period-filter__dates" hidden><label><span>From</span><input name="dateFrom" type="date" /></label><label><span>To</span><input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply</button></div></form></header>
-    <section class="metric-grid overview-metrics" aria-label="Workspace token and try-on summary">
-      <article><div><p>Total tokens</p><span class="metric-icon">＋</span></div><strong id="overview-total-tokens">—</strong><small>Tokens purchased or credited</small></article>
-      <article><div><p>Tokens consumed</p><span class="metric-icon">−</span></div><strong id="overview-tokens-used">—</strong><small>Used in the selected period</small></article>
-      <article><div><p>Average tokens per try-on</p><span class="metric-icon">÷</span></div><strong id="overview-average-tokens">—</strong><small>Consumed tokens ÷ completed try-ons</small></article>
-      <article><div><p>Tokens remaining</p><span class="metric-icon">T</span></div><strong id="overview-token-balance">—</strong><small>Current available token balance</small></article>
-      <article><div><p>Estimated try-ons remaining</p><span class="metric-icon">≈</span></div><strong id="overview-estimated-tryons">—</strong><small>Based on average tokens per try-on</small></article>
-      <article><div><p>Average try-ons</p><span class="metric-icon">↗</span></div><strong id="overview-average-tryons">—</strong><small id="overview-average-hourly">Per day · per hour</small></article>
-      <article class="metric-topup"><div><p>Need more Wearo Tokens?</p><small>Choose a token pack and continue through secure payment.</small></div><a class="button button--primary" href="/business/billing#token-topup">Top up tokens</a></article>
+    <section class="dashboard-metric-group dashboard-metric-group--tokens" aria-labelledby="token-metrics-heading">
+      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">Wallet</p><h2 id="token-metrics-heading">Token overview</h2></div><small>Balance and consumption</small></div>
+      <div class="metric-grid overview-metrics">
+        <article class="metric-card--tokens"><div><p>Total tokens</p><span class="metric-icon">＋</span></div><strong id="overview-total-tokens">—</strong><small>Tokens purchased or credited</small></article>
+        <article class="metric-card--tokens"><div><p>Tokens consumed</p><span class="metric-icon">−</span></div><strong id="overview-tokens-used">—</strong><small>Used by completed try-ons in the selected period</small></article>
+        <article class="metric-card--tokens"><div><p>Average tokens per try-on</p><span class="metric-icon">÷</span></div><strong id="overview-average-tokens">—</strong><small>Consumed tokens ÷ completed try-ons</small></article>
+        <article class="metric-card--tokens"><div><p>Tokens remaining</p><span class="metric-icon">T</span></div><strong id="overview-token-balance">—</strong><small>Current available token balance</small></article>
+        <article class="metric-card--tokens"><div><p>Estimated try-ons remaining</p><span class="metric-icon">≈</span></div><strong id="overview-estimated-tryons">—</strong><small>Based on average tokens per try-on</small></article>
+        <article class="metric-topup metric-card--tokens"><div><p>Need more Wearo Tokens?</p><small>Choose a token pack and continue through secure payment.</small></div><a class="button button--primary" href="/business/billing#token-topup">Top up tokens</a></article>
+      </div>
+    </section>
+    <section class="dashboard-metric-group dashboard-metric-group--activity" aria-labelledby="activity-metrics-heading">
+      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">Customer activity</p><h2 id="activity-metrics-heading">Try-on performance</h2></div><small>Completed try-ons only</small></div>
+      <div class="metric-grid overview-metrics">
+        <article class="metric-card--activity"><div><p>Unique users</p><span class="metric-icon">U</span></div><strong id="overview-unique-users">—</strong><small>Customers who completed a try-on in the selected period</small></article>
+        <article class="metric-card--activity"><div><p>Try-ons today</p><span class="metric-icon">D</span></div><strong id="overview-tryons-today">—</strong><small>Completed today · India Standard Time</small></article>
+        <article class="metric-card--activity"><div><p id="overview-tryons-selected-label">Try-ons in selected period</p><span class="metric-icon">Σ</span></div><strong id="overview-tryons-selected">—</strong><small>Total completed for the active reporting filter</small></article>
+        <article class="metric-card--activity"><div><p>Average try-ons</p><span class="metric-icon">↗</span></div><strong id="overview-average-tryons">—</strong><small id="overview-average-hourly">Per day · per hour</small></article>
+      </div>
     </section>
     <section class="dashboard-grid">
       <article class="panel"><div class="panel__heading"><div><h2>Launch readiness</h2><p>Complete these before customer traffic.</p></div></div><ul class="readiness-list"><li class="done"><span>✓</span>Workspace created</li><li><span>2</span>Connect billing</li><li><span>3</span>Connect your business app</li><li><span>4</span>Pass quality evaluation</li></ul></article>
@@ -238,9 +249,13 @@ async function loadOverviewUsage(dateRange = {}) {
     average_tokens: document.querySelector("#overview-average-tokens"),
     token_balance: document.querySelector("#overview-token-balance"),
     estimated_previews: document.querySelector("#overview-estimated-tryons"),
+    unique_users: document.querySelector("#overview-unique-users"),
+    tryons_today: document.querySelector("#overview-tryons-today"),
+    tryons_selected: document.querySelector("#overview-tryons-selected"),
     average_tryons: document.querySelector("#overview-average-tryons"),
     average_hourly: document.querySelector("#overview-average-hourly"),
   };
+  const selectedLabel = document.querySelector("#overview-tryons-selected-label");
   if (!fields.tokens_purchased) return;
   const tenantId = localStorage.getItem("wearo_business_tenant_id");
   if (!tenantId) {
@@ -260,6 +275,12 @@ async function loadOverviewUsage(dateRange = {}) {
     fields.estimated_previews.textContent = usage.estimated_previews == null
       ? "Rate unavailable"
       : String(usage.estimated_previews);
+    fields.unique_users.textContent = String(usage.unique_participants ?? 0);
+    fields.tryons_today.textContent = String(usage.previews_today ?? 0);
+    fields.tryons_selected.textContent = String(usage.previews_used ?? 0);
+    selectedLabel.textContent = dateRange.label
+      ? `Try-ons from ${dateRange.label}`
+      : "Try-ons in selected period";
     fields.average_tryons.textContent = usage.average_previews_per_day == null
       ? "Not available"
       : `${Number(usage.average_previews_per_day).toFixed(1)} / day`;
@@ -1076,23 +1097,39 @@ function attachBusinessInteractions(section) {
     document.querySelector("#dashboard-greeting").textContent = dashboardGreeting();
     const periodForm = document.querySelector("#overview-period");
     const customDates = document.querySelector("#overview-custom-dates");
-    const isoDate = (value) => [
-      value.getFullYear(),
-      String(value.getMonth() + 1).padStart(2, "0"),
-      String(value.getDate()).padStart(2, "0"),
-    ].join("-");
+    const reportingDate = (daysAgo = 0) => {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat("en", {
+        timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(new Date()).map(({ type, value }) => [type, value]));
+      const value = new Date(Date.UTC(
+        Number(parts.year), Number(parts.month) - 1, Number(parts.day) - daysAgo,
+      ));
+      return [
+        value.getUTCFullYear(),
+        String(value.getUTCMonth() + 1).padStart(2, "0"),
+        String(value.getUTCDate()).padStart(2, "0"),
+      ].join("-");
+    };
+    const formatRangeLabel = (dateFrom, dateTo) => {
+      const display = (value) => new Intl.DateTimeFormat("en-IN", {
+        day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+      }).format(new Date(`${value}T00:00:00Z`));
+      if (!dateFrom || !dateTo) return "";
+      return dateFrom === dateTo ? display(dateFrom) : `${display(dateFrom)} to ${display(dateTo)}`;
+    };
     const selectedRange = () => {
-      const today = new Date();
       const period = periodForm.elements.period.value;
       if (period === "custom") {
-        return { dateFrom: periodForm.elements.dateFrom.value, dateTo: periodForm.elements.dateTo.value };
+        const dateFrom = periodForm.elements.dateFrom.value;
+        const dateTo = periodForm.elements.dateTo.value;
+        return { dateFrom, dateTo, label: formatRangeLabel(dateFrom, dateTo) };
       }
-      const start = new Date(today);
-      if (period === "week") start.setDate(start.getDate() - 6);
-      if (period === "month") start.setDate(start.getDate() - 29);
-      return { dateFrom: isoDate(start), dateTo: isoDate(today) };
+      const daysAgo = period === "week" ? 6 : period === "month" ? 29 : 0;
+      const dateFrom = reportingDate(daysAgo);
+      const dateTo = reportingDate();
+      return { dateFrom, dateTo, label: formatRangeLabel(dateFrom, dateTo) };
     };
-    periodForm.elements.dateTo.max = isoDate(new Date());
+    periodForm.elements.dateTo.max = reportingDate();
     periodForm.elements.period.addEventListener("change", () => {
       const custom = periodForm.elements.period.value === "custom";
       customDates.hidden = !custom;

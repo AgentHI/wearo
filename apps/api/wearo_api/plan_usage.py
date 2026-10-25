@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Engine, text
+
+BUSINESS_REPORTING_TIMEZONE = ZoneInfo("Asia/Kolkata")
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,7 @@ class UsageSnapshot:
     tokens_used: int
     preview_limit: int | None
     previews_used: int
+    previews_today: int
     previews_remaining: int | None
     action_code: str | None
     action_cost: int | None
@@ -36,6 +40,7 @@ def usage_snapshot(
     tokens_used: int,
     preview_limit: int | None,
     previews_used: int,
+    previews_today: int = 0,
     action_code: str | None = None,
     action_cost: int | None = None,
     unique_participants: int = 0,
@@ -58,6 +63,7 @@ def usage_snapshot(
         tokens_used=tokens_used,
         preview_limit=preview_limit,
         previews_used=previews_used,
+        previews_today=previews_today,
         previews_remaining=remaining,
         action_code=action_code,
         action_cost=action_cost,
@@ -87,9 +93,22 @@ class PostgresPlanUsage:
         date_to: date | None = None,
     ) -> UsageSnapshot:
         current = datetime.now(UTC)
-        period_start = datetime.combine(date_from, time.min, UTC) if date_from else None
+        reporting_today = current.astimezone(BUSINESS_REPORTING_TIMEZONE).date()
+        today_start = datetime.combine(
+            reporting_today, time.min, BUSINESS_REPORTING_TIMEZONE
+        ).astimezone(UTC)
+        today_end = today_start + timedelta(days=1)
+        period_start = (
+            datetime.combine(date_from, time.min, BUSINESS_REPORTING_TIMEZONE).astimezone(UTC)
+            if date_from
+            else None
+        )
         period_end = (
-            datetime.combine(date_to + timedelta(days=1), time.min, UTC) if date_to else None
+            datetime.combine(
+                date_to + timedelta(days=1), time.min, BUSINESS_REPORTING_TIMEZONE
+            ).astimezone(UTC)
+            if date_to
+            else None
         )
         with self.engine.connect() as connection:
             plan = (
@@ -125,11 +144,14 @@ class PostgresPlanUsage:
                                  AND (CAST(:period_end AS timestamptz) IS NULL
                                       OR created_at < :period_end)
                            ), 0) AS used
-                    FROM ledger_entries WHERE account_id = :account
+                    FROM ledger_entries
+                    WHERE account_id = :account
+                      AND tenant_id IS NOT DISTINCT FROM :tenant
                     """
                     ),
                     {
                         "account": account_id,
+                        "tenant": tenant_id,
                         "period_start": period_start,
                         "period_end": period_end,
                     },
@@ -137,6 +159,7 @@ class PostgresPlanUsage:
                 .mappings()
                 .one()
             )
+            tokens_used = int(ledger["used"])
             price = connection.execute(
                 text(
                     """
@@ -149,11 +172,14 @@ class PostgresPlanUsage:
                 {"action": action_code, "now": current},
             ).scalar_one_or_none()
             if tenant_id is None:
-                previews_used = int(
+                consumer_previews = (
                     connection.execute(
                         text(
                             """
-                            SELECT COALESCE(sum(successful_generations), 0)
+                            SELECT COALESCE(sum(successful_generations), 0) AS selected,
+                                   COALESCE(sum(successful_generations) FILTER (
+                                     WHERE usage_date_ist = :reporting_today
+                                   ), 0) AS today
                             FROM generation_daily_usage WHERE account_id = :account
                               AND (CAST(:date_from AS date) IS NULL
                                    OR usage_date_ist >= :date_from)
@@ -161,57 +187,84 @@ class PostgresPlanUsage:
                                    OR usage_date_ist <= :date_to)
                             """
                         ),
-                        {"account": account_id, "date_from": date_from, "date_to": date_to},
-                    ).scalar_one()
+                        {
+                            "account": account_id,
+                            "date_from": date_from,
+                            "date_to": date_to,
+                            "reporting_today": reporting_today,
+                        },
+                    )
+                    .mappings()
+                    .one()
                 )
+                previews_used = int(consumer_previews["selected"])
+                previews_today = int(consumer_previews["today"])
             else:
-                previews_used = int(
+                delivered_usage = (
                     connection.execute(
                         text(
                             """
-                            SELECT count(*)
+                            SELECT count(*) FILTER (
+                                     WHERE (CAST(:period_start AS timestamptz) IS NULL
+                                            OR job.created_at >= :period_start)
+                                       AND (CAST(:period_end AS timestamptz) IS NULL
+                                            OR job.created_at < :period_end)
+                                   ) AS previews_used,
+                                   count(*) FILTER (
+                                     WHERE job.created_at >= :today_start
+                                       AND job.created_at < :today_end
+                                   ) AS previews_today,
+                                   count(DISTINCT session.participant_id) FILTER (
+                                     WHERE (CAST(:period_start AS timestamptz) IS NULL
+                                            OR job.created_at >= :period_start)
+                                       AND (CAST(:period_end AS timestamptz) IS NULL
+                                            OR job.created_at < :period_end)
+                                   )
+                                     AS unique_participants,
+                                   COALESCE(sum(usage.token_cost) FILTER (
+                                     WHERE (CAST(:period_start AS timestamptz) IS NULL
+                                            OR job.created_at >= :period_start)
+                                       AND (CAST(:period_end AS timestamptz) IS NULL
+                                            OR job.created_at < :period_end)
+                                   ), 0) AS tokens_used
                             FROM business_sponsored_tryons sponsored
+                            JOIN business_sponsored_sessions session
+                              ON session.session_id = sponsored.session_id
+                             AND session.business_account_id = sponsored.business_account_id
+                             AND session.tenant_id = sponsored.tenant_id
+                            JOIN billable_usage_records usage
+                              ON usage.usage_id = sponsored.usage_id
+                             AND usage.account_id = sponsored.business_account_id
+                             AND usage.tenant_id = sponsored.tenant_id
                             JOIN render_jobs job
-                              ON job.idempotency_key = substring(sponsored.request_key FROM 11)
+                              ON job.account_id = session.consumer_account_id
+                             AND job.tenant_id IS NULL
+                             AND job.idempotency_key = substring(sponsored.request_key FROM 11)
                             WHERE sponsored.business_account_id = :account
                               AND sponsored.tenant_id = :tenant
+                              AND usage.action_code = :action
                               AND job.status = 'DELIVERED'
-                              AND (CAST(:period_start AS timestamptz) IS NULL
-                                   OR job.created_at >= :period_start)
-                              AND (CAST(:period_end AS timestamptz) IS NULL
-                                   OR job.created_at < :period_end)
                             """
                         ),
                         {
                             "account": account_id,
                             "tenant": tenant_id,
+                            "action": action_code,
+                            "today_start": today_start,
+                            "today_end": today_end,
                             "period_start": period_start,
                             "period_end": period_end,
                         },
-                    ).scalar_one()
+                    )
+                    .mappings()
+                    .one()
                 )
-            unique_participants = 0
-            if tenant_id is not None:
-                unique_participants = int(
-                    connection.execute(
-                        text(
-                            """
-                            SELECT count(*) FROM business_participants
-                            WHERE business_account_id = :account AND tenant_id = :tenant
-                              AND (CAST(:period_start AS timestamptz) IS NULL
-                                   OR first_seen_at >= :period_start)
-                              AND (CAST(:period_end AS timestamptz) IS NULL
-                                   OR first_seen_at < :period_end)
-                            """
-                        ),
-                        {
-                            "account": account_id,
-                            "tenant": tenant_id,
-                            "period_start": period_start,
-                            "period_end": period_end,
-                        },
-                    ).scalar_one()
-                )
+                previews_used = int(delivered_usage["previews_used"])
+                previews_today = int(delivered_usage["previews_today"])
+                unique_participants = int(delivered_usage["unique_participants"])
+                tokens_used = int(delivered_usage["tokens_used"])
+            if tenant_id is None:
+                unique_participants = 0
             if tenant_id is None:
                 provider_usage = (
                     connection.execute(
@@ -260,8 +313,14 @@ class PostgresPlanUsage:
                                 sum((result.provider_usage->>'total_tokens')::bigint), 0
                               ) AS total
                             FROM business_sponsored_tryons sponsored
+                            JOIN business_sponsored_sessions session
+                              ON session.session_id = sponsored.session_id
+                             AND session.business_account_id = sponsored.business_account_id
+                             AND session.tenant_id = sponsored.tenant_id
                             JOIN render_jobs job
-                              ON job.idempotency_key = substring(sponsored.request_key FROM 11)
+                              ON job.account_id = session.consumer_account_id
+                             AND job.tenant_id IS NULL
+                             AND job.idempotency_key = substring(sponsored.request_key FROM 11)
                             JOIN render_results result ON result.job_id = job.job_id
                             WHERE sponsored.business_account_id = :account
                               AND sponsored.tenant_id = :tenant
@@ -285,9 +344,10 @@ class PostgresPlanUsage:
         return usage_snapshot(
             plan_code=plan["plan_code"] if plan else default_plan,
             token_balance=int(ledger["balance"]),
-            tokens_used=int(ledger["used"]),
+            tokens_used=tokens_used,
             preview_limit=plan["preview_limit"] if plan else (3 if tenant_id is None else None),
             previews_used=previews_used,
+            previews_today=previews_today,
             action_code=action_code if price is not None else None,
             action_cost=int(price) if price is not None else None,
             unique_participants=unique_participants,

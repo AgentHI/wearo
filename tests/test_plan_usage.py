@@ -1,8 +1,9 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from apps.api.wearo_api.plan_usage import usage_snapshot
+from apps.api.wearo_api.plan_usage import BUSINESS_REPORTING_TIMEZONE, usage_snapshot
 
 
 def test_usage_snapshot_explains_before_and_after_billable_action() -> None:
@@ -41,8 +42,18 @@ def test_unlimited_preview_plan_has_no_misleading_remaining_count() -> None:
 def test_business_usage_uses_each_table_actual_timestamp_columns() -> None:
     source = Path("apps/api/wearo_api/plan_usage.py").read_text()
     assert "business_sponsored_tryons sponsored" in source
+    assert "business_sponsored_sessions session" in source
+    assert "job.account_id = session.consumer_account_id" in source
+    assert "job.tenant_id IS NULL" in source
     assert "job.idempotency_key = substring(sponsored.request_key FROM 11)" in source
+    assert "usage.action_code = :action" in source
+    assert "COALESCE(sum(usage.token_cost) FILTER (" in source
+    assert "count(DISTINCT session.participant_id)" in source
+    assert "job.created_at >= :today_start" in source
     assert "OR job.created_at >= :period_start" in source
     assert "OR job.created_at < :period_end" in source
-    assert "OR first_seen_at >= :period_start" in source
-    assert "OR first_seen_at < :period_end" in source
+
+
+def test_business_reporting_timezone_is_ist() -> None:
+    boundary = datetime(2026, 10, 25, tzinfo=BUSINESS_REPORTING_TIMEZONE).utcoffset()
+    assert boundary is not None and boundary.total_seconds() == 19_800

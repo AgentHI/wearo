@@ -572,6 +572,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/business/tenants/{tenant_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read tenant-scoped token and completed try-on metrics */
+        get: operations["get__business_tenant_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog/items": {
         parameters: {
             query?: never;
@@ -1345,6 +1362,27 @@ export interface components {
             metrics: {
                 [key: string]: unknown;
             };
+        };
+        BusinessUsageSnapshot: {
+            plan_code: string;
+            tokens_purchased: number;
+            token_balance: number;
+            tokens_used: number;
+            preview_limit: number | null;
+            previews_used: number;
+            previews_today: number;
+            previews_remaining: number | null;
+            action_code: string | null;
+            action_cost: number | null;
+            balance_after_action: number | null;
+            estimated_previews: number | null;
+            unique_participants: number;
+            provider_input_tokens: number;
+            provider_output_tokens: number;
+            provider_total_tokens: number;
+            average_tokens_per_preview: number | null;
+            average_previews_per_day: number | null;
+            average_previews_per_hour: number | null;
         };
         Invoice: {
             id: string;
@@ -4272,6 +4310,59 @@ export interface operations {
             };
             /** @description Rate limited */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get__business_tenant_usage: {
+        parameters: {
+            query?: {
+                action_code?: string;
+                date_from?: string;
+                date_to?: string;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant usage snapshot using Asia/Kolkata reporting-day boundaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessUsageSnapshot"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Invalid reporting date range */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

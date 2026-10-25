@@ -201,6 +201,23 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .metric-topup { grid-column: 1 / -1; grid-template-columns: 1fr auto; align-items: center; }
 .metric-topup .button { margin: 0; border-radius: .45rem; }
 .metric-topup small { display: block; margin-top: .25rem; }
+.dashboard-metric-group { margin-bottom: 1.25rem; padding: 1rem; border: 1px solid #e1e3e6; border-radius: .8rem; }
+.dashboard-metric-group--tokens { background: linear-gradient(145deg, #fbf8fc, #f5eef6); }
+.dashboard-metric-group--activity { border-color: #e5ddd0; background: linear-gradient(145deg, #fcfaf7, #f6f1e9); }
+.dashboard-metric-group__heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: .9rem; }
+.dashboard-metric-group__heading h2, .dashboard-metric-group__heading p { margin: 0; }
+.dashboard-metric-group__heading h2 { margin-top: .15rem; font-size: 1.15rem; }
+.dashboard-metric-group__heading > small { color: var(--ink-mauve); }
+.dashboard-metric-group .metric-grid { margin-bottom: 0; }
+.dashboard-metric-group .metric-grid > article { border-color: rgb(201 164 107 / 42%); box-shadow: 0 1px 3px rgb(75 48 22 / 5%); transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.dashboard-metric-group .metric-grid > article:nth-child(1),
+.dashboard-metric-group .metric-grid > article:nth-child(5) { background: linear-gradient(145deg, #fffefd, #fdfaf5); }
+.dashboard-metric-group .metric-grid > article:nth-child(2),
+.dashboard-metric-group .metric-grid > article:nth-child(4),
+.dashboard-metric-group .metric-grid > article:nth-child(6) { background: linear-gradient(145deg, #fffdf9, #faf3e8); }
+.dashboard-metric-group .metric-grid > article:nth-child(3) { background: linear-gradient(145deg, #fffaf1, #f5e8d3); }
+.dashboard-metric-group .metric-grid > article:hover { border-color: rgb(201 164 107 / 72%); box-shadow: 0 .35rem 1rem rgb(75 48 22 / 9%); transform: translateY(-1px); }
+.metric-card--tokens .metric-icon, .metric-card--activity .metric-icon { color: var(--brand-plum); background: linear-gradient(145deg, #f4ead8, #ead6b5); }
 #token-topup { scroll-margin-top: 5.5rem; }
 .dashboard-grid { display: grid; gap: 1rem; }
 .panel { padding: 1.25rem; border: 1px solid #e1e3e6; border-radius: .55rem; background: white; box-shadow: 0 1px 2px rgb(37 17 41 / 4%); }
@@ -718,4 +735,56 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 @media (display-mode: standalone) and (min-width: 48rem) {
   .agent-app { margin-block: 0; border-radius: 0; }
   .agent-header { border-radius: 0; }
+}
+
+/* Shared Wearo card theme across business, consumer, and agent screens. */
+.business-features article,
+.auth-card,
+.owner-contact,
+.panel,
+.plan-card,
+.company-logo-preview,
+.allowance-card,
+.mobile-steps li,
+.mobile-preview,
+.mobile-flow fieldset,
+.mobile-empty,
+.queue-panel,
+.look-card,
+.profile-card,
+.mobile-menu,
+.consumer-card,
+.tryon-studio,
+.photo-picker-dialog,
+.camera-dialog,
+.consent-card,
+.agent-login-card,
+.agent-business-card,
+.agent-allowance-card,
+.agent-scan-card,
+.agent-customer-result,
+.agent-balance-grid > div {
+  border-color: rgb(201 164 107 / 42%);
+  background: linear-gradient(145deg, #fffefd, #fdf8ef);
+  box-shadow: 0 .25rem .85rem rgb(75 48 22 / 6%);
+}
+.business-features article:nth-child(2),
+.settings-grid > .panel:nth-child(2),
+.dashboard-grid > .panel:nth-child(2),
+.plan-grid > .plan-card:nth-child(2),
+.mobile-steps li:nth-child(2),
+.agent-balance-grid > div:nth-child(2) {
+  background: linear-gradient(145deg, #fffdf9, #faefdd);
+}
+.business-features article:nth-child(3),
+.settings-grid > .panel:nth-child(3),
+.plan-grid > .plan-card:nth-child(3),
+.mobile-steps li:nth-child(3),
+.agent-balance-grid > div:nth-child(3) {
+  background: linear-gradient(145deg, #fffaf1, #f5e8d3);
+}
+.plan-card--featured,
+.sponsored-session-card {
+  border-color: rgb(201 164 107 / 78%);
+  box-shadow: 0 .45rem 1.2rem rgb(75 48 22 / 10%);
 }

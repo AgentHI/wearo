@@ -90,7 +90,7 @@ from .external_runtime import (
 )
 from .image_preflight import ImagePreflightService, VisionAnalyzer
 from .media_runtime import FilesystemPrivateBlobStore, MediaRuntimeError, PostgresMediaRuntime
-from .plan_usage import PostgresPlanUsage
+from .plan_usage import BUSINESS_REPORTING_TIMEZONE, PostgresPlanUsage
 from .platform_identity import PlatformIdentityError, PostgresPlatformIdentity
 from .postgres_auth import (
     DevelopmentPostgresOtpStore,
@@ -1521,7 +1521,8 @@ def create_app(
             raise ApiProblem(
                 422, "INVALID_DATE_RANGE", "The start date must be before the end date."
             )
-        if date_to and date_to > date.today():
+        reporting_today = datetime.now(BUSINESS_REPORTING_TIMEZONE).date()
+        if date_to and date_to > reporting_today:
             raise ApiProblem(422, "INVALID_DATE_RANGE", "The end date cannot be after today.")
         container.business_platform.overview(session.principal_id, tenant_id)
         return asdict(

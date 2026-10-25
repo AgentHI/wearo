@@ -2232,6 +2232,61 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/BusinessCreate'
+  /business/tenants/{tenant_id}/usage:
+    get:
+      tags:
+      - Business
+      summary: Read tenant-scoped token and completed try-on metrics
+      operationId: get__business_tenant_usage
+      parameters:
+      - in: path
+        name: tenant_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: action_code
+        schema:
+          type: string
+          default: TRY_ON
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Tenant usage snapshot using Asia/Kolkata reporting-day boundaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessUsageSnapshot'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Tenant access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Invalid reporting date range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - sessionCookie: []
   /catalog/items:
     get:
       tags:
@@ -4624,6 +4679,49 @@ components:
       - period_start
       - period_end
       - metrics
+      additionalProperties: false
+    BusinessUsageSnapshot:
+      type: object
+      properties:
+        plan_code: {type: string}
+        tokens_purchased: {type: integer}
+        token_balance: {type: integer}
+        tokens_used: {type: integer}
+        preview_limit: {type: [integer, 'null']}
+        previews_used: {type: integer}
+        previews_today: {type: integer}
+        previews_remaining: {type: [integer, 'null']}
+        action_code: {type: [string, 'null']}
+        action_cost: {type: [integer, 'null']}
+        balance_after_action: {type: [integer, 'null']}
+        estimated_previews: {type: [integer, 'null']}
+        unique_participants: {type: integer}
+        provider_input_tokens: {type: integer}
+        provider_output_tokens: {type: integer}
+        provider_total_tokens: {type: integer}
+        average_tokens_per_preview: {type: [number, 'null']}
+        average_previews_per_day: {type: [number, 'null']}
+        average_previews_per_hour: {type: [number, 'null']}
+      required:
+      - plan_code
+      - tokens_purchased
+      - token_balance
+      - tokens_used
+      - preview_limit
+      - previews_used
+      - previews_today
+      - previews_remaining
+      - action_code
+      - action_cost
+      - balance_after_action
+      - estimated_previews
+      - unique_participants
+      - provider_input_tokens
+      - provider_output_tokens
+      - provider_total_tokens
+      - average_tokens_per_preview
+      - average_previews_per_day
+      - average_previews_per_hour
       additionalProperties: false
     Invoice:
       type: object

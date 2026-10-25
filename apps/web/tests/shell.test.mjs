@@ -57,6 +57,17 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(business, /Tokens remaining/);
   assert.match(business, /Estimated try-ons remaining/);
   assert.match(business, /Average try-ons/);
+  assert.match(business, /Unique users/);
+  assert.match(business, /Try-ons today/);
+  assert.match(business, /Try-ons in selected period/);
+  assert.match(business, /Try-ons from \$\{dateRange\.label\}/);
+  assert.match(business, /usage\.previews_today \?\? 0/);
+  assert.match(business, /Token overview/);
+  assert.match(business, /Try-on performance/);
+  assert.match(css, /metric-card--tokens/);
+  assert.match(css, /metric-card--activity/);
+  assert.match(css, /Shared Wearo card theme across business, consumer, and agent screens/);
+  assert.match(css, /rgb\(201 164 107 \/ 42%\)/);
   assert.doesNotMatch(business, /Actual LLM tokens/);
   assert.match(business, /function dashboardGreeting/);
   assert.match(business, /Good afternoon\./);
