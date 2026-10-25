@@ -184,6 +184,8 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
   assert.match(consumer, /data-profile-camera="full_body"/);
   assert.match(consumer, /data-profile-camera="close_up"/);
+  assert.match(consumer, /data-profile-camera="additional"/);
+  assert.match(consumer, /Photo captured\. Review consent/);
   assert.match(consumer, /id="profile-camera-dialog"/);
   assert.match(consumer, /selectedProfileFiles/);
   assert.match(consumer, /selectedItemFile/);
@@ -249,7 +251,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v22/);
+  assert.match(worker, /wearo-shell-v23/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);

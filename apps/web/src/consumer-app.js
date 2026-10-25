@@ -334,9 +334,12 @@ function profileView(auth) {
         <div class="profile-library">
           <div class="profile-library__heading">
             <div><strong>Your photo library</strong><small id="profile-photo-count">0 of 10 photos</small></div>
-            <label class="profile-library__add"><span aria-hidden="true">＋</span> Add photos
-              <input name="additional_photos" type="file" accept="image/jpeg,image/png,image/webp" multiple />
-            </label>
+            <div class="profile-library__actions">
+              <label class="profile-library__add"><span aria-hidden="true">＋</span> Upload
+                <input name="additional_photos" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+              </label>
+              <button id="capture-additional-photo" class="profile-library__add" type="button" data-profile-camera="additional"><span aria-hidden="true">◎</span> Capture</button>
+            </div>
           </div>
           <div id="profile-photo-library" class="profile-library__grid" aria-live="polite"></div>
         </div>
@@ -678,6 +681,7 @@ function attachProfileFlow(auth) {
       ? entries.map((entry) => `<figure class="profile-library__item"><img src="${entry.src}" alt="${escapeHtml(entry.label)}" /><figcaption>${entry.primary ? "Primary" : entry.pending ? "Ready to save" : escapeHtml(entry.label)}</figcaption></figure>`).join("")
       : '<p class="profile-library__empty">Your saved photos will appear here.</p>';
     additionalPhotosInput.disabled = entries.length >= 10;
+    document.querySelector("#capture-additional-photo").disabled = entries.length >= 10;
   };
 
   if (auth.hasProfile) {
@@ -785,6 +789,9 @@ function attachProfileFlow(auth) {
       label: "Selected close-up profile photo",
       title: "Take a close-up photo",
     },
+    additional: {
+      title: "Capture another profile photo",
+    },
   };
   const profileCameraTitle = document.querySelector("#profile-camera-title");
   const profileCamera = attachCameraCapture({
@@ -796,6 +803,25 @@ function attachProfileFlow(auth) {
     onCapture: (file, photoType) => {
       const target = profilePhotoTargets[photoType];
       if (!target) throw new Error("Choose which profile photo you want to capture.");
+      if (photoType === "additional") {
+        const replacedTypes = new Set([
+          selectedProfileFiles.has("full_body") ? "FULL_BODY" : null,
+          selectedProfileFiles.has("close_up") ? "CLOSE_UP" : null,
+        ].filter(Boolean));
+        const savedCount = currentImages().filter(
+          (image) => !replacedTypes.has(image.photo_type),
+        ).length;
+        if (savedCount + selectedProfileFiles.size + additionalFiles.length >= 10) {
+          throw new Error("Your profile can keep up to 10 photos.");
+        }
+        const index = additionalFiles.length;
+        additionalFiles.push(file);
+        previewUrls.set(`additional_${index}`, URL.createObjectURL(file));
+        setConsentRequired(true);
+        renderPhotoLibrary();
+        setStatus(status, "Photo captured. Review consent, then save your profile.");
+        return;
+      }
       target.input.value = "";
       selectProfilePhoto(target.input, file, target.preview, target.label);
     },

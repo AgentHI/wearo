@@ -528,8 +528,9 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .profile-library__heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .profile-library__heading > div { display: grid; }
 .profile-library__heading small { color: var(--ink-mauve); font-size: .7rem; }
+.profile-library__actions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
 .profile-library__add { position: relative; display: inline-flex; align-items: center; gap: .25rem; padding: .5rem .7rem; border: 1px solid var(--brand-plum); border-radius: 999px; color: var(--brand-plum); font-size: .72rem; font-weight: 800; cursor: pointer; }
-.profile-library__add:has(input:disabled) { opacity: .45; cursor: default; }
+.profile-library__add:has(input:disabled), .profile-library__add:disabled { opacity: .45; cursor: default; }
 .profile-library__add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .profile-library__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
 .profile-library__item { position: relative; min-width: 0; margin: 0; overflow: hidden; border-radius: .7rem; background: var(--surface-soft); }
