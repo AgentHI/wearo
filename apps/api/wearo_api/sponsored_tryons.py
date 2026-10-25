@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, text
+
+from .tryon_authorization import BusinessTryOnStatus, authorize_business_try_on
 
 
 class SponsoredTryOnError(ValueError):
@@ -70,7 +72,7 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT l.tenant_id, l.account_id AS business_account_id,
-                                  p.display_name
+                                  p.display_name, t.try_on_status
                         FROM business_shop_links l
                         JOIN business_tenants t
                           ON t.tenant_id=l.tenant_id AND t.account_id=l.account_id
@@ -87,6 +89,7 @@ class PostgresSponsoredTryOns:
             )
             if context is None:
                 raise SponsoredTryOnError("SHOP_UNAVAILABLE", "Shop link is unavailable.")
+            authorize_business_try_on(cast(BusinessTryOnStatus, context["try_on_status"]))
             mobile = connection.execute(
                 text(
                     """SELECT normalized_value FROM principal_identities
@@ -251,10 +254,12 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT s.session_id, s.allowance_limit, s.try_ons_used, s.status,
-                                  s.expires_at, p.display_name
+                                  s.expires_at, p.display_name, t.try_on_status
                         FROM business_sponsored_sessions s
                         JOIN business_profiles p
                           ON p.tenant_id=s.tenant_id AND p.account_id=s.business_account_id
+                        JOIN business_tenants t
+                          ON t.tenant_id=s.tenant_id AND t.account_id=s.business_account_id
                         WHERE s.session_id=:session AND s.consumer_account_id=:account
                           AND s.consumer_principal_id=:principal"""
                     ),
@@ -294,9 +299,11 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT s.*, m.principal_id AS owner_principal_id,
-                                  p.normalized_mobile
+                                  p.normalized_mobile, t.try_on_status
                         FROM business_sponsored_sessions s
                         JOIN business_participants p ON p.participant_id=s.participant_id
+                        JOIN business_tenants t
+                          ON t.tenant_id=s.tenant_id AND t.account_id=s.business_account_id
                         JOIN tenant_memberships m
                           ON m.tenant_id=s.tenant_id AND m.account_id=s.business_account_id
                          AND m.role='OWNER' AND m.revoked_at IS NULL
@@ -331,6 +338,7 @@ class PostgresSponsoredTryOns:
             )
             if existing is not None:
                 return self._consumption(dict(existing), dict(session))
+            authorize_business_try_on(cast(BusinessTryOnStatus, session["try_on_status"]))
             if session["expires_at"] <= current:
                 connection.execute(
                     text(
@@ -488,17 +496,14 @@ class PostgresSponsoredTryOns:
             "business_name": str(business_name),
             "expires_at": row["expires_at"],
             "status": row["status"],
+            "business_try_on_status": row.get("try_on_status", "ACTIVE"),
             "try_ons_allotted": int(row["allowance_limit"]),
             "try_ons_used": int(row["try_ons_used"]),
-            "try_ons_remaining": max(
-                int(row["allowance_limit"]) - int(row["try_ons_used"]), 0
-            ),
+            "try_ons_remaining": max(int(row["allowance_limit"]) - int(row["try_ons_used"]), 0),
         }
 
     @staticmethod
-    def _consumption(
-        usage: Mapping[str, Any], session: Mapping[str, Any]
-    ) -> dict[str, object]:
+    def _consumption(usage: Mapping[str, Any], session: Mapping[str, Any]) -> dict[str, object]:
         return {
             "sponsored_tryon_id": usage["sponsored_tryon_id"],
             "usage_id": usage["usage_id"],

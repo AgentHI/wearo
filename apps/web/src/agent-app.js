@@ -77,6 +77,14 @@ function dashboardView(context) {
   const businessMark = context.logo_asset_id
     ? `<img src="${API_BASE}/public/shops/${encodeURIComponent(launch.business)}/logo?key=${encodeURIComponent(launch.key)}" alt="${businessName} logo" />`
     : `<span aria-hidden="true">${businessName.slice(0, 1).toUpperCase()}</span>`;
+  const tryOnsActive = context.try_on_status === "ACTIVE";
+  const statusTitle = context.try_on_status === "PAUSED"
+    ? "Try-ons are paused"
+    : "Subscription is cancelled";
+  const statusMessage = `${statusTitle}. Please contact your admin.`;
+  const qrContent = tryOnsActive
+    ? `<img src="${API_BASE}/agent/shop-qr.png?business=${encodeURIComponent(launch.business)}&key=${encodeURIComponent(launch.key)}" alt="QR code for ${businessName}" />`
+    : `<div class="agent-qr-locked" role="img" aria-label="QR scanning unavailable"><span aria-hidden="true">⌑</span><strong>QR unavailable</strong><small>New try-ons are blocked</small></div>`;
   return `<div class="agent-app">
     <header class="agent-header"><div class="agent-header__brand">${brandMarkup("/agent")}<strong class="agent-wordmark-name">Wearo.ai</strong></div><div class="agent-header__actions"><button id="agent-install" class="agent-install-button" type="button" hidden>Install</button><button id="agent-logout" class="agent-avatar" type="button" aria-label="Sign out ${agentName}" title="Sign out"><span>${agentName.slice(0, 1).toUpperCase()}</span></button></div></header>
     <main id="main" class="agent-main agent-main--screens">
@@ -85,7 +93,7 @@ function dashboardView(context) {
           <div class="agent-business-logo">${businessMark}</div>
           <div class="agent-home-card__copy"><p class="agent-greeting">Welcome back, ${agentName}</p><h1>${businessName}</h1><span>Agent workspace · Powered by Wearo.ai</span></div>
         </section>
-        <section class="agent-scan-card"><div><p class="eyebrow">In-store QR</p><h2>Invite a customer</h2><p>Ask the customer to scan and start a private virtual try-on.</p></div><div class="agent-qr"><img src="${API_BASE}/agent/shop-qr.png?business=${encodeURIComponent(launch.business)}&key=${encodeURIComponent(launch.key)}" alt="QR code for ${businessName}" /></div></section>
+        <section class="agent-scan-card"><div><p class="eyebrow">In-store QR</p><h2>Invite a customer</h2><p>Ask the customer to scan and start a private virtual try-on.</p></div><div id="agent-business-status" class="agent-business-status" role="status" aria-live="polite" ${tryOnsActive ? "hidden" : ""}><span class="agent-business-status__icon" aria-hidden="true">!</span><div><strong>${statusTitle}</strong><p>${statusMessage}</p><small>Customer QR scanning is disabled until your administrator changes the business status.</small></div></div><div class="agent-qr${tryOnsActive ? "" : " agent-qr--locked"}">${qrContent}</div></section>
         <button id="agent-open-tryons" class="button button--primary button--full agent-manage-button" type="button"><span aria-hidden="true">＋</span> Manage try-ons</button>
       </div>
       <div id="agent-tryons-screen" class="agent-screen" hidden>
@@ -157,6 +165,14 @@ function renderDashboard(root, context) {
   let activeMobile = "";
   const inviteScreen = root.querySelector("#agent-invite-screen");
   const tryonsScreen = root.querySelector("#agent-tryons-screen");
+  const tryOnsActive = context.try_on_status === "ACTIVE";
+  if (!tryOnsActive) {
+    const addForm = root.querySelector("#agent-add-form");
+    addForm.setAttribute("aria-disabled", "true");
+    for (const control of addForm.elements) control.disabled = true;
+    root.querySelector(".agent-section-copy").textContent =
+      "Enter a customer mobile number to view existing try-on usage.";
+  }
   const status = root.querySelector("#agent-customer-status");
   const installButton = root.querySelector("#agent-install");
   const standalone = window.matchMedia("(display-mode: standalone)").matches

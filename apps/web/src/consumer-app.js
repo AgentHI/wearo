@@ -5,7 +5,7 @@ const AUTH_KEY = "wearo_consumer_auth";
 const AUTH_IDENTITY_VERSION = 2;
 const SHOP_CONTEXT_KEY = "wearo_shop_context";
 const SHOP_DETAILS_KEY = "wearo_shop_details";
-const SHOP_DETAILS_VERSION = 4;
+const SHOP_DETAILS_VERSION = 5;
 const SPONSORED_SESSION_KEY = "wearo_sponsored_session";
 const TRY_ON_COMPLETE_SOUND = "/wearo-tryon-complete.wav";
 
@@ -25,6 +25,7 @@ function captureShopContext(pathname) {
     || previousContext?.key !== nextContext.key
   ) {
     sessionStorage.removeItem(SHOP_DETAILS_KEY);
+    sessionStorage.removeItem(SPONSORED_SESSION_KEY);
   }
 }
 
@@ -71,9 +72,36 @@ function saveSponsoredSession(value) {
   sessionStorage.setItem(SPONSORED_SESSION_KEY, JSON.stringify(value));
 }
 
+function leaveBusinessExperience() {
+  sessionStorage.removeItem(SHOP_CONTEXT_KEY);
+  sessionStorage.removeItem(SHOP_DETAILS_KEY);
+  sessionStorage.removeItem(SPONSORED_SESSION_KEY);
+  window.location.assign("/app/");
+}
+
+function readSponsoredSession() {
+  try { return JSON.parse(sessionStorage.getItem(SPONSORED_SESSION_KEY) || "null"); }
+  catch { return null; }
+}
+
 async function ensureSponsoredSession(auth) {
   const context = readShopContext();
   if (!context) return null;
+  const existing = readSponsoredSession();
+  if (existing?.session_id) {
+    try {
+      const session = await api(
+        `/sponsored-sessions/${encodeURIComponent(existing.session_id)}`,
+        {},
+        auth,
+      );
+      saveSponsoredSession(session);
+      return session;
+    } catch (error) {
+      if (error.code !== "SESSION_UNAVAILABLE") throw error;
+      sessionStorage.removeItem(SPONSORED_SESSION_KEY);
+    }
+  }
   const session = await api(
     `/public/shops/${encodeURIComponent(context.businessReference)}/sessions`,
     {
@@ -611,7 +639,13 @@ function attachSignInFlow() {
         accountStatus: "ACTIVE",
       };
       saveAuth(auth);
-      if (shopContext) await ensureSponsoredSession(auth);
+      if (shopContext) {
+        try {
+          await ensureSponsoredSession(auth);
+        } catch (error) {
+          if (!["TRYONS_PAUSED", "SUBSCRIPTION_CANCELLED"].includes(error.code)) throw error;
+        }
+      }
       const restorationDate = result.restored_from_deletion_at
         ? new Date(result.restored_from_deletion_at).toLocaleDateString()
         : null;
@@ -1042,6 +1076,7 @@ function attachHomeFlow(auth) {
   let generationActive = false;
   let selectedPersonAssetId = null;
   let sponsoredSession = null;
+  let businessTryOnsAllowed = true;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   const completionAudioContext = AudioContextClass ? new AudioContextClass() : null;
   const fallbackCompletionSound = new Audio(TRY_ON_COMPLETE_SOUND);
@@ -1076,18 +1111,63 @@ function attachHomeFlow(auth) {
     });
   };
 
+  const setBusinessAvailability = (businessStatus) => {
+    businessTryOnsAllowed = businessStatus === "ACTIVE";
+    const card = document.querySelector("#sponsored-session-card");
+    const studio = document.querySelector(".tryon-studio");
+    const allowancePanel = allowanceCount.closest(".allowance-card");
+    if (businessTryOnsAllowed) {
+      card.hidden = true;
+      studio.hidden = false;
+      allowancePanel.hidden = false;
+      return;
+    }
+    const businessName = readShopDetails()?.display_name || "This business";
+    const message = businessStatus === "PAUSED"
+      ? "Try-ons are paused for this business."
+      : "This business subscription is cancelled.";
+    card.hidden = false;
+    card.innerHTML = `<div class="business-tryon-lock"><span aria-hidden="true">⌑</span><div><small>${escapeHtml(businessName)}</small><strong>${message}</strong><p>Your profile, photos, saved data, and previous results remain available in Profile and Looks.</p></div></div><button id="open-personal-tryons" class="button button--primary button--full" type="button">Try on your app</button><p class="business-tryon-lock__note">Continue with your personal Wearo try-ons.</p>`;
+    card.querySelector("#open-personal-tryons").addEventListener("click", leaveBusinessExperience);
+    studio.hidden = true;
+    allowancePanel.hidden = true;
+    allowanceCount.textContent = "—";
+    allowanceCopy.textContent = "Unavailable";
+    allowanceNote.textContent = message;
+    submit.disabled = true;
+  };
+
   const refreshSponsoredSession = async () => {
     if (!readShopContext()) return null;
-    sponsoredSession = await ensureSponsoredSession(auth);
+    try {
+      sponsoredSession = await ensureSponsoredSession(auth);
+    } catch (error) {
+      if (error.code === "TRYONS_PAUSED") {
+        setBusinessAvailability("PAUSED");
+        return null;
+      }
+      if (error.code === "SUBSCRIPTION_CANCELLED") {
+        setBusinessAvailability("CANCELLED");
+        return null;
+      }
+      throw error;
+    }
     const card = document.querySelector("#sponsored-session-card");
+    const unavailable = sponsoredSession.business_try_on_status !== "ACTIVE";
+    setBusinessAvailability(sponsoredSession.business_try_on_status);
+    if (unavailable) return sponsoredSession;
     card.hidden = false;
     card.innerHTML = `<strong>${escapeHtml(sponsoredSession.business_name)} sponsored session</strong><div class="sponsored-session-stats"><span><small>Allotted</small><b>${sponsoredSession.try_ons_allotted}</b></span><span><small>Used</small><b>${sponsoredSession.try_ons_used}</b></span><span><small>Available</small><b>${sponsoredSession.try_ons_remaining}</b></span></div><p>Valid for 24 hours from verification.</p>`;
     allowanceCount.textContent = sponsoredSession.try_ons_remaining;
     allowanceCopy.textContent = sponsoredSession.try_ons_remaining;
     allowanceNote.textContent = `Sponsored by ${sponsoredSession.business_name} · Valid until ${new Date(sponsoredSession.expires_at).toLocaleString()}.`;
-    submit.disabled = sponsoredSession.try_ons_remaining <= 0;
+    submit.disabled = unavailable || sponsoredSession.try_ons_remaining <= 0;
     return sponsoredSession;
   };
+
+  if (readShopContext()) {
+    setBusinessAvailability(readShopDetails()?.try_on_status || "ACTIVE");
+  }
 
   const loadProfilePhotos = async () => {
     submit.disabled = true;
@@ -1129,7 +1209,7 @@ function attachHomeFlow(auth) {
         });
       });
       renderSelectedPhoto();
-      submit.disabled = false;
+      submit.disabled = !businessTryOnsAllowed;
     } catch (error) {
       setStatus(status, error.message, "error");
       if (error.code === "PROFILE_NOT_FOUND") {
@@ -1279,6 +1359,9 @@ function attachHomeFlow(auth) {
     try {
       if (readShopContext()) {
         const activeSession = await refreshSponsoredSession();
+        if (!businessTryOnsAllowed) {
+          throw new Error("This business is not accepting new try-ons.");
+        }
         if (!activeSession || activeSession.try_ons_remaining <= 0) {
           throw new Error("No try-ons remain in this 24-hour business session.");
         }
@@ -1336,6 +1419,7 @@ function attachHomeFlow(auth) {
     } finally {
       generationActive = false;
       setButtonBusy(submit, false, "Creating preview…", "Generate try-on");
+      submit.disabled = !businessTryOnsAllowed;
     }
   });
 

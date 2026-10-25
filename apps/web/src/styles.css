@@ -292,6 +292,13 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .consumer-header__actions { display: flex; align-items: center; gap: .55rem; }
 .sponsored-session-card { margin-bottom: 1rem; border-color: #d8a94e; background: #fff8e9; }
 .sponsored-session-card p { margin: .35rem 0 0; }
+.business-tryon-lock { display: flex; align-items: flex-start; gap: .85rem; text-align: left; }
+.business-tryon-lock > span { display: grid; width: 2.75rem; height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: .85rem; color: white; background: linear-gradient(145deg, #8f2d3b, #5b1f46); font-size: 1.35rem; font-weight: 800; box-shadow: 0 .45rem 1rem rgb(91 31 70 / 20%); }
+.business-tryon-lock small { display: block; margin-bottom: .15rem; color: #8b6b37; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.business-tryon-lock strong { display: block; color: var(--brand-plum); font-size: 1rem; }
+.business-tryon-lock p { color: var(--ink-mauve); line-height: 1.5; }
+.sponsored-session-card #open-personal-tryons { margin: 1rem 0 0; }
+.sponsored-session-card .business-tryon-lock__note { color: var(--ink-mauve); font-size: .72rem; text-align: center; }
 .sponsored-session-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: .75rem; }
 .sponsored-session-stats span { display: grid; gap: .15rem; padding: .6rem; border: 1px solid rgb(201 164 107 / 38%); border-radius: .7rem; background: rgb(255 255 255 / 68%); text-align: center; }
 .sponsored-session-stats small { color: var(--ink-mauve); font-size: .68rem; font-weight: 700; text-transform: uppercase; }
@@ -764,6 +771,17 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .agent-main--screens .agent-scan-card h2 { font-size: 1.5rem; }
 .agent-main--screens .agent-scan-card .agent-qr { width: min(100%, 20rem); height: auto; aspect-ratio: 1122 / 1402; margin: .5rem auto 0; padding: .3rem; }
 .agent-main--screens .agent-scan-card .agent-qr img { object-fit: cover; object-position: center; }
+.agent-business-status { display: flex; width: 100%; align-items: flex-start; gap: .85rem; padding: 1rem; border: 1px solid #e9c573; border-radius: 1rem; color: #3b1746; background: linear-gradient(135deg, #fff9e8, #f8edf7); box-shadow: 0 .65rem 1.6rem rgb(71 38 66 / 10%); text-align: left; }
+.agent-business-status[hidden] { display: none; }
+.agent-business-status__icon { display: grid; width: 2.35rem; height: 2.35rem; flex: 0 0 auto; place-items: center; border-radius: .75rem; color: white; background: linear-gradient(145deg, #8f2d3b, #5b1f46); font-size: 1.1rem; font-weight: 800; box-shadow: 0 .4rem .9rem rgb(91 31 70 / 24%); }
+.agent-business-status strong { display: block; font-size: 1rem; }
+.agent-business-status p { margin: .18rem 0 .35rem; color: #5f405e; font-size: .84rem; font-weight: 700; }
+.agent-business-status small { display: block; color: #7b667a; font-size: .72rem; line-height: 1.45; }
+.agent-main--screens .agent-scan-card .agent-qr--locked { display: grid; min-height: 15rem; place-items: center; padding: 1rem; border: 1px dashed #d6b7d3; background: linear-gradient(145deg, #f7f1f7, #eee5ef); }
+.agent-qr-locked { display: grid; justify-items: center; gap: .35rem; color: #6f5b70; }
+.agent-qr-locked > span { display: grid; width: 4rem; height: 4rem; place-items: center; border-radius: 50%; color: white; background: #8f7890; font-size: 2rem; font-weight: 800; box-shadow: 0 .6rem 1.4rem rgb(59 23 70 / 18%); }
+.agent-qr-locked strong { color: #3b1746; font-size: 1.05rem; }
+.agent-qr-locked small { font-size: .78rem; }
 .agent-manage-button { min-height: 3.5rem; border-radius: 1rem; box-shadow: 0 .65rem 1.4rem rgb(59 23 70 / 18%); font-size: 1rem; }
 .agent-manage-button span { margin-right: .35rem; font-size: 1.25rem; }
 .agent-back-button { display: inline-flex; width: fit-content; min-height: 2.75rem; align-items: center; gap: .45rem; padding: 0 .8rem; border: 0; border-radius: .8rem; color: var(--brand-plum); background: #eee5ef; font: inherit; font-weight: 700; cursor: pointer; }

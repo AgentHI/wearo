@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, Engine, text
 from sqlalchemy.engine import RowMapping
+
+from .tryon_authorization import BusinessTryOnStatus, authorize_business_try_on
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -175,6 +177,23 @@ class PostgresRenderRuntime:
             if existing is not None:
                 self._link_sponsored_render(connection, existing["job_id"], account_id, key)
                 return _job_from_row(existing)
+
+            sponsored_status = connection.execute(
+                text(
+                    """SELECT tenant.try_on_status
+                    FROM business_sponsored_tryons sponsored
+                    JOIN business_sponsored_sessions session
+                      ON session.session_id=sponsored.session_id
+                    JOIN business_tenants tenant
+                      ON tenant.tenant_id=sponsored.tenant_id
+                     AND tenant.account_id=sponsored.business_account_id
+                    WHERE sponsored.request_key='sponsored:' || :key
+                      AND session.consumer_account_id=:account"""
+                ),
+                {"key": key, "account": account_id},
+            ).scalar_one_or_none()
+            if sponsored_status is not None:
+                authorize_business_try_on(cast(BusinessTryOnStatus, sponsored_status))
 
             quote = connection.execute(
                 text(

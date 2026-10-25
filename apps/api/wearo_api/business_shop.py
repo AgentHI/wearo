@@ -170,7 +170,8 @@ class PostgresBusinessShop:
                 connection.execute(
                     text(
                         """SELECT l.tenant_id, l.account_id, p.display_name,
-                                  p.operating_profile, l.caption, p.logo_asset_id
+                                  p.operating_profile, l.caption, p.logo_asset_id,
+                                  t.try_on_status
                     FROM business_shop_links l JOIN business_profiles p
                       ON p.tenant_id=l.tenant_id AND p.account_id=l.account_id
                     JOIN business_tenants t

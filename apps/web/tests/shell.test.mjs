@@ -390,7 +390,46 @@ test("agent PWA supports mobile OTP, business QR, and customer allowance top-ups
   assert.match(agent, /\/public\/shops\/\$\{encodeURIComponent\(launch\.business\)\}\/logo/);
   assert.match(agent, /result\.customer \|\| \(result\.user/);
   assert.match(agent, /customer app now shows the updated balance/i);
+  assert.match(agent, /"Try-ons are paused"/);
+  assert.match(agent, /"Subscription is cancelled"/);
+  assert.match(agent, /statusMessage = `\$\{statusTitle\}\. Please contact your admin\.`/);
+  assert.match(agent, /agent-business-status/);
+  assert.match(agent, /agent-qr--locked/);
+  assert.match(agent, /QR scanning unavailable/);
+  assert.match(agent, /New try-ons are blocked/);
+  assert.match(agent, /const qrContent = tryOnsActive/);
+  assert.match(agent, /addForm\.setAttribute\("aria-disabled", "true"\)/);
+  assert.match(agent, /for \(const control of addForm\.elements\) control\.disabled = true/);
   assert.match(worker, /"\/agent\/"/);
+});
+
+test("business try-on controls require explicit pause and cancellation confirmation", () => {
+  assert.match(business, />Pause Try-ons</);
+  assert.match(business, />Resume Try-ons</);
+  assert.match(business, />Cancel Subscription</);
+  assert.match(business, /Subscription Cancelled/);
+  assert.match(business, /id="business-subscription-dialog"/);
+  assert.match(business, /New try-ons will be disabled for your business and its users\. Existing data will remain available for viewing\./);
+  assert.match(business, /keepSubscription\.textContent = "Keep Subscription"/);
+  assert.match(business, /pendingTryOnStatus = "PAUSED"/);
+  assert.match(business, /pendingTryOnStatus = "CANCELLED"/);
+  assert.doesNotMatch(business, /Cancel this subscription\? New try-ons will be permanently blocked/);
+});
+
+test("business status blocks only new B2B2C try-ons and preserves end-user reads", () => {
+  assert.match(consumer, /businessTryOnsAllowed/);
+  assert.match(consumer, /TRYONS_PAUSED/);
+  assert.match(consumer, /SUBSCRIPTION_CANCELLED/);
+  assert.match(consumer, /Your profile, photos, saved data, and previous results remain available in Profile and Looks\./);
+  assert.match(consumer, /\/sponsored-sessions\/\$\{encodeURIComponent\(existing\.session_id\)\}/);
+  assert.match(consumer, /submit\.disabled = !businessTryOnsAllowed/);
+  assert.match(consumer, />Try on your app<\/button>/);
+  assert.match(consumer, /leaveBusinessExperience/);
+  assert.match(consumer, /sessionStorage\.removeItem\(SHOP_CONTEXT_KEY\)/);
+  assert.match(consumer, /studio\.hidden = true/);
+  assert.match(consumer, /allowancePanel\.hidden = true/);
+  assert.match(consumer, /api\("\/me\/person-profile", \{\}, auth\)/);
+  assert.match(consumer, /api\("\/renders", \{\}, auth\)/);
 });
 
 test("consumer PWA has a three-second animated branded launch splash", () => {

@@ -286,7 +286,8 @@ class PostgresBusinessAgents:
             row = (
                 connection.execute(
                     text("""SELECT a.agent_id, a.name, a.tenant_id, a.account_id,
-                              p.display_name, p.logo_asset_id, t.slug, l.public_code
+                              p.display_name, p.logo_asset_id, t.slug, l.public_code,
+                              t.try_on_status
                        FROM business_agents a
                        JOIN tenant_memberships m ON m.tenant_id=a.tenant_id
                          AND m.principal_id=a.principal_id AND m.revoked_at IS NULL

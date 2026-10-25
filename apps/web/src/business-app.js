@@ -378,6 +378,17 @@ function billingView() {
       <article class="plan-card"><p class="plan-card__name">Scale</p><h2>Contact us</h2><p>Multiple storefronts and higher-volume workflows.</p><ul><li>Multiple workspaces</li><li>Priority quality evaluation</li><li>Custom retention controls</li></ul><button class="button button--quiet plan-select" data-plan="Scale" type="button">Talk to sales</button></article>
     </section>
     <section class="panel billing-note" aria-labelledby="usage-heading"><div><h2 id="usage-heading">Plan usage</h2><p id="plan-usage-summary">Loading plan, used credits, and remaining preview allowance…</p><p id="plan-action-effect"></p></div><span id="plan-code" class="status-chip">Loading</span></section>
+    <section class="panel billing-note" aria-labelledby="try-on-control-heading"><div><h2 id="try-on-control-heading">Try-on availability</h2><p id="try-on-control-copy">Loading current availability…</p><p id="try-on-control-status" class="form-status" role="status" aria-live="polite"></p></div><div class="form-actions"><span id="try-on-status" class="status-chip">Loading</span><button id="pause-try-ons" class="button button--quiet" type="button">Pause Try-ons</button><button id="resume-try-ons" class="button button--primary" type="button" hidden>Resume Try-ons</button><button id="cancel-subscription" class="button button--danger" type="button">Cancel Subscription</button></div></section>
+    <dialog id="business-subscription-dialog" class="cancellation-dialog" aria-labelledby="business-subscription-dialog-title" aria-describedby="business-subscription-dialog-description">
+      <div class="cancellation-dialog__panel">
+        <header><div><p class="eyebrow">Plans &amp; billing</p><h2 id="business-subscription-dialog-title"></h2></div><button id="close-business-subscription-dialog" class="camera-dialog__close" type="button" aria-label="Close confirmation">×</button></header>
+        <div id="business-subscription-dialog-description" class="cancellation-dialog__details"><p id="business-subscription-dialog-copy"></p><p>No business, user, profile, or try-on data will be deleted.</p></div>
+        <div class="cancellation-dialog__actions">
+          <button id="keep-business-subscription" class="button button--quiet" type="button">Keep Subscription</button>
+          <button id="confirm-business-subscription-action" class="button button--danger" type="button">Cancel Subscription</button>
+        </div>
+      </div>
+    </dialog>
     <section class="panel"><div class="panel__heading"><div><h2>Wearo Token action rates</h2><p>Wearo Tokens price product actions; they are not model text tokens.</p></div></div><div id="action-rate-list" class="settings-list" aria-live="polite">Loading published rates…</div></section>
     <section class="panel"><div class="panel__heading"><div><h2>Refund and recredit policy</h2><p>Eligible reversals restore Wearo Tokens and appear in transaction history.</p></div></div><div id="recredit-policy" class="settings-list" aria-live="polite">Loading policy…</div></section>
     <section class="panel panel--wide"><div class="panel__heading"><div><h2>Token transaction history</h2><p>Reconcile purchases, promotional credits, consumption, refunds, and expiry.</p></div><a id="transaction-download" class="button button--quiet" href="#">Download CSV</a></div><form id="transaction-filters" class="filter-row"><label>Type<select name="category"><option value="">All transactions</option><option value="PURCHASE">Purchases</option><option value="PROMOTIONAL_CREDIT">Promotional credits</option><option value="CONSUMPTION">Consumption</option><option value="REFUND">Refunds</option><option value="EXPIRY">Expiry</option></select></label><label>From<input name="dateFrom" type="date" /></label><label>To<input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply filters</button></form><p id="transaction-reconciliation" class="form-status" aria-live="polite"></p><div id="transaction-history" class="settings-list" aria-live="polite">Loading transactions…</div></section>
@@ -413,6 +424,42 @@ async function loadBusinessUsage() {
     summary.textContent = error.message;
     effect.textContent = "Refresh to try again; no usage was consumed.";
   }
+}
+
+async function loadTryOnStatus() {
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  const badge = document.querySelector("#try-on-status");
+  const copy = document.querySelector("#try-on-control-copy");
+  const pause = document.querySelector("#pause-try-ons");
+  const resume = document.querySelector("#resume-try-ons");
+  const cancel = document.querySelector("#cancel-subscription");
+  if (!tenantId || !badge || !copy || !pause || !resume || !cancel) return;
+  const result = await businessApi(`/business/tenants/${tenantId}/try-on-status`);
+  badge.textContent = result.status === "CANCELLED" ? "Subscription Cancelled" : result.status;
+  pause.hidden = result.status !== "ACTIVE";
+  resume.hidden = result.status !== "PAUSED";
+  cancel.hidden = result.status === "CANCELLED";
+  copy.textContent = result.status === "ACTIVE"
+    ? "Customers can start new try-ons."
+    : result.status === "PAUSED"
+      ? "New try-ons are blocked. Existing profiles, saved data, and results remain available."
+      : "This subscription is cancelled. New try-ons are permanently blocked; existing data remains available.";
+}
+
+async function updateTryOnStatus(status) {
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  const message = document.querySelector("#try-on-control-status");
+  message.textContent = "Updating try-on availability…";
+  try {
+    await businessApi(`/business/tenants/${tenantId}/try-on-status`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    message.textContent = status === "PAUSED" ? "Try-ons paused."
+      : status === "ACTIVE" ? "Try-ons resumed." : "Subscription cancelled.";
+    await loadTryOnStatus();
+    return true;
+  } catch (error) { message.textContent = error.message; return false; }
 }
 
 async function loadActionRates() {
@@ -1145,6 +1192,9 @@ function attachBusinessInteractions(section) {
   }
   if (section === "billing") {
     loadBusinessUsage();
+    loadTryOnStatus().catch((error) => {
+      document.querySelector("#try-on-control-status").textContent = error.message;
+    });
     loadActionRates();
     loadRecreditPolicy();
     loadTokenTransactions();
@@ -1160,6 +1210,45 @@ function attachBusinessInteractions(section) {
         document.querySelector("#billing-status").textContent =
           `${button.dataset.plan} selected. Checkout is not connected, so no charge was made.`;
       });
+    });
+    const subscriptionDialog = document.querySelector("#business-subscription-dialog");
+    const dialogTitle = document.querySelector("#business-subscription-dialog-title");
+    const dialogCopy = document.querySelector("#business-subscription-dialog-copy");
+    const keepSubscription = document.querySelector("#keep-business-subscription");
+    const confirmSubscriptionAction = document.querySelector("#confirm-business-subscription-action");
+    let pendingTryOnStatus = null;
+    const closeSubscriptionDialog = () => {
+      pendingTryOnStatus = null;
+      subscriptionDialog.close();
+    };
+    document.querySelector("#close-business-subscription-dialog")?.addEventListener("click", closeSubscriptionDialog);
+    keepSubscription?.addEventListener("click", closeSubscriptionDialog);
+    subscriptionDialog?.addEventListener("cancel", () => { pendingTryOnStatus = null; });
+    document.querySelector("#pause-try-ons")?.addEventListener("click", () => {
+      pendingTryOnStatus = "PAUSED";
+      dialogTitle.textContent = "Pause try-ons?";
+      dialogCopy.textContent = "New try-ons will be temporarily disabled for your business and its users. Existing data will remain available for viewing.";
+      keepSubscription.textContent = "Keep Try-ons Active";
+      confirmSubscriptionAction.textContent = "Pause Try-ons";
+      confirmSubscriptionAction.className = "button button--quiet";
+      subscriptionDialog.showModal();
+    });
+    document.querySelector("#resume-try-ons")?.addEventListener("click", () => updateTryOnStatus("ACTIVE"));
+    document.querySelector("#cancel-subscription")?.addEventListener("click", () => {
+      pendingTryOnStatus = "CANCELLED";
+      dialogTitle.textContent = "Cancel subscription?";
+      dialogCopy.textContent = "New try-ons will be disabled for your business and its users. Existing data will remain available for viewing.";
+      keepSubscription.textContent = "Keep Subscription";
+      confirmSubscriptionAction.textContent = "Cancel Subscription";
+      confirmSubscriptionAction.className = "button button--danger";
+      subscriptionDialog.showModal();
+    });
+    confirmSubscriptionAction?.addEventListener("click", async () => {
+      if (!pendingTryOnStatus) return;
+      confirmSubscriptionAction.disabled = true;
+      const changed = await updateTryOnStatus(pendingTryOnStatus);
+      confirmSubscriptionAction.disabled = false;
+      if (changed) closeSubscriptionDialog();
     });
   }
   if (section === "agents") setupAgentManagement();

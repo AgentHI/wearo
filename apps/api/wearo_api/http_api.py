@@ -65,6 +65,10 @@ from .business_platform import (
 )
 from .business_reports import BusinessReportError, PostgresBusinessReports, reconciliation_csv
 from .business_shop import BusinessShopError, PostgresBusinessShop, qr_poster
+from .business_tryon_status import (
+    BusinessTryOnStatusError,
+    PostgresBusinessTryOnStatus,
+)
 from .catalog import CatalogCollection, CatalogError, CatalogItem, CatalogService, PublishState
 from .communications_governance import (
     CommunicationChannel,
@@ -115,6 +119,7 @@ from .sponsored_tryons import PostgresSponsoredTryOns, SponsoredTryOnError
 from .support_access import PostgresSupportAccess, SupportAccessError
 from .support_cases import CaseType, PostgresSupportCases, SupportCaseError
 from .topups import HttpPaymentGateway, PostgresTopUps, TopUpError, UnavailablePaymentGateway
+from .tryon_authorization import BusinessTryOnStatus, TryOnAuthorizationError
 from .wallet_billing import PostgresWalletBilling
 from .wallet_transactions import (
     PostgresWalletTransactions,
@@ -161,6 +166,7 @@ class ApiContainer:
     sensitive_audit: PostgresSensitiveAudit | None = None
     business_agents: PostgresBusinessAgents | None = None
     business_shop: PostgresBusinessShop | None = None
+    business_tryon_status: PostgresBusinessTryOnStatus | None = None
     business_allowances: PostgresBusinessAllowances | None = None
     communications: PostgresCommunicationsGovernance | None = None
     business_reports: PostgresBusinessReports | None = None
@@ -212,6 +218,11 @@ class BusinessAgentBody(BaseModel):
 class AllowancePolicyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_try_on_limit: int = Field(ge=0, le=100000)
+
+
+class BusinessTryOnStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: BusinessTryOnStatus
 
 
 class UserAllowanceBody(BaseModel):
@@ -619,6 +630,7 @@ def create_app(
     @app.exception_handler(SensitiveAuditError)
     @app.exception_handler(BusinessAgentError)
     @app.exception_handler(BusinessShopError)
+    @app.exception_handler(BusinessTryOnStatusError)
     @app.exception_handler(BusinessAllowanceError)
     @app.exception_handler(CommunicationsError)
     @app.exception_handler(BusinessReportError)
@@ -630,6 +642,7 @@ def create_app(
     @app.exception_handler(MediaRuntimeError)
     @app.exception_handler(RenderPreflightError)
     @app.exception_handler(DurableRenderError)
+    @app.exception_handler(TryOnAuthorizationError)
     async def domain_problem(request: Request, error: ValueError) -> JSONResponse:
         code = getattr(error, "code", "VALIDATION_FAILED")
         if code in {
@@ -659,6 +672,7 @@ def create_app(
             "REPORT_UNAVAILABLE",
             "CASE_UNAVAILABLE",
             "SUPPORT_GRANT_UNAVAILABLE",
+            "TRY_ON_STATUS_UNAVAILABLE",
         }:
             status = 404
         elif code in {
@@ -669,6 +683,7 @@ def create_app(
             "REGISTRATION_CONFLICT",
             "LAST_OWNER_REQUIRED",
             "ACCOUNT_CANCELLATION_UNAVAILABLE",
+            "TRY_ON_STATUS_CONFLICT",
         }:
             status = 409
         else:
@@ -1313,6 +1328,27 @@ def create_app(
         if container.business_billing is None:
             raise ApiProblem(503, "BILLING_UNAVAILABLE", "Billing profile is unavailable.")
         return container.business_billing.get(session.principal_id, tenant_id)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/try-on-status")
+    def get_business_try_on_status(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_tryon_status is None:
+            raise ApiProblem(503, "TRY_ON_STATUS_UNAVAILABLE", "Try-on status is unavailable.")
+        return container.business_tryon_status.get(session.principal_id, tenant_id)
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/try-on-status")
+    def update_business_try_on_status(
+        tenant_id: UUID,
+        body: BusinessTryOnStatusBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_tryon_status is None:
+            raise ApiProblem(503, "TRY_ON_STATUS_UNAVAILABLE", "Try-on status is unavailable.")
+        return container.business_tryon_status.transition(
+            session.principal_id, tenant_id, body.status
+        )
 
     @app.get("/api/v1/business/tenants/{tenant_id}/token-transactions")
     def business_token_transactions(
@@ -2361,6 +2397,7 @@ def create_app_from_env() -> FastAPI:
         sensitive_audit=PostgresSensitiveAudit(engine),
         business_agents=PostgresBusinessAgents(engine),
         business_shop=PostgresBusinessShop(engine),
+        business_tryon_status=PostgresBusinessTryOnStatus(engine),
         business_allowances=PostgresBusinessAllowances(engine),
         communications=PostgresCommunicationsGovernance(engine),
         business_reports=PostgresBusinessReports(engine),
