@@ -243,8 +243,8 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.wearable-source-actions/);
   assert.match(css, /\.camera-dialog/);
   assert.match(consumer, /aria-live="polite"/);
-  assert.match(consumer, /function normalizeShopMobile/);
-  assert.match(consumer, /return `\+91\$\{digits\}`/);
+  assert.match(consumer, /Email or mobile number/);
+  assert.match(consumer, /const destination = form\.elements\.destination\.value\.trim\(\)/);
   assert.match(consumer, /<h1>Wearo\.ai<\/h1>/);
   assert.match(consumer, /shop-welcome__wearo-logo/);
   assert.doesNotMatch(consumer, /<h1>\$\{escapeHtml\(shopName\)\}<\/h1>/);
@@ -430,6 +430,14 @@ test("business status blocks only new B2B2C try-ons and preserves end-user reads
   assert.match(consumer, /allowancePanel\.hidden = true/);
   assert.match(consumer, /api\("\/me\/person-profile", \{\}, auth\)/);
   assert.match(consumer, /api\("\/renders", \{\}, auth\)/);
+});
+
+test("B2B2C shoppers can reuse an email or mobile consumer account", () => {
+  assert.match(consumer, /Use your existing email or mobile number to start this business-sponsored try-on session\./);
+  assert.doesNotMatch(consumer, /Enter and verify your mobile number/);
+  assert.doesNotMatch(consumer, /normalizeShopMobile/);
+  assert.match(consumer, /sponsored_session_id: sponsoredSession\?\.session_id \|\| null/);
+  assert.match(consumer, /\/sponsored-sessions\/\$\{encodeURIComponent\(sponsoredSession\.session_id\)\}\/try-ons/);
 });
 
 test("consumer PWA has a three-second animated branded launch splash", () => {

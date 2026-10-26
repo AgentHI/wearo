@@ -139,14 +139,6 @@ function clearAuth() {
   sessionStorage.removeItem(AUTH_KEY);
 }
 
-function normalizeShopMobile(value) {
-  const trimmed = value.trim();
-  const digits = trimmed.replace(/\D/g, "");
-  if (trimmed.startsWith("+") && /^\+[1-9]\d{6,14}$/.test(`+${digits}`)) return `+${digits}`;
-  if (/^[6-9]\d{9}$/.test(digits)) return `+91${digits}`;
-  return "";
-}
-
 function consumerRoute(pathname) {
   if (pathname.startsWith("/app/sign-in")) return "sign-in";
   if (pathname.startsWith("/app/account-status")) return "account-status";
@@ -578,22 +570,13 @@ function attachSignInFlow() {
   const shopContext = readShopContext();
   if (shopContext) {
     const intro = document.querySelector("#consumer-auth-intro");
-    intro.textContent = "Enter and verify your mobile number to start this business-sponsored try-on session.";
-    form.elements.destination.closest("label").childNodes[0].textContent = "Mobile number";
-    form.elements.destination.type = "tel";
-    form.elements.destination.autocomplete = "tel";
-    form.elements.destination.placeholder = "98765 43210";
+    intro.textContent = "Use your existing email or mobile number to start this business-sponsored try-on session.";
   }
 
   requestButton.addEventListener("click", async () => {
     if (form.elements.name && !form.elements.name.reportValidity()) return;
     if (!form.elements.destination.reportValidity()) return;
-    const destination = shopContext
-      ? normalizeShopMobile(form.elements.destination.value)
-      : form.elements.destination.value.trim();
-    if (shopContext && !destination) {
-      return setStatus(status, "Enter a valid 10-digit mobile number.", "error");
-    }
+    const destination = form.elements.destination.value.trim();
     challengeId = null;
     setStatus(status, "Requesting your sign-in code…");
     setButtonBusy(requestButton, true, "Sending…", "Send sign-in code");
@@ -631,9 +614,7 @@ function attachSignInFlow() {
       const auth = {
         csrfToken: result.csrf_token,
         hasProfile: result.has_person_profile,
-        destination: shopContext
-          ? normalizeShopMobile(form.elements.destination.value)
-          : form.elements.destination.value.trim(),
+        destination: form.elements.destination.value.trim(),
         displayName: form.elements.name?.value.trim() || "",
         identityVersion: AUTH_IDENTITY_VERSION,
         accountStatus: "ACTIVE",
@@ -1711,10 +1692,6 @@ export function renderConsumerApp(root, pathname) {
   const shopContext = readShopContext();
   const shopDetails = readShopDetails();
   if (shopContext && auth && auth.identityVersion !== AUTH_IDENTITY_VERSION) {
-    clearAuth();
-    auth = null;
-  }
-  if (shopContext && auth && !/^\+[1-9]\d{6,14}$/.test(auth.destination || "")) {
     clearAuth();
     auth = null;
   }

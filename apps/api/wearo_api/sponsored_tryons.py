@@ -90,19 +90,28 @@ class PostgresSponsoredTryOns:
             if context is None:
                 raise SponsoredTryOnError("SHOP_UNAVAILABLE", "Shop link is unavailable.")
             authorize_business_try_on(cast(BusinessTryOnStatus, context["try_on_status"]))
-            mobile = connection.execute(
-                text(
-                    """SELECT normalized_value FROM principal_identities
-                    WHERE principal_id=:principal AND account_id=:account
-                      AND channel='PHONE' AND verified_at IS NOT NULL"""
-                ),
-                {"principal": consumer_principal_id, "account": consumer_account_id},
-            ).scalar_one_or_none()
-            if mobile is None:
-                raise SponsoredTryOnError(
-                    "VERIFIED_MOBILE_REQUIRED", "Verify a mobile number before starting."
+            identity = (
+                connection.execute(
+                    text(
+                        """SELECT channel, normalized_value FROM principal_identities
+                        WHERE principal_id=:principal AND account_id=:account
+                          AND channel IN ('PHONE', 'EMAIL') AND verified_at IS NOT NULL
+                        ORDER BY (channel='PHONE') DESC, created_at
+                        LIMIT 1"""
+                    ),
+                    {"principal": consumer_principal_id, "account": consumer_account_id},
                 )
-            owner_principal_id = connection.execute(
+                .mappings()
+                .one_or_none()
+            )
+            if identity is None:
+                raise SponsoredTryOnError(
+                    "VERIFIED_IDENTITY_REQUIRED",
+                    "Verify an email address or mobile number before starting.",
+                )
+            mobile = identity["normalized_value"] if identity["channel"] == "PHONE" else None
+            email = identity["normalized_value"] if identity["channel"] == "EMAIL" else None
+            owner_principal_id: UUID = connection.execute(
                 text(
                     """SELECT principal_id FROM tenant_memberships
                     WHERE tenant_id=:tenant AND account_id=:account
@@ -111,16 +120,18 @@ class PostgresSponsoredTryOns:
                 ),
                 {"tenant": context["tenant_id"], "account": context["business_account_id"]},
             ).scalar_one()
-            participant_id = connection.execute(
+            participant_id: UUID = connection.execute(
                 text(
                     """INSERT INTO business_participants
                     (tenant_id, business_account_id, consumer_account_id,
-                     consumer_principal_id, normalized_mobile, first_seen_at, latest_seen_at)
+                     consumer_principal_id, normalized_mobile, normalized_email,
+                     first_seen_at, latest_seen_at)
                     VALUES (:tenant, :business_account, :consumer_account, :consumer_principal,
-                            :mobile, :now, :now)
-                    ON CONFLICT (tenant_id, normalized_mobile) DO UPDATE SET
+                            :mobile, :email, :now, :now)
+                    ON CONFLICT (tenant_id, consumer_principal_id) DO UPDATE SET
                       consumer_account_id=EXCLUDED.consumer_account_id,
-                      consumer_principal_id=EXCLUDED.consumer_principal_id,
+                      normalized_mobile=EXCLUDED.normalized_mobile,
+                      normalized_email=EXCLUDED.normalized_email,
                       latest_seen_at=EXCLUDED.latest_seen_at
                     RETURNING participant_id"""
                 ),
@@ -130,6 +141,7 @@ class PostgresSponsoredTryOns:
                     "consumer_account": consumer_account_id,
                     "consumer_principal": consumer_principal_id,
                     "mobile": mobile,
+                    "email": email,
                     "now": current,
                 },
             ).scalar_one()
@@ -176,7 +188,7 @@ class PostgresSponsoredTryOns:
                     .mappings()
                     .one()
                 )
-                return self._session(refreshed, context["display_name"])
+                return self._session(dict(refreshed), context["display_name"])
             allowance = int(
                 connection.execute(
                     text(
@@ -184,7 +196,7 @@ class PostgresSponsoredTryOns:
                         FROM business_allowance_policies p
                         LEFT JOIN business_user_allowances u
                           ON u.tenant_id=p.tenant_id AND u.account_id=p.account_id
-                         AND u.normalized_mobile=:mobile
+                         AND :mobile IS NOT NULL AND u.normalized_mobile=:mobile
                         WHERE p.tenant_id=:tenant AND p.account_id=:account"""
                     ),
                     {
@@ -194,9 +206,10 @@ class PostgresSponsoredTryOns:
                     },
                 ).scalar_one()
             )
-            connection.execute(
-                text(
-                    """INSERT INTO business_user_allowances
+            if mobile is not None:
+                connection.execute(
+                    text(
+                        """INSERT INTO business_user_allowances
                     (tenant_id, account_id, normalized_mobile, limit_adjustment, used_count,
                      period_started_at, updated_by_principal_id)
                     VALUES (:tenant, :account, :mobile, 0, 0, :now, :owner)
@@ -208,16 +221,16 @@ class PostgresSponsoredTryOns:
                         WHEN business_user_allowances.period_started_at <= :reset_before
                         THEN 0 ELSE business_user_allowances.used_count END,
                       updated_at=:now"""
-                ),
-                {
-                    "tenant": context["tenant_id"],
-                    "account": context["business_account_id"],
-                    "mobile": mobile,
-                    "now": current,
-                    "reset_before": current - self.session_ttl,
-                    "owner": owner_principal_id,
-                },
-            )
+                    ),
+                    {
+                        "tenant": context["tenant_id"],
+                        "account": context["business_account_id"],
+                        "mobile": mobile,
+                        "now": current,
+                        "reset_before": current - self.session_ttl,
+                        "owner": owner_principal_id,
+                    },
+                )
             row = (
                 connection.execute(
                     text(
@@ -242,7 +255,7 @@ class PostgresSponsoredTryOns:
                 .mappings()
                 .one()
             )
-            return self._session(row, context["display_name"])
+            return self._session(dict(row), context["display_name"])
 
     def status(
         self, session_id: UUID, consumer_account_id: UUID, consumer_principal_id: UUID
@@ -299,7 +312,7 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT s.*, m.principal_id AS owner_principal_id,
-                                  p.normalized_mobile, t.try_on_status
+                                  p.normalized_mobile, p.normalized_email, t.try_on_status
                         FROM business_sponsored_sessions s
                         JOIN business_participants p ON p.participant_id=s.participant_id
                         JOIN business_tenants t
@@ -472,7 +485,8 @@ class PostgresSponsoredTryOns:
             connection.execute(
                 text(
                     """UPDATE business_user_allowances SET used_count=used_count+1, updated_at=:now
-                    WHERE tenant_id=:tenant AND normalized_mobile=:mobile"""
+                    WHERE tenant_id=:tenant AND :mobile IS NOT NULL
+                      AND normalized_mobile=:mobile"""
                 ),
                 {
                     "tenant": session["tenant_id"],

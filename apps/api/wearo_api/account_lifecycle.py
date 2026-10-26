@@ -620,6 +620,7 @@ class PostgresAccountLifecycle:
                     """
                     UPDATE business_participants
                     SET normalized_mobile = md5(participant_id::text),
+                        normalized_email = NULL,
                         consumer_account_id = NULL, consumer_principal_id = NULL,
                         first_seen_at = :now, latest_seen_at = :now,
                         anonymized_at = COALESCE(anonymized_at, :now)
