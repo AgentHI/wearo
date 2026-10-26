@@ -189,22 +189,32 @@ class PostgresSponsoredTryOns:
                     .one()
                 )
                 return self._session(dict(refreshed), context["display_name"])
-            allowance = int(
-                connection.execute(
-                    text(
-                        """SELECT p.default_try_on_limit + COALESCE(u.limit_adjustment, 0)
+            if mobile is None:
+                allowance_query = text(
+                    """SELECT default_try_on_limit
+                    FROM business_allowance_policies
+                    WHERE tenant_id=:tenant AND account_id=:account"""
+                )
+                allowance_parameters = {
+                    "tenant": context["tenant_id"],
+                    "account": context["business_account_id"],
+                }
+            else:
+                allowance_query = text(
+                    """SELECT p.default_try_on_limit + COALESCE(u.limit_adjustment, 0)
                         FROM business_allowance_policies p
                         LEFT JOIN business_user_allowances u
                           ON u.tenant_id=p.tenant_id AND u.account_id=p.account_id
-                         AND :mobile IS NOT NULL AND u.normalized_mobile=:mobile
+                         AND u.normalized_mobile=:mobile
                         WHERE p.tenant_id=:tenant AND p.account_id=:account"""
-                    ),
-                    {
-                        "tenant": context["tenant_id"],
-                        "account": context["business_account_id"],
-                        "mobile": mobile,
-                    },
-                ).scalar_one()
+                )
+                allowance_parameters = {
+                    "tenant": context["tenant_id"],
+                    "account": context["business_account_id"],
+                    "mobile": mobile,
+                }
+            allowance = int(
+                connection.execute(allowance_query, allowance_parameters).scalar_one()
             )
             if mobile is not None:
                 connection.execute(
@@ -482,18 +492,19 @@ class PostgresSponsoredTryOns:
                 .mappings()
                 .one()
             )
-            connection.execute(
-                text(
-                    """UPDATE business_user_allowances SET used_count=used_count+1, updated_at=:now
-                    WHERE tenant_id=:tenant AND :mobile IS NOT NULL
-                      AND normalized_mobile=:mobile"""
-                ),
-                {
-                    "tenant": session["tenant_id"],
-                    "mobile": session["normalized_mobile"],
-                    "now": current,
-                },
-            )
+            if session["normalized_mobile"] is not None:
+                connection.execute(
+                    text(
+                        """UPDATE business_user_allowances
+                        SET used_count=used_count+1, updated_at=:now
+                        WHERE tenant_id=:tenant AND normalized_mobile=:mobile"""
+                    ),
+                    {
+                        "tenant": session["tenant_id"],
+                        "mobile": session["normalized_mobile"],
+                        "now": current,
+                    },
+                )
             return self._consumption(
                 {
                     "sponsored_tryon_id": sponsored_id,

@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-shell-v26";
+const CACHE_NAME = "wearo-shell-v27";
 const APP_SHELL = [
   "/app/",
   "/agent/",

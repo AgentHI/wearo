@@ -8,6 +8,9 @@ def test_sponsored_sessions_accept_verified_email_or_phone_identity() -> None:
     assert "VERIFIED_IDENTITY_REQUIRED" in source
     assert "normalized_email" in source
     assert "ON CONFLICT (tenant_id, consumer_principal_id)" in source
+    assert "if mobile is None:" in source
+    assert "SELECT default_try_on_limit" in source
+    assert ":mobile IS NOT NULL" not in source
 
 
 def test_sponsored_consumption_remains_charged_to_business_account() -> None:

@@ -355,7 +355,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v26/);
+  assert.match(worker, /wearo-shell-v27/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);
