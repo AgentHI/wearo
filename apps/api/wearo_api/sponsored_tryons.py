@@ -7,7 +7,11 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, text
 
-from .tryon_authorization import BusinessTryOnStatus, authorize_business_try_on
+from .tryon_authorization import (
+    BusinessTryOnStatus,
+    SubscriptionState,
+    authorize_business_try_on,
+)
 
 
 class SponsoredTryOnError(ValueError):
@@ -72,12 +76,24 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT l.tenant_id, l.account_id AS business_account_id,
-                                  p.display_name, t.try_on_status
+                                  p.display_name, t.try_on_status,
+                                  subscription.state AS subscription_state,
+                                  COALESCE((SELECT NOT paused FROM platform_tryon_controls
+                                    WHERE scope='PLATFORM' AND scope_key='ALL'), true)
+                                    platform_operational,
+                                  COALESCE((SELECT NOT control.paused
+                                    FROM platform_tryon_controls control
+                                    WHERE control.scope='BUSINESS_TYPE'
+                                      AND control.scope_key=p.operating_profile), true)
+                                    business_type_operational
                         FROM business_shop_links l
                         JOIN business_tenants t
                           ON t.tenant_id=l.tenant_id AND t.account_id=l.account_id
                         JOIN business_profiles p
                           ON p.tenant_id=l.tenant_id AND p.account_id=l.account_id
+                        JOIN business_subscriptions subscription
+                          ON subscription.tenant_id=t.tenant_id
+                         AND subscription.account_id=t.account_id
                         WHERE (t.slug=:reference OR CAST(t.tenant_id AS text)=:reference)
                           AND (l.public_code=:key OR CAST(l.public_token AS text)=:key)
                           AND l.enabled AND t.status='ACTIVE'"""
@@ -89,7 +105,12 @@ class PostgresSponsoredTryOns:
             )
             if context is None:
                 raise SponsoredTryOnError("SHOP_UNAVAILABLE", "Shop link is unavailable.")
-            authorize_business_try_on(cast(BusinessTryOnStatus, context["try_on_status"]))
+            authorize_business_try_on(
+                cast(BusinessTryOnStatus, context["try_on_status"]),
+                cast(SubscriptionState, context["subscription_state"]),
+                platform_operational=bool(context["platform_operational"]),
+                business_type_operational=bool(context["business_type_operational"]),
+            )
             identity = (
                 connection.execute(
                     text(
@@ -213,9 +234,7 @@ class PostgresSponsoredTryOns:
                     "account": context["business_account_id"],
                     "mobile": mobile,
                 }
-            allowance = int(
-                connection.execute(allowance_query, allowance_parameters).scalar_one()
-            )
+            allowance = int(connection.execute(allowance_query, allowance_parameters).scalar_one())
             if mobile is not None:
                 connection.execute(
                     text(
@@ -283,6 +302,9 @@ class PostgresSponsoredTryOns:
                           ON p.tenant_id=s.tenant_id AND p.account_id=s.business_account_id
                         JOIN business_tenants t
                           ON t.tenant_id=s.tenant_id AND t.account_id=s.business_account_id
+                        JOIN business_subscriptions subscription
+                          ON subscription.tenant_id=t.tenant_id
+                         AND subscription.account_id=t.account_id
                         WHERE s.session_id=:session AND s.consumer_account_id=:account
                           AND s.consumer_principal_id=:principal"""
                     ),
@@ -322,7 +344,19 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT s.*, m.principal_id AS owner_principal_id,
-                                  p.normalized_mobile, p.normalized_email, t.try_on_status
+                                  p.normalized_mobile, p.normalized_email, t.try_on_status,
+                                  subscription.state AS subscription_state,
+                                  COALESCE((SELECT NOT paused FROM platform_tryon_controls
+                                    WHERE scope='PLATFORM' AND scope_key='ALL'), true)
+                                    platform_operational,
+                                  COALESCE((SELECT NOT control.paused
+                                    FROM platform_tryon_controls control
+                                    JOIN business_profiles profile
+                                      ON profile.tenant_id=s.tenant_id
+                                     AND profile.account_id=s.business_account_id
+                                    WHERE control.scope='BUSINESS_TYPE'
+                                      AND control.scope_key=profile.operating_profile), true)
+                                    business_type_operational
                         FROM business_sponsored_sessions s
                         JOIN business_participants p ON p.participant_id=s.participant_id
                         JOIN business_tenants t
@@ -361,7 +395,12 @@ class PostgresSponsoredTryOns:
             )
             if existing is not None:
                 return self._consumption(dict(existing), dict(session))
-            authorize_business_try_on(cast(BusinessTryOnStatus, session["try_on_status"]))
+            authorize_business_try_on(
+                cast(BusinessTryOnStatus, session["try_on_status"]),
+                cast(SubscriptionState, session["subscription_state"]),
+                platform_operational=bool(session["platform_operational"]),
+                business_type_operational=bool(session["business_type_operational"]),
+            )
             if session["expires_at"] <= current:
                 connection.execute(
                     text(

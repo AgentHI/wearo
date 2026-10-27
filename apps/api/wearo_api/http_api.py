@@ -22,6 +22,30 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
 from .account_lifecycle import AccountLifecycleError, PostgresAccountLifecycle
+from .admin_audit import AdminAuditError, PostgresAdminAudit
+from .admin_billing import AdminBillingError, PostgresAdminBilling
+from .admin_customers import AdminCustomerError, PostgresAdminCustomers
+from .admin_dashboard import AdminDashboardError, PostgresAdminDashboard
+from .admin_operations import AdminOperationsError, PostgresAdminOperations
+from .admin_organizations import (
+    AdminOrganizationError,
+    OrganizationAction,
+    PostgresAdminOrganizations,
+)
+from .admin_platform_controls import (
+    AdminPlatformControlError,
+    ControlAction,
+    ControlScope,
+    PostgresAdminPlatformControls,
+)
+from .admin_pricing import AdminPricingError, PostgresAdminPricing
+from .admin_revenue import AdminRevenueError, PostgresAdminRevenue
+from .admin_subscriptions import (
+    AdminSubscriptionError,
+    PostgresAdminSubscriptions,
+    SubscriptionAction,
+)
+from .admin_usage_analytics import AdminUsageAnalyticsError, PostgresAdminUsageAnalytics
 from .beta_profile import (
     IST,
     DailyQuotaService,
@@ -96,6 +120,7 @@ from .external_runtime import (
 from .image_preflight import ImagePreflightService, VisionAnalyzer
 from .media_runtime import FilesystemPrivateBlobStore, MediaRuntimeError, PostgresMediaRuntime
 from .plan_usage import BUSINESS_REPORTING_TIMEZONE, PostgresPlanUsage
+from .platform_admin_auth import PlatformAdminAuth
 from .platform_identity import PlatformIdentityError, PostgresPlatformIdentity
 from .postgres_auth import (
     DevelopmentPostgresOtpStore,
@@ -177,6 +202,18 @@ class ApiContainer:
     preflight: BetaRenderPreflightService | None = None
     secure_cookie: bool = True
     registration_test_otp: str | None = None
+    platform_admin_auth: PlatformAdminAuth | None = None
+    admin_organizations: PostgresAdminOrganizations | None = None
+    admin_dashboard: PostgresAdminDashboard | None = None
+    admin_usage_analytics: PostgresAdminUsageAnalytics | None = None
+    admin_customers: PostgresAdminCustomers | None = None
+    admin_subscriptions: PostgresAdminSubscriptions | None = None
+    admin_pricing: PostgresAdminPricing | None = None
+    admin_billing: PostgresAdminBilling | None = None
+    admin_revenue: PostgresAdminRevenue | None = None
+    admin_operations: PostgresAdminOperations | None = None
+    admin_platform_controls: PostgresAdminPlatformControls | None = None
+    admin_audit: PostgresAdminAudit | None = None
 
 
 class OtpRequestBody(BaseModel):
@@ -391,6 +428,87 @@ CONSUMER_SESSION_COOKIE = "wearo_consumer_session"
 BUSINESS_SESSION_COOKIE = "wearo_business_session"
 AGENT_SESSION_COOKIE = "wearo_agent_session"
 LEGACY_SESSION_COOKIE = "wearo_session"
+ADMIN_SESSION_COOKIE = "wearo_admin_session"
+
+
+class AdminLoginBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class AdminOrganizationStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: OrganizationAction
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminTokenAdjustmentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: int = Field(ge=-1_000_000, le=1_000_000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminPlatformControlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: ControlScope
+    scope_key: str | None = Field(default=None, max_length=120)
+    action: ControlAction
+    reason: str = Field(min_length=1, max_length=500)
+    confirmed: bool
+
+
+class AdminSubscriptionTransitionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: SubscriptionAction
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminPlanAssignmentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_code: str = Field(min_length=1, max_length=40)
+    next_billing_at: datetime | None = None
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminTrialExtensionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: int = Field(ge=1, le=365)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminPricingSettingsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_code: str = Field(min_length=1, max_length=40)
+    business_type: OperatingProfile | None = None
+    monthly_fee_minor: int = Field(ge=0, le=1_000_000_000)
+    try_on_token_cost: int = Field(ge=1, le=1_000_000)
+    free_trial_tokens: int = Field(ge=0, le=10_000_000)
+    trial_duration_days: int = Field(ge=1, le=365)
+    payment_grace_days: int = Field(ge=0, le=90)
+    gst_basis_points: int = Field(ge=0, le=10_000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminTokenPackageBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=40)
+    business_type: OperatingProfile | None = None
+    purchased_tokens: int = Field(ge=1, le=100_000_000)
+    promo_tokens: int = Field(ge=0, le=100_000_000)
+    amount_minor: int = Field(ge=1, le=1_000_000_000)
+    discount_basis_points: int = Field(ge=0, le=10_000)
+    gst_basis_points: int = Field(ge=0, le=10_000)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 def _authenticate(
@@ -569,6 +687,32 @@ def create_app(
     *,
     embedded_worker: DurableRenderWorker | None = None,
 ) -> FastAPI:
+    platform_admin_auth = container.platform_admin_auth
+    admin_organizations = container.admin_organizations or PostgresAdminOrganizations(
+        container.engine
+    )
+    platform_dashboard = container.admin_dashboard or PostgresAdminDashboard(container.engine)
+    admin_usage_analytics = container.admin_usage_analytics or PostgresAdminUsageAnalytics(
+        container.engine
+    )
+    admin_customers = container.admin_customers or PostgresAdminCustomers(container.engine)
+    admin_subscriptions = container.admin_subscriptions or PostgresAdminSubscriptions(
+        container.engine
+    )
+    admin_pricing = container.admin_pricing or PostgresAdminPricing(container.engine)
+    admin_billing = container.admin_billing or PostgresAdminBilling(container.engine)
+    admin_revenue = container.admin_revenue or PostgresAdminRevenue(
+        container.engine, int(os.environ.get("WEARO_ESTIMATED_AI_COST_MINOR", "0"))
+    )
+    admin_operations = container.admin_operations or PostgresAdminOperations(container.engine)
+    admin_platform_controls = container.admin_platform_controls or PostgresAdminPlatformControls(
+        container.engine
+    )
+    admin_audit = container.admin_audit or PostgresAdminAudit(container.engine)
+    admin_email = os.environ.get("WEARO_ADMIN_EMAIL", "")
+    admin_password = os.environ.get("WEARO_ADMIN_PASSWORD", "")
+    if platform_admin_auth is None and admin_email and admin_password:
+        platform_admin_auth = PlatformAdminAuth(admin_email, admin_password)
     stop_worker = threading.Event()
     worker_thread: threading.Thread | None = None
 
@@ -716,6 +860,340 @@ def create_app(
                 "Image understanding is not configured for this environment.",
             )
         return {"status": "ready", "image_understanding": "configured"}
+
+    @app.post("/api/v1/admin/login")
+    def admin_login(body: AdminLoginBody, request: Request, response: Response) -> dict[str, str]:
+        if platform_admin_auth is None:
+            raise ApiProblem(503, "ADMIN_AUTH_UNAVAILABLE", "Admin sign-in is unavailable.")
+        client_key = request.client.host if request.client is not None else "unknown"
+        session = platform_admin_auth.login(body.email, body.password, client_key)
+        if session is None:
+            raise ApiProblem(401, "INVALID_ADMIN_CREDENTIALS", "Invalid email or password.")
+        max_age = max(0, int((session.expires_at - datetime.now(UTC)).total_seconds()))
+        response.set_cookie(
+            ADMIN_SESSION_COOKIE,
+            session.token,
+            max_age=max_age,
+            httponly=True,
+            secure=container.secure_cookie,
+            samesite="strict",
+            path="/",
+        )
+        return {"redirect_to": "/admin/dashboard"}
+
+    @app.get("/api/v1/admin/session")
+    def admin_session(request: Request) -> dict[str, bool]:
+        token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+        if platform_admin_auth is None or not platform_admin_auth.authenticate(token):
+            raise ApiProblem(401, "ADMIN_AUTHENTICATION_REQUIRED", "Admin sign-in required.")
+        return {"authenticated": True}
+
+    def require_platform_admin(request: Request) -> None:
+        token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+        if platform_admin_auth is None or not platform_admin_auth.authenticate(token):
+            raise ApiProblem(401, "ADMIN_AUTHENTICATION_REQUIRED", "Admin sign-in required.")
+
+    @app.get("/api/v1/admin/organizations")
+    def admin_organization_list(
+        request: Request,
+        search: str = "",
+        business_type: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        require_platform_admin(request)
+        try:
+            return admin_organizations.list(
+                search=search, business_type=business_type, status=status
+            )
+        except AdminOrganizationError as error:
+            raise ApiProblem(422, "INVALID_ORGANIZATION_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/dashboard")
+    def admin_dashboard_metrics(
+        request: Request,
+        date_from: date,
+        date_to: date,
+        tenant_id: UUID | None = None,
+        business_type: str | None = None,
+    ) -> dict[str, int | float]:
+        require_platform_admin(request)
+        try:
+            return platform_dashboard.metrics(
+                date_from=date_from,
+                date_to=date_to,
+                tenant_id=tenant_id,
+                business_type=business_type,
+            )
+        except AdminDashboardError as error:
+            raise ApiProblem(422, "INVALID_DASHBOARD_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/usage/organizations")
+    def admin_usage_by_organization(
+        request: Request,
+        date_from: date,
+        date_to: date,
+        tenant_id: UUID | None = None,
+        business_type: str | None = None,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_usage_analytics.organizations(
+                date_from=date_from,
+                date_to=date_to,
+                tenant_id=tenant_id,
+                business_type=business_type,
+            )
+        except AdminUsageAnalyticsError as error:
+            raise ApiProblem(422, "INVALID_USAGE_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/usage/organizations/{tenant_id}")
+    def admin_organization_usage_history(
+        request: Request, tenant_id: UUID, date_from: date, date_to: date
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_usage_analytics.history(tenant_id, date_from=date_from, date_to=date_to)
+        except AdminUsageAnalyticsError as error:
+            raise ApiProblem(404, "ORGANIZATION_USAGE_NOT_FOUND", str(error)) from None
+
+    @app.get("/api/v1/admin/customers")
+    def admin_customer_list(request: Request, status: str | None = None) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_customers.list(status=status)
+        except AdminCustomerError as error:
+            raise ApiProblem(422, "INVALID_CUSTOMER_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/subscriptions/{tenant_id}")
+    def admin_subscription_detail(request: Request, tenant_id: UUID) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_subscriptions.get(tenant_id)
+        except AdminSubscriptionError as error:
+            raise ApiProblem(404, "SUBSCRIPTION_NOT_FOUND", str(error)) from None
+
+    @app.post("/api/v1/admin/subscriptions/{tenant_id}/transitions")
+    def admin_subscription_transition(
+        request: Request, tenant_id: UUID, body: AdminSubscriptionTransitionBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_subscriptions.transition(tenant_id, body.action, body.reason)
+        except AdminSubscriptionError as error:
+            raise ApiProblem(409, "SUBSCRIPTION_TRANSITION_CONFLICT", str(error)) from None
+
+    @app.post("/api/v1/admin/subscriptions/{tenant_id}/plan")
+    def admin_subscription_plan(
+        request: Request, tenant_id: UUID, body: AdminPlanAssignmentBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_subscriptions.assign_plan(
+                tenant_id, body.plan_code, body.next_billing_at, body.reason
+            )
+        except AdminSubscriptionError as error:
+            raise ApiProblem(422, "PLAN_ASSIGNMENT_REJECTED", str(error)) from None
+
+    @app.post("/api/v1/admin/subscriptions/{tenant_id}/trial-extension")
+    def admin_subscription_trial_extension(
+        request: Request, tenant_id: UUID, body: AdminTrialExtensionBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_subscriptions.extend_trial(tenant_id, body.days, body.reason)
+        except AdminSubscriptionError as error:
+            raise ApiProblem(422, "TRIAL_EXTENSION_REJECTED", str(error)) from None
+
+    @app.get("/api/v1/admin/pricing")
+    def admin_pricing_detail(request: Request) -> dict[str, object]:
+        require_platform_admin(request)
+        return admin_pricing.current()
+
+    @app.post("/api/v1/admin/pricing/settings", status_code=201)
+    def admin_publish_pricing(
+        request: Request, body: AdminPricingSettingsBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        values = body.model_dump(exclude={"reason"})
+        try:
+            return admin_pricing.publish_settings(values, body.reason)
+        except AdminPricingError as error:
+            raise ApiProblem(422, "PRICING_REJECTED", str(error)) from None
+
+    @app.post("/api/v1/admin/pricing/token-packages", status_code=201)
+    def admin_publish_token_package(
+        request: Request, body: AdminTokenPackageBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        values = body.model_dump(exclude={"reason"})
+        try:
+            return admin_pricing.publish_package(values, body.reason)
+        except AdminPricingError as error:
+            raise ApiProblem(422, "TOKEN_PACKAGE_REJECTED", str(error)) from None
+
+    @app.get("/api/v1/admin/billing")
+    def admin_billing_list(request: Request, status: str | None = None) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_billing.list(status)
+        except AdminBillingError as error:
+            raise ApiProblem(422, "INVALID_PAYMENT_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/revenue")
+    def admin_revenue_metrics(
+        request: Request, date_from: date, date_to: date, tenant_id: UUID | None = None
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_revenue.metrics(date_from=date_from, date_to=date_to, tenant_id=tenant_id)
+        except AdminRevenueError as error:
+            raise ApiProblem(422, "INVALID_REVENUE_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/operations/try-ons")
+    def admin_tryon_operations(
+        request: Request,
+        date_from: date,
+        date_to: date,
+        tenant_id: UUID | None = None,
+        business_type: str | None = None,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_operations.list(
+                date_from=date_from,
+                date_to=date_to,
+                tenant_id=tenant_id,
+                business_type=business_type,
+            )
+        except AdminOperationsError as error:
+            raise ApiProblem(422, "INVALID_OPERATIONS_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/operations/controls")
+    def admin_platform_control_status(request: Request) -> dict[str, object]:
+        require_platform_admin(request)
+        return admin_platform_controls.status()
+
+    @app.get("/api/v1/admin/audit-history")
+    def admin_audit_history(
+        request: Request,
+        search: str = "",
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_audit.list(search=search, date_from=date_from, date_to=date_to)
+        except AdminAuditError as error:
+            raise ApiProblem(422, "INVALID_AUDIT_FILTER", str(error)) from None
+
+    @app.post("/api/v1/admin/operations/controls")
+    def admin_platform_control_change(
+        request: Request, body: AdminPlatformControlBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_platform_controls.change(**body.model_dump())
+        except AdminPlatformControlError as error:
+            raise ApiProblem(409, "TRY_ON_CONTROL_REJECTED", str(error)) from None
+
+    @app.get("/api/v1/admin/operations/try-ons/{job_id}")
+    def admin_tryon_operation_detail(request: Request, job_id: UUID) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_operations.detail(job_id)
+        except AdminOperationsError as error:
+            raise ApiProblem(404, "TRY_ON_REQUEST_NOT_FOUND", str(error)) from None
+
+    @app.get("/api/v1/admin/billing/invoices/{invoice_id}/detail")
+    def admin_invoice_detail(request: Request, invoice_id: UUID) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_billing.invoice(invoice_id)
+        except AdminBillingError as error:
+            raise ApiProblem(404, "INVOICE_NOT_FOUND", str(error)) from None
+
+    @app.get("/api/v1/admin/billing/invoices/{invoice_id}.txt")
+    def admin_invoice_download(request: Request, invoice_id: UUID) -> PlainTextResponse:
+        require_platform_admin(request)
+        try:
+            invoice = admin_billing.invoice(invoice_id)
+        except AdminBillingError as error:
+            raise ApiProblem(404, "INVOICE_NOT_FOUND", str(error)) from None
+        business = invoice["business_snapshot"]
+        tax = invoice["tax_snapshot"]
+        if not isinstance(business, dict) or not isinstance(tax, dict):
+            raise ApiProblem(500, "INVALID_INVOICE", "Invoice snapshot is invalid.")
+        subtotal = invoice["subtotal_minor"]
+        tax_minor = invoice["tax_minor"]
+        total = invoice["amount_minor"]
+        rate = tax.get("rate_basis_points", 0)
+        if (
+            not isinstance(subtotal, int)
+            or not isinstance(tax_minor, int)
+            or not isinstance(total, int)
+            or not isinstance(rate, int)
+        ):
+            raise ApiProblem(500, "INVALID_INVOICE", "Invoice amounts are invalid.")
+        body = (
+            "WEARO TAX INVOICE\n"
+            f"Invoice number: {invoice['invoice_number']}\n"
+            f"Issued: {invoice['issued_at']}\n"
+            f"Bill to: {business.get('legal_name', '')}\n"
+            f"Billing email: {business.get('billing_email', '')}\n"
+            f"GSTIN: {business.get('tax_identifier') or 'Not provided'}\n"
+            f"Billing address: {json.dumps(business.get('billing_address', {}), sort_keys=True)}\n"
+            f"Subtotal: {invoice['currency']} {subtotal / 100:.2f}\n"
+            f"Tax ({rate / 100:.2f}%): {invoice['currency']} {tax_minor / 100:.2f}\n"
+            f"Total payable: {invoice['currency']} {total / 100:.2f}\n"
+            f"Payment date: {invoice.get('payment_date') or 'Pending'}\n"
+        )
+        return PlainTextResponse(
+            body,
+            headers={
+                "Content-Disposition": f'attachment; filename="{invoice["invoice_number"]}.txt"'
+            },
+        )
+
+    @app.get("/api/v1/admin/organizations/{tenant_id}")
+    def admin_organization_detail(request: Request, tenant_id: UUID) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_organizations.get(tenant_id)
+        except AdminOrganizationError:
+            raise ApiProblem(404, "ORGANIZATION_NOT_FOUND", "Organization not found.") from None
+
+    @app.post("/api/v1/admin/organizations/{tenant_id}/status")
+    def admin_organization_status(
+        request: Request, tenant_id: UUID, body: AdminOrganizationStatusBody
+    ) -> dict[str, str]:
+        require_platform_admin(request)
+        try:
+            return admin_organizations.change_status(tenant_id, body.action, body.reason)
+        except AdminOrganizationError as error:
+            raise ApiProblem(409, "ORGANIZATION_STATUS_CONFLICT", str(error)) from None
+
+    @app.post("/api/v1/admin/organizations/{tenant_id}/token-adjustments")
+    def admin_organization_token_adjustment(
+        request: Request, tenant_id: UUID, body: AdminTokenAdjustmentBody
+    ) -> dict[str, int]:
+        require_platform_admin(request)
+        try:
+            return admin_organizations.adjust_tokens(tenant_id, body.amount, body.reason)
+        except AdminOrganizationError as error:
+            raise ApiProblem(422, "TOKEN_ADJUSTMENT_REJECTED", str(error)) from None
+
+    @app.post("/api/v1/admin/logout", status_code=204)
+    def admin_logout(request: Request, response: Response) -> None:
+        token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+        if platform_admin_auth is None or not platform_admin_auth.invalidate(token):
+            raise ApiProblem(403, "ADMIN_AUTHENTICATION_REQUIRED", "Admin sign-in required.")
+        response.delete_cookie(
+            ADMIN_SESSION_COOKIE,
+            httponly=True,
+            secure=container.secure_cookie,
+            samesite="strict",
+            path="/",
+        )
 
     @app.get("/api/v1/platform/pricing")
     def platform_pricing() -> dict[str, Any]:

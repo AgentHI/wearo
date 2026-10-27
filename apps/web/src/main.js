@@ -4,9 +4,11 @@ import "@fontsource/inter/latin-700.css";
 import { renderBusinessApp } from "./business-app.js";
 import { renderConsumerApp } from "./consumer-app.js";
 import { renderAgentApp } from "./agent-app.js";
+import { renderAdminApp } from "./admin-app.js";
 import "./styles.css";
 
 function currentExperience(pathname) {
+  if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/agent")) return "agent";
   return pathname.startsWith("/business") ? "business" : "consumer";
 }
@@ -37,7 +39,9 @@ function showConsumerSplash() {
 const root = document.querySelector("#app");
 const experience = currentExperience(window.location.pathname);
 
-if (experience === "agent") {
+if (experience === "admin") {
+  renderAdminApp(root, window.location.pathname);
+} else if (experience === "agent") {
   renderAgentApp(root);
 } else if (experience === "business") {
   renderBusinessApp(root, window.location.pathname);

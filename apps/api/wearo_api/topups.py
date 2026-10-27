@@ -486,6 +486,17 @@ class PostgresTopUps:
             )
             connection.execute(
                 text(
+                    """UPDATE business_subscriptions
+                    SET state='ACTIVE', next_billing_at=CASE
+                          WHEN next_billing_at IS NULL OR next_billing_at < :now
+                          THEN :now + INTERVAL '1 month' ELSE next_billing_at END,
+                        trial_ends_at=NULL, updated_at=:now
+                    WHERE tenant_id=:tenant AND account_id=:account"""
+                ),
+                {"now": now, "tenant": order["tenant_id"], "account": order["account_id"]},
+            )
+            connection.execute(
+                text(
                     """INSERT INTO audit_events
                     (account_id, tenant_id, actor_type, action, target_type,
                      target_id, reason, occurred_at)

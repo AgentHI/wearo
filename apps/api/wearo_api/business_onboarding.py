@@ -4,7 +4,7 @@ import json
 import re
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, text
@@ -261,6 +261,35 @@ class PostgresBusinessOnboarding:
                         "invoice_requested": invoice.requested,
                         "tax_identifier": invoice.tax_identifier,
                         "billing_address": json.dumps(invoice.billing_address or {}),
+                    },
+                )
+                trial_started = datetime.now(UTC)
+                trial_ends = trial_started + timedelta(days=14)
+                connection.execute(
+                    text(
+                        """INSERT INTO business_subscriptions
+                        (tenant_id, account_id, plan_code, state, started_at,
+                         next_billing_at, trial_ends_at)
+                        VALUES (:tenant, :account, 'TRIAL', 'TRIAL', :started, :ends, :ends)"""
+                    ),
+                    {
+                        "tenant": tenant_id,
+                        "account": account_id,
+                        "started": trial_started,
+                        "ends": trial_ends,
+                    },
+                )
+                connection.execute(
+                    text(
+                        """INSERT INTO plan_assignments
+                        (account_id, tenant_id, plan_code, effective_from, effective_until)
+                        VALUES (:account, :tenant, 'TRIAL', :started, :ends)"""
+                    ),
+                    {
+                        "account": account_id,
+                        "tenant": tenant_id,
+                        "started": trial_started,
+                        "ends": trial_ends,
                     },
                 )
                 connection.execute(

@@ -8,6 +8,7 @@ const html = await readFile(new URL("index.html", root), "utf8");
 const main = await readFile(new URL("src/main.js", root), "utf8");
 const business = await readFile(new URL("src/business-app.js", root), "utf8");
 const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
+const admin = await readFile(new URL("src/admin-app.js", root), "utf8");
 const consumer = await readFile(new URL("src/consumer-app.js", root), "utf8");
 const worker = await readFile(new URL("public/sw.js", root), "utf8");
 const manifest = JSON.parse(await readFile(new URL("public/manifest.webmanifest", root), "utf8"));
@@ -37,6 +38,76 @@ test("business and consumer route families are separated", () => {
   assert.match(business, /replaceState\(\{\}, "", "\/business\/sign-in"\)/);
   assert.match(business, /business-logout/);
   assert.match(business, /\/auth\/logout/);
+});
+
+test("platform admin login is isolated and protects dashboard routes", () => {
+  assert.match(main, /pathname\.startsWith\("\/admin"\)/);
+  assert.match(main, /renderAdminApp/);
+  assert.match(admin, /Super Admin sign in/);
+  assert.match(admin, /name="email"/);
+  assert.match(admin, /name="password"/);
+  assert.match(admin, /API_ROOT.*\/api\/v1/);
+  assert.match(admin, /\/admin\/login/);
+  assert.match(admin, /\/admin\/session/);
+  assert.match(admin, /\/admin\/logout/);
+  assert.match(admin, /redirect\("\/admin"\)/);
+  assert.match(admin, /redirect_to/);
+  assert.doesNotMatch(admin, /localStorage|sessionStorage/);
+  for (const section of [
+    "Dashboard",
+    "Businesses",
+    "Subscriptions",
+    "Billing & Pricing",
+    "Platform Operations",
+    "Audit History",
+  ]) {
+    assert.match(admin, new RegExp(section.replace("&", "&")));
+  }
+  assert.match(admin, /Wearo Super Admin/);
+  assert.match(admin, /Platform administrator/);
+  assert.match(admin, /pushState/);
+  assert.match(admin, /popstate/);
+  assert.match(admin, /aria-current="page"/);
+  assert.match(css, /@media \(min-width: 48rem\)[\s\S]*\.admin-shell/);
+  assert.match(css, /@media \(max-width: 55rem\)[\s\S]*\.admin-shell/);
+  assert.match(css, /\.admin-navigation[\s\S]*overflow-x: auto/);
+  assert.match(admin, /workspace-switcher/);
+  assert.match(admin, /business-breadcrumb/);
+  assert.match(admin, /business-app admin-app/);
+  assert.match(admin, /Total businesses/);
+  assert.match(admin, /Active businesses/);
+  assert.match(admin, /Paused businesses/);
+  assert.match(admin, /organization_name/);
+  assert.match(admin, /business_type/);
+  assert.match(admin, /onboarding_date/);
+  assert.match(admin, /subscription_status/);
+  assert.match(admin, /operational_status/);
+  assert.match(admin, /business_type.*status/);
+  assert.match(admin, /data-organization-link/);
+  assert.match(admin, /Available tokens/);
+  assert.match(admin, /Tokens consumed/);
+  assert.match(admin, /Total try-ons/);
+  assert.match(admin, /Payment history/);
+  assert.match(admin, /Manual token adjustment/);
+  for (const action of ["ACTIVATE", "PAUSE", "RESUME", "DEACTIVATE"]) assert.match(admin, new RegExp(action));
+  assert.match(admin, /Status updated and audited|status updated and audited/i);
+  for (const metric of ["Total registered consumers", "Successful try-ons", "Failed try-ons", "Average try-ons per business"]) assert.match(admin, new RegExp(metric));
+  for (const period of ["Today", "Last 7 Days", "This Month", "Custom"]) assert.match(admin, new RegExp(period));
+  assert.match(admin, /date_from/);
+  assert.match(admin, /date_to/);
+  assert.match(admin, /tenant_id/);
+  assert.match(admin, /business_type/);
+  for (const label of ["Purchased", "Consumed", "Adjusted", "Remaining", "Most active", "consumption history"]) assert.match(admin, new RegExp(label, "i"));
+  assert.match(admin, /admin\/usage\/organizations/);
+  assert.match(admin, /deduplicated by request/);
+  for (const label of ["Total subscriptions", "Active subscriptions", "Trials", "Payment due", "Try-ons paused", "Cancelled subscriptions", "Expired subscriptions"]) assert.match(admin, new RegExp(label, "i"));
+  assert.match(admin, /admin\/customers/);
+  assert.match(admin, /data-customer-link/);
+  for (const label of ["Subscription lifecycle", "Start date", "Next billing date", "Assign or change plan", "Extend trial", "Customer pause", "Reactivate", "Admin pause"]) assert.match(admin, new RegExp(label, "i"));
+  assert.match(admin, /admin\/subscriptions/);
+  for (const label of ["Monthly fee", "Tokens per try-on", "Free trial tokens", "Trial duration", "Payment grace period", "GST", "Bulk discount", "Business type"]) assert.match(admin, new RegExp(label, "i"));
+  assert.match(admin, /admin\/pricing/);
+  assert.match(admin, /Existing transactions were not changed/);
 });
 
 test("business app exposes onboarding, billing, dashboard, and honest payment state", () => {

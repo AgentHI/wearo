@@ -10,7 +10,11 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Connection, Engine, text
 from sqlalchemy.engine import RowMapping
 
-from .tryon_authorization import BusinessTryOnStatus, authorize_business_try_on
+from .tryon_authorization import (
+    BusinessTryOnStatus,
+    SubscriptionState,
+    authorize_business_try_on,
+)
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -178,22 +182,42 @@ class PostgresRenderRuntime:
                 self._link_sponsored_render(connection, existing["job_id"], account_id, key)
                 return _job_from_row(existing)
 
-            sponsored_status = connection.execute(
-                text(
-                    """SELECT tenant.try_on_status
+            sponsored_access = (
+                connection.execute(
+                    text(
+                        """SELECT tenant.try_on_status, subscription.state AS subscription_state,
+                      COALESCE((SELECT NOT paused FROM platform_tryon_controls
+                        WHERE scope='PLATFORM' AND scope_key='ALL'), true) platform_operational,
+                      COALESCE((SELECT NOT control.paused FROM platform_tryon_controls control
+                        JOIN business_profiles profile ON profile.tenant_id=tenant.tenant_id
+                          AND profile.account_id=tenant.account_id
+                        WHERE control.scope='BUSINESS_TYPE'
+                          AND control.scope_key=profile.operating_profile), true)
+                        business_type_operational
                     FROM business_sponsored_tryons sponsored
                     JOIN business_sponsored_sessions session
                       ON session.session_id=sponsored.session_id
                     JOIN business_tenants tenant
                       ON tenant.tenant_id=sponsored.tenant_id
                      AND tenant.account_id=sponsored.business_account_id
+                    JOIN business_subscriptions subscription
+                      ON subscription.tenant_id=tenant.tenant_id
+                     AND subscription.account_id=tenant.account_id
                     WHERE sponsored.request_key='sponsored:' || :key
                       AND session.consumer_account_id=:account"""
-                ),
-                {"key": key, "account": account_id},
-            ).scalar_one_or_none()
-            if sponsored_status is not None:
-                authorize_business_try_on(cast(BusinessTryOnStatus, sponsored_status))
+                    ),
+                    {"key": key, "account": account_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if sponsored_access is not None:
+                authorize_business_try_on(
+                    cast(BusinessTryOnStatus, sponsored_access["try_on_status"]),
+                    cast(SubscriptionState, sponsored_access["subscription_state"]),
+                    platform_operational=bool(sponsored_access["platform_operational"]),
+                    business_type_operational=bool(sponsored_access["business_type_operational"]),
+                )
 
             quote = connection.execute(
                 text(
