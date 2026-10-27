@@ -5,9 +5,11 @@ import { renderBusinessApp } from "./business-app.js";
 import { renderConsumerApp } from "./consumer-app.js";
 import { renderAgentApp } from "./agent-app.js";
 import { renderAdminApp } from "./admin-app.js";
+import { renderPublicSite } from "./public-site.js";
 import "./styles.css";
 
 function currentExperience(pathname) {
+  if (pathname === "/" || pathname === "/index.html") return "public";
   if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/agent")) return "agent";
   return pathname.startsWith("/business") ? "business" : "consumer";
@@ -39,7 +41,9 @@ function showConsumerSplash() {
 const root = document.querySelector("#app");
 const experience = currentExperience(window.location.pathname);
 
-if (experience === "admin") {
+if (experience === "public") {
+  renderPublicSite(root);
+} else if (experience === "admin") {
   renderAdminApp(root, window.location.pathname);
 } else if (experience === "agent") {
   renderAgentApp(root);

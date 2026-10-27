@@ -1,5 +1,6 @@
-const CACHE_NAME = "wearo-shell-v27";
+const CACHE_NAME = "wearo-shell-v28";
 const APP_SHELL = [
+  "/",
   "/app/",
   "/agent/",
   "/manifest.webmanifest",
@@ -35,8 +36,13 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           return response;
         })
-        .catch(async () => (await caches.match(request))
-          || caches.match(url.pathname.startsWith("/agent") ? "/agent/" : "/app/")),
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          if (url.pathname.startsWith("/agent")) return caches.match("/agent/");
+          if (url.pathname.startsWith("/app") || url.pathname.startsWith("/shop")) return caches.match("/app/");
+          return caches.match("/");
+        }),
     );
     return;
   }

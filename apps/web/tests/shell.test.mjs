@@ -10,6 +10,7 @@ const business = await readFile(new URL("src/business-app.js", root), "utf8");
 const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
 const admin = await readFile(new URL("src/admin-app.js", root), "utf8");
 const consumer = await readFile(new URL("src/consumer-app.js", root), "utf8");
+const publicSite = await readFile(new URL("src/public-site.js", root), "utf8");
 const worker = await readFile(new URL("public/sw.js", root), "utf8");
 const manifest = JSON.parse(await readFile(new URL("public/manifest.webmanifest", root), "utf8"));
 
@@ -20,6 +21,26 @@ test("brand and typography tokens remain explicit", () => {
   assert.match(css, /h1[^}]*font-size:\s*2rem/s);
   assert.match(css, /\.button[^}]*font-size:\s*1rem/s);
   assert.match(html, /wearo-brand\.png/);
+});
+
+test("public marketing site is isolated and links into existing apps", () => {
+  assert.match(main, /pathname === "\/"/);
+  assert.match(main, /renderPublicSite/);
+  assert.match(publicSite, /Before You/);
+  assert.match(publicSite, /Wear It,/);
+  assert.match(publicSite, /Wearo It\./);
+  assert.match(publicSite, /href="\/app\/"/);
+  assert.match(publicSite, /href="\/business\/signup"/);
+  assert.match(publicSite, /href="\/business\/sign-in"/);
+  assert.match(publicSite, /wearo-brand\.png/);
+  assert.match(publicSite, /wearo-hero-campaign\.webp/);
+  assert.match(publicSite, /© 2026 All rights reserved/);
+  assert.match(publicSite, /bitaddlabs\.com/);
+  assert.match(css, /prefers-reduced-motion:\s*reduce/);
+  assert.match(css, /\.public-hero/);
+  assert.match(css, /\.mobile-menu/);
+  assert.match(worker, /const APP_SHELL = \[\s*"\/"/);
+  assert.match(worker, /return caches\.match\("\/"\)/);
 });
 
 test("business and consumer route families are separated", () => {
@@ -426,7 +447,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v27/);
+  assert.match(worker, /wearo-shell-v28/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);
