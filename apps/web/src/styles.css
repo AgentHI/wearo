@@ -604,13 +604,13 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .profile-card > div:nth-child(2) { flex: 1; }
 .profile-card p { margin: .2rem 0 0; color: var(--ink-mauve); font-size: .75rem; }
 .profile-card > a { color: var(--brand-plum); font-size: .8rem; font-weight: 700; }
-.mobile-menu { margin-top: 1rem; overflow: hidden; border: 1px solid var(--border-mauve); border-radius: 1rem; background: white; }
-.mobile-menu > * { display: flex; min-height: 4.5rem; align-items: center; gap: .8rem; padding: .9rem 1rem; border-bottom: 1px solid var(--border-mauve); text-decoration: none; }
-.mobile-menu > *:last-child { border: 0; }
-.mobile-menu > * > span { display: grid; flex: 0 0 auto; width: 2rem; height: 2rem; place-items: center; border-radius: .6rem; color: var(--brand-plum); background: var(--state-lilac); }
-.mobile-menu > * > div { display: grid; flex: 1; }
-.mobile-menu small { margin-top: .15rem; color: var(--ink-mauve); }
-.mobile-menu b { color: var(--ink-mauve); font-size: 1.2rem; }
+.consumer-app .mobile-menu { margin-top: 1rem; overflow: hidden; border: 1px solid var(--border-mauve); border-radius: 1rem; background: white; }
+.consumer-app .mobile-menu > * { display: flex; min-height: 4.5rem; align-items: center; gap: .8rem; padding: .9rem 1rem; border-bottom: 1px solid var(--border-mauve); text-decoration: none; }
+.consumer-app .mobile-menu > *:last-child { border: 0; }
+.consumer-app .mobile-menu > * > span { display: grid; flex: 0 0 auto; width: 2rem; height: 2rem; place-items: center; border-radius: .6rem; color: var(--brand-plum); background: var(--state-lilac); }
+.consumer-app .mobile-menu > * > div { display: grid; flex: 1; }
+.consumer-app .mobile-menu small { margin-top: .15rem; color: var(--ink-mauve); }
+.consumer-app .mobile-menu b { color: var(--ink-mauve); font-size: 1.2rem; }
 .app-version { color: var(--ink-mauve); font-size: .72rem; text-align: center; }
 
 /* Consumer account, profile, and home try-on flow */
@@ -980,7 +980,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .queue-panel,
 .look-card,
 .profile-card,
-.mobile-menu,
+.consumer-app .mobile-menu,
 .consumer-card,
 .tryon-studio,
 .photo-picker-dialog,
