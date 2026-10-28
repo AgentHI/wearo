@@ -42,26 +42,25 @@ function showConsumerSplash() {
 }
 
 const root = document.querySelector("#app");
-const experience = currentExperience(window.location.pathname);
 
-if (experience === "public") {
-  renderPublicSite(root);
-} else if (experience === "about") {
-  renderAboutSite(root);
-} else if (experience === "experiences") {
-  renderExperiencesSite(root);
-} else if (experience === "contact") {
-  renderContactSite(root);
-} else if (experience === "admin") {
-  renderAdminApp(root, window.location.pathname);
-} else if (experience === "agent") {
-  renderAgentApp(root);
-} else if (experience === "business") {
-  renderBusinessApp(root, window.location.pathname);
-} else {
-  showConsumerSplash();
-  renderConsumerApp(root, window.location.pathname);
+function renderCurrentRoute() {
+  const experience = currentExperience(window.location.pathname);
+  if (experience === "public") renderPublicSite(root);
+  else if (experience === "about") renderAboutSite(root);
+  else if (experience === "experiences") renderExperiencesSite(root);
+  else if (experience === "contact") renderContactSite(root);
+  else if (experience === "admin") renderAdminApp(root, window.location.pathname);
+  else if (experience === "agent") renderAgentApp(root);
+  else if (experience === "business") renderBusinessApp(root, window.location.pathname);
+  else {
+    showConsumerSplash();
+    renderConsumerApp(root, window.location.pathname);
+  }
+  window.scrollTo(0, 0);
 }
+
+renderCurrentRoute();
+window.addEventListener("popstate", renderCurrentRoute);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {

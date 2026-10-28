@@ -14,7 +14,7 @@ const heroJewelleryImages = [
 
 function publicBrand() {
   return `
-    <a class="public-brand" href="/" aria-label="Wearo.ai home">
+    <a class="public-brand" href="/" aria-label="Wearo.ai home" data-public-route>
       <img src="/wearo-brand.png" alt="Wearo.ai" />
     </a>`;
 }
@@ -29,7 +29,7 @@ function publicHeader(active = "Home") {
       <div class="public-header__inner">
         ${publicBrand()}
         <nav class="desktop-nav" aria-label="Primary navigation">
-          ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : ""}>${label}</a>`).join("")}
+          ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : " data-public-route"}>${label}</a>`).join("")}
         </nav>
         <div class="public-header__actions">
           <a class="public-login" href="/business/sign-in">Business login</a>
@@ -41,7 +41,7 @@ function publicHeader(active = "Home") {
       </div>
       <div class="mobile-menu" id="mobile-menu" hidden>
         <nav aria-label="Mobile navigation">
-          ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : ""}>${label}<span aria-hidden="true">↗</span></a>`).join("")}
+          ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : " data-public-route"}>${label}<span aria-hidden="true">↗</span></a>`).join("")}
           <a class="mobile-menu__login" href="/business/sign-in">Business login</a>
           <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
         </nav>
@@ -82,6 +82,14 @@ function wirePublicHeader(root) {
       window.setTimeout(() => { comingSoonMessage.hidden = true; }, 250);
     }, 2400);
   }));
+  root.querySelectorAll("[data-public-route]").forEach((link) => link.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    const nextUrl = new URL(link.href, window.location.href);
+    if (`${nextUrl.pathname}${nextUrl.search}` === `${window.location.pathname}${window.location.search}`) return;
+    window.history.pushState({}, "", nextUrl);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }));
   window.addEventListener("scroll", () => header.classList.toggle("is-scrolled", window.scrollY > 24), { passive: true });
 }
 
@@ -112,7 +120,7 @@ export function renderPublicSite(root) {
           <div class="hero-signature" aria-hidden="true">
             <span>Discover</span><i></i><span>Try</span><i></i><span>Shine</span>
           </div>
-          <a class="scroll-cue" href="/experiences" aria-label="Explore Wearo experiences">
+          <a class="scroll-cue" href="/experiences" aria-label="Explore Wearo experiences" data-public-route>
             <span>Experiences</span><i aria-hidden="true"></i>
           </a>
         </section>

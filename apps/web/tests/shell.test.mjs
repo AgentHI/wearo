@@ -40,8 +40,10 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(main, /pathname === "\/about"/);
   assert.match(main, /pathname === "\/experiences"/);
   assert.match(main, /renderExperiencesSite/);
+  assert.match(main, /addEventListener\("popstate", renderCurrentRoute\)/);
   assert.match(publicSite, /href="\/experiences"/);
   assert.match(publicSite, /aria-label="Explore Wearo experiences"/);
+  assert.match(publicSite, /data-public-route/);
   assert.match(publicSite, /data-coming-soon="\$\{label\}"/);
   assert.match(publicSite, /For Businesses/);
   assert.match(publicSite, /Gallery/);
