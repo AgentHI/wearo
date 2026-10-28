@@ -100,7 +100,9 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 
 .public-hero { position: relative; display: grid; min-height: max(48rem, 100svh); align-items: center; overflow: hidden; isolation: isolate; }
 .hero-media, .hero-shade { position: absolute; z-index: -2; inset: 0; }
-.hero-media img { width: 100%; height: 100%; object-fit: cover; object-position: center center; animation: hero-image-in 1.8s cubic-bezier(.22, .75, .22, 1) both; }
+.hero-media__slide { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center center; opacity: 0; transform: scale(1.015); transition: opacity 1.6s ease-in-out; }
+.hero-media__slide:first-child { animation: hero-image-in 1.8s cubic-bezier(.22, .75, .22, 1) both; }
+.hero-media__slide.is-active { z-index: 1; opacity: 1; }
 .hero-shade { z-index: -1; background: linear-gradient(90deg, rgb(28 8 31 / 95%) 0%, rgb(35 11 39 / 76%) 38%, rgb(35 11 39 / 18%) 67%, rgb(27 8 30 / 12%) 100%), linear-gradient(0deg, rgb(25 7 29 / 82%) 0%, transparent 35%); }
 .public-hero__content { width: min(calc(100% - clamp(2rem, 6vw, 6rem)), 110rem); margin: auto; padding: 9rem 0 7rem; }
 .hero-kicker { display: flex; align-items: center; gap: .85rem; margin: 0 0 1.35rem; color: #e8c889; font-size: .66rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
@@ -196,7 +198,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .mobile-menu .mobile-menu__login { margin-top: .6rem; color: #ddb873; font-family: "Inter", sans-serif; font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
   .mobile-menu .luxury-button { margin-top: 1.4rem; }
   .public-hero { min-height: 100svh; align-items: end; }
-  .hero-media img { object-position: 64% center; }
+  .hero-media__slide { object-position: 64% center; }
   .hero-shade { background: linear-gradient(0deg, rgb(27 7 31 / 98%) 0%, rgb(30 8 34 / 86%) 42%, rgb(30 8 34 / 14%) 76%), linear-gradient(90deg, rgb(27 7 31 / 34%), transparent 65%); }
   .public-hero__content { width: min(100% - 2rem, 34rem); margin: 0 auto; padding: 26rem 0 6.5rem; }
   .hero-kicker { gap: .55rem; font-size: .55rem; letter-spacing: .13em; }
@@ -220,8 +222,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 
 @media (prefers-reduced-motion: reduce) {
   [data-experience="public"] { scroll-behavior: auto; }
-  .public-brand, .hero-media img, .reveal-item, .hero-orbit, .hero-orbit::before, .hero-signature i, .scroll-cue i, .gold-star--button, .gold-star--button::after, .desktop-nav a::before, .desktop-nav a::after { animation: none; }
-  .luxury-button, .gold-star--button, .text-link span, .menu-toggle span { transition: none; }
+  .public-brand, .hero-media__slide, .reveal-item, .hero-orbit, .hero-orbit::before, .hero-signature i, .scroll-cue i, .gold-star--button, .gold-star--button::after, .desktop-nav a::before, .desktop-nav a::after { animation: none; }
+  .hero-media__slide, .luxury-button, .gold-star--button, .text-link span, .menu-toggle span { transition: none; }
 }
 
 /* Consumer PWA launch splash */

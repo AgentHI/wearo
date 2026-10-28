@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -16,6 +18,8 @@ from .image_preflight import VisionAssessment
 from .render_preflight import ModelRoute
 from .render_provider import HttpResponse, MultipartFile, ProviderError
 from .render_quality import QualitySignals
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisServiceError(RuntimeError):
@@ -192,6 +196,7 @@ class OpenAIAnalysisClient:
             "max_output_tokens": 400,
         }
         json_payload: Any = payload
+        started_at = time.monotonic()
         try:
             response = self.session.post(
                 self.endpoint,
@@ -202,10 +207,47 @@ class OpenAIAnalysisClient:
                 },
                 timeout=self.timeout_seconds,
             )
-        except requests.RequestException:
+        except requests.RequestException as error:
+            logger.warning(
+                "OpenAI analysis transport failed operation=%s model=%s "
+                "error_type=%s elapsed_ms=%d",
+                schema_name,
+                self.model,
+                type(error).__name__,
+                round((time.monotonic() - started_at) * 1000),
+            )
             raise AnalysisServiceError("OpenAI analysis is unavailable") from None
         if response.status_code != 200:
+            error_type = None
+            error_code = None
+            try:
+                error_body = response.json().get("error", {})
+                if isinstance(error_body, dict):
+                    error_type = error_body.get("type")
+                    error_code = error_body.get("code")
+            except (requests.JSONDecodeError, AttributeError, TypeError):
+                pass
+            logger.warning(
+                "OpenAI analysis request failed operation=%s model=%s status=%d "
+                "request_id=%s error_type=%s error_code=%s elapsed_ms=%d",
+                schema_name,
+                self.model,
+                response.status_code,
+                response.headers.get("x-request-id"),
+                error_type,
+                error_code,
+                round((time.monotonic() - started_at) * 1000),
+            )
             raise AnalysisServiceError("OpenAI analysis is unavailable")
+        logger.info(
+            "OpenAI analysis request completed operation=%s model=%s status=%d "
+            "request_id=%s elapsed_ms=%d",
+            schema_name,
+            self.model,
+            response.status_code,
+            response.headers.get("x-request-id"),
+            round((time.monotonic() - started_at) * 1000),
+        )
         try:
             response_body = response.json()
         except requests.JSONDecodeError:

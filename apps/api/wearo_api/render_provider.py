@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
 from PIL import Image, UnidentifiedImageError
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderError(RuntimeError):
@@ -267,6 +271,7 @@ class OpenAIImageEditAdapter:
         }
         for attempt in (1, 2):
             final_event: dict[str, object] = {}
+            started_at = time.monotonic()
 
             def on_event(event: dict[str, object]) -> None:
                 nonlocal final_event
@@ -288,8 +293,32 @@ class OpenAIImageEditAdapter:
                 on_event,
             )
             if response.status == 200:
+                logger.info(
+                    "OpenAI image edit completed model=%s status=%d request_id=%s "
+                    "attempt=%d elapsed_ms=%d",
+                    self.model,
+                    response.status,
+                    response.headers.get("x-request-id"),
+                    attempt,
+                    round((time.monotonic() - started_at) * 1000),
+                )
                 return self._decode_stream(response, final_event, attempt)
             retryable = response.status in {408, 409, 429, 500, 502, 503, 504}
+            raw_error = response.body.get("error")
+            error_type = raw_error.get("type") if isinstance(raw_error, dict) else None
+            error_code = raw_error.get("code") if isinstance(raw_error, dict) else None
+            logger.warning(
+                "OpenAI image edit failed model=%s status=%d request_id=%s "
+                "error_type=%s error_code=%s retryable=%s attempt=%d elapsed_ms=%d",
+                self.model,
+                response.status,
+                response.headers.get("x-request-id"),
+                error_type,
+                error_code,
+                retryable,
+                attempt,
+                round((time.monotonic() - started_at) * 1000),
+            )
             if not retryable or attempt == 2:
                 raise ProviderError(f"OPENAI_HTTP_{response.status}", retryable=retryable)
         raise AssertionError("unreachable")

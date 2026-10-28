@@ -7,6 +7,11 @@ const navItems = [
   ["Contact", "#contact"],
 ];
 
+const heroJewelleryImages = [
+  "/wearo-hero-campaign.webp",
+  ...Array.from({ length: 10 }, (_, index) => `/hero-jewellery/jewellery-${index + 1}.webp`),
+];
+
 function publicBrand() {
   return `
     <a class="public-brand" href="#home" aria-label="Wearo.ai home">
@@ -49,15 +54,15 @@ export function renderPublicSite(root) {
 
       <main id="main">
         <section class="public-hero" aria-labelledby="hero-title">
-          <div class="hero-media" aria-hidden="true">
-            <img src="/wearo-hero-campaign.webp" alt="" fetchpriority="high" />
+          <div class="hero-media" aria-hidden="true" data-hero-jewellery>
+            ${heroJewelleryImages.map((src, index) => `<img class="hero-media__slide${index === 0 ? " is-active" : ""}" src="${src}" alt="" ${index === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" />`).join("")}
           </div>
           <div class="hero-shade" aria-hidden="true"></div>
           <div class="hero-orbit" aria-hidden="true">${star("gold-star--hero")}</div>
           <div class="public-hero__content">
             <p class="hero-kicker reveal-item">AI-powered virtual try-on <span></span> Made for your moment</p>
             <h1 id="hero-title" class="reveal-item">Before You<br /><em>Wear It,</em><br />Wearo It.</h1>
-            <p class="hero-copy reveal-item">Experience the magic of AI-powered virtual try-on. Discover how jewellery, blouses, and beautiful styles look on you before you decide.</p>
+            <p class="hero-copy reveal-item">Experience the magic of AI-powered virtual try-on. Discover how your favourite styles look on you before you decide.</p>
             <div class="hero-ctas reveal-item">
               <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
               <a class="text-link" href="/business/signup">Explore for Business <span aria-hidden="true">↗</span></a>
@@ -91,6 +96,19 @@ export function renderPublicSite(root) {
   const header = root.querySelector("[data-public-header]");
   const menuButton = root.querySelector(".menu-toggle");
   const mobileMenu = root.querySelector("#mobile-menu");
+  const heroSlides = [...root.querySelectorAll(".hero-media__slide")];
+
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches && heroSlides.length > 1) {
+    let activeHeroSlide = 0;
+
+    window.setInterval(() => {
+      if (document.hidden) return;
+      const nextHeroSlide = (activeHeroSlide + 1) % heroSlides.length;
+      heroSlides[nextHeroSlide].classList.add("is-active");
+      heroSlides[activeHeroSlide].classList.remove("is-active");
+      activeHeroSlide = nextHeroSlide;
+    }, 5000);
+  }
 
   const closeMenu = () => {
     menuButton.setAttribute("aria-expanded", "false");
