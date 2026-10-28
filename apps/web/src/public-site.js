@@ -117,7 +117,7 @@ export function renderPublicSite(root) {
           </a>
         </section>
       </main>
-      <footer class="business-footer">© 2026 All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+      <footer class="about-footer">© 2026 All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
   const heroSlides = [...root.querySelectorAll(".hero-media__slide")];
