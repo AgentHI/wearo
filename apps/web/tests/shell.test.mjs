@@ -34,6 +34,40 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(publicSite, /href="\/business\/sign-in"/);
   assert.match(publicSite, /wearo-brand\.png/);
   assert.match(publicSite, /wearo-hero-campaign\.webp/);
+  assert.match(publicSite, /About Us/);
+  assert.match(publicSite, /helping people make choices with greater confidence/);
+  assert.match(publicSite, /try before you buy/);
+  assert.match(main, /pathname === "\/about"/);
+  assert.match(main, /pathname === "\/experiences"/);
+  assert.match(main, /renderExperiencesSite/);
+  assert.match(publicSite, /href="\/experiences"/);
+  assert.match(publicSite, /aria-label="Explore Wearo experiences"/);
+  assert.match(publicSite, /data-coming-soon="\$\{label\}"/);
+  assert.match(publicSite, /For Businesses/);
+  assert.match(publicSite, /Gallery/);
+  assert.match(publicSite, /coming soon/);
+  assert.match(publicSite, /Experience the Magic of Try-On/);
+  assert.match(publicSite, /data-jewellery-tryon/);
+  assert.match(publicSite, /data-jewellery-option/);
+  assert.match(publicSite, /data-model="Classic Gold"/);
+  assert.match(publicSite, /model-neutral-v2\.webp/);
+  assert.match(publicSite, /No jewellery selected/);
+  assert.match(publicSite, /aria-pressed="true"/);
+  assert.match(publicSite, /data-blouse-tryon/);
+  assert.match(publicSite, /data-blouse-option/);
+  for (const design of ["Royal Jewel", "Lotus Muse", "Midnight Pearl"]) assert.match(publicSite, new RegExp(design));
+  assert.match(publicSite, /front and back views shown/);
+  assert.match(main, /pathname === "\/contact"/);
+  assert.match(publicSite, /For brands and businesses/);
+  assert.match(publicSite, /name="name"[^>]*required/);
+  assert.match(publicSite, /name="email"[^>]*required/);
+  assert.match(publicSite, /name="mobile"[^>]*required/);
+  assert.match(publicSite, /name="website"[^>]*type="url"/);
+  assert.match(publicSite, /name="purpose"[^>]*required/);
+  assert.match(publicSite, /data-contact-success/);
+  assert.match(publicSite, /\/api\/v1\/public\/contact-enquiries/);
+  assert.match(publicSite, /VITE_WEARO_CONTACT_FORM_TOKEN/);
+  assert.match(publicSite, /X-Wearo-Contact-Token/);
   assert.match(publicSite, /© 2026 All rights reserved/);
   assert.match(publicSite, /bitaddlabs\.com/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
@@ -77,6 +111,7 @@ test("platform admin login is isolated and protects dashboard routes", () => {
   for (const section of [
     "Dashboard",
     "Businesses",
+    "Enquiries",
     "Subscriptions",
     "Billing & Pricing",
     "Platform Operations",
@@ -85,6 +120,11 @@ test("platform admin login is isolated and protects dashboard routes", () => {
     assert.match(admin, new RegExp(section.replace("&", "&")));
   }
   assert.match(admin, /Wearo Super Admin/);
+  assert.match(admin, /\/admin\/enquiries/);
+  assert.match(admin, /Total enquiries/);
+  assert.match(admin, /New enquiries/);
+  assert.match(admin, /\/admin\/enquiries\?/);
+  assert.match(admin, /contact_enquiry_id/);
   assert.match(admin, /Platform administrator/);
   assert.match(admin, /pushState/);
   assert.match(admin, /popstate/);
@@ -447,7 +487,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v28/);
+  assert.match(worker, /wearo-shell-v30/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);

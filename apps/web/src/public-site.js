@@ -1,10 +1,10 @@
 const navItems = [
-  ["Home", "#home"],
-  ["Experiences", "#experiences"],
-  ["For Businesses", "#businesses"],
-  ["Gallery", "#gallery"],
-  ["About Us", "#about"],
-  ["Contact", "#contact"],
+  ["Home", "/"],
+  ["Experiences", "/experiences"],
+  ["For Businesses", "#", true],
+  ["Gallery", "#", true],
+  ["About Us", "/about"],
+  ["Contact", "/contact"],
 ];
 
 const heroJewelleryImages = [
@@ -14,7 +14,7 @@ const heroJewelleryImages = [
 
 function publicBrand() {
   return `
-    <a class="public-brand" href="#home" aria-label="Wearo.ai home">
+    <a class="public-brand" href="/" aria-label="Wearo.ai home">
       <img src="/wearo-brand.png" alt="Wearo.ai" />
     </a>`;
 }
@@ -23,34 +23,75 @@ function star(size = "") {
   return `<span class="gold-star ${size}" aria-hidden="true"><i></i></span>`;
 }
 
+function publicHeader(active = "Home") {
+  return `
+    <header class="public-header" data-public-header>
+      <div class="public-header__inner">
+        ${publicBrand()}
+        <nav class="desktop-nav" aria-label="Primary navigation">
+          ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : ""}>${label}</a>`).join("")}
+        </nav>
+        <div class="public-header__actions">
+          <a class="public-login" href="/business/sign-in">Business login</a>
+          <a class="luxury-button luxury-button--compact" href="/app/">Try Wearo ${star("gold-star--button")}</a>
+          <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+            <span></span><span></span>
+          </button>
+        </div>
+      </div>
+      <div class="mobile-menu" id="mobile-menu" hidden>
+        <nav aria-label="Mobile navigation">
+          ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : ""}>${label}<span aria-hidden="true">↗</span></a>`).join("")}
+          <a class="mobile-menu__login" href="/business/sign-in">Business login</a>
+          <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
+        </nav>
+      </div>
+      <div class="public-coming-soon" role="status" aria-live="polite" data-coming-soon-message hidden></div>
+    </header>`;
+}
+
+function wirePublicHeader(root) {
+  const header = root.querySelector("[data-public-header]");
+  const menuButton = root.querySelector(".menu-toggle");
+  const mobileMenu = root.querySelector("#mobile-menu");
+  const closeMenu = () => {
+    menuButton.setAttribute("aria-expanded", "false");
+    menuButton.setAttribute("aria-label", "Open menu");
+    mobileMenu.hidden = true;
+    document.body.classList.remove("menu-open");
+  };
+
+  menuButton.addEventListener("click", () => {
+    const willOpen = menuButton.getAttribute("aria-expanded") !== "true";
+    menuButton.setAttribute("aria-expanded", String(willOpen));
+    menuButton.setAttribute("aria-label", willOpen ? "Close menu" : "Open menu");
+    mobileMenu.hidden = !willOpen;
+    document.body.classList.toggle("menu-open", willOpen);
+  });
+  mobileMenu.querySelectorAll("a").forEach((link) => link.addEventListener("click", closeMenu));
+  const comingSoonMessage = root.querySelector("[data-coming-soon-message]");
+  let comingSoonTimer;
+  root.querySelectorAll("[data-coming-soon]").forEach((link) => link.addEventListener("click", (event) => {
+    event.preventDefault();
+    window.clearTimeout(comingSoonTimer);
+    comingSoonMessage.textContent = `${link.dataset.comingSoon} — coming soon`;
+    comingSoonMessage.hidden = false;
+    requestAnimationFrame(() => comingSoonMessage.classList.add("is-visible"));
+    comingSoonTimer = window.setTimeout(() => {
+      comingSoonMessage.classList.remove("is-visible");
+      window.setTimeout(() => { comingSoonMessage.hidden = true; }, 250);
+    }, 2400);
+  }));
+  window.addEventListener("scroll", () => header.classList.toggle("is-scrolled", window.scrollY > 24), { passive: true });
+}
+
 export function renderPublicSite(root) {
   document.documentElement.dataset.experience = "public";
   document.title = "Wearo.ai — Before You Wear It, Wearo It.";
 
   root.innerHTML = `
     <div class="public-site" id="home">
-      <header class="public-header" data-public-header>
-        <div class="public-header__inner">
-          ${publicBrand()}
-          <nav class="desktop-nav" aria-label="Primary navigation">
-            ${navItems.map(([label, href], index) => `<a href="${href}"${index === 0 ? ' aria-current="page"' : ""}>${label}</a>`).join("")}
-          </nav>
-          <div class="public-header__actions">
-            <a class="public-login" href="/business/sign-in">Business login</a>
-            <a class="luxury-button luxury-button--compact" href="/app/">Try Wearo ${star("gold-star--button")}</a>
-            <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
-              <span></span><span></span>
-            </button>
-          </div>
-        </div>
-        <div class="mobile-menu" id="mobile-menu" hidden>
-          <nav aria-label="Mobile navigation">
-            ${navItems.map(([label, href]) => `<a href="${href}">${label}<span aria-hidden="true">↗</span></a>`).join("")}
-            <a class="mobile-menu__login" href="/business/sign-in">Business login</a>
-            <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
-          </nav>
-        </div>
-      </header>
+      ${publicHeader("Home")}
 
       <main id="main">
         <section class="public-hero" aria-labelledby="hero-title">
@@ -71,33 +112,15 @@ export function renderPublicSite(root) {
           <div class="hero-signature" aria-hidden="true">
             <span>Discover</span><i></i><span>Try</span><i></i><span>Shine</span>
           </div>
-          <a class="scroll-cue" href="#phase-roadmap" aria-label="Scroll to discover more">
-            <span>Discover</span><i aria-hidden="true"></i>
+          <a class="scroll-cue" href="/experiences" aria-label="Explore Wearo experiences">
+            <span>Experiences</span><i aria-hidden="true"></i>
           </a>
-        </section>
-
-        <section class="phase-roadmap" id="phase-roadmap" aria-label="Wearo website preview">
-          <div class="phase-roadmap__star">${star("gold-star--section")}</div>
-          <p class="phase-roadmap__eyebrow">The Wearo experience</p>
-          <h2>A new way to discover<br /><em>what feels like you.</em></h2>
-          <p>More of the Wearo story is being thoughtfully composed. Experiences, transformations, business showcases, and our visual gallery arrive in the next phase.</p>
-          <div class="phase-roadmap__chapters" aria-label="Upcoming website chapters">
-            <span id="experiences">Experiences <small>02</small></span>
-            <span id="businesses">For Businesses <small>03</small></span>
-            <span id="gallery">Gallery <small>04</small></span>
-            <span id="about">About Us <small>05</small></span>
-            <span id="contact">Contact <small>06</small></span>
-          </div>
         </section>
       </main>
       <footer class="business-footer">© 2026 All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
-  const header = root.querySelector("[data-public-header]");
-  const menuButton = root.querySelector(".menu-toggle");
-  const mobileMenu = root.querySelector("#mobile-menu");
   const heroSlides = [...root.querySelectorAll(".hero-media__slide")];
-
   if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches && heroSlides.length > 1) {
     let activeHeroSlide = 0;
 
@@ -110,21 +133,302 @@ export function renderPublicSite(root) {
     }, 5000);
   }
 
-  const closeMenu = () => {
-    menuButton.setAttribute("aria-expanded", "false");
-    menuButton.setAttribute("aria-label", "Open menu");
-    mobileMenu.hidden = true;
-    document.body.classList.remove("menu-open");
-  };
+  wirePublicHeader(root);
+}
 
-  menuButton.addEventListener("click", () => {
-    const willOpen = menuButton.getAttribute("aria-expanded") !== "true";
-    menuButton.setAttribute("aria-expanded", String(willOpen));
-    menuButton.setAttribute("aria-label", willOpen ? "Close menu" : "Open menu");
-    mobileMenu.hidden = !willOpen;
-    document.body.classList.toggle("menu-open", willOpen);
+export function renderExperiencesSite(root) {
+  document.documentElement.dataset.experience = "public";
+  document.title = "Experiences — Wearo.ai";
+
+  root.innerHTML = `
+    <div class="public-site experiences-site">
+      ${publicHeader("Experiences")}
+      <main id="main">
+        <section class="experience-studio" aria-labelledby="experiences-title">
+          <div class="experience-intro">
+            <div class="experience-intro__title">
+              <p class="phase-roadmap__eyebrow">The Try-On Studio</p>
+              <h1 id="experiences-title">Experiences</h1>
+              <h2>Your style. Your moment.<br /><em>Your confidence.</em></h2>
+            </div>
+            <div class="experience-intro__aside"><span aria-hidden="true">✦</span><p>Imagine it. Try it virtually. Fall in love with your look before you make it yours.</p></div>
+          </div>
+
+          <section class="experience-showcase" aria-labelledby="showcase-title">
+            <div class="experience-showcase__heading"><h2 id="showcase-title">Experience the Magic of Try-On</h2></div>
+            <article class="experience-showcase__row experience-showcase__row--jewellery" data-jewellery-tryon>
+              <div class="jewellery-tryon">
+                <div class="jewellery-tryon__portrait">
+                  <img class="is-selected" src="/experiences/jewellery/model-neutral-v2.webp" alt="Model ready for a jewellery selection" loading="eager" data-jewellery-model="" />
+                  <img src="/experiences/jewellery/model-classic-gold-v2.webp" alt="Model wearing the classic gold jewellery set" loading="eager" data-jewellery-model="Classic Gold" />
+                  <img src="/experiences/jewellery/model-kundan-v2.webp" alt="Model wearing the ivory kundan jewellery set" loading="eager" data-jewellery-model="Ivory Kundan" />
+                  <img src="/experiences/jewellery/model-temple-v2.webp" alt="Model wearing the South Indian temple jewellery set" loading="eager" data-jewellery-model="Temple Gold" />
+                  <img src="/experiences/jewellery/model-emerald-v2.webp" alt="Model wearing the emerald jewellery set" loading="eager" data-jewellery-model="Emerald" />
+                  <img src="/experiences/jewellery/model-pearl-v2.webp" alt="Model wearing the pearl jewellery set" loading="eager" data-jewellery-model="Pearl" />
+                  <span class="sr-only" aria-live="polite" data-jewellery-selection>No jewellery selected. Choose a style to preview it.</span>
+                </div>
+                <div class="jewellery-tryon__choices" role="group" aria-label="Choose a jewellery style">
+                  <button type="button" aria-label="Try Classic Gold" aria-pressed="false" data-jewellery-option data-model="Classic Gold"><img src="/experiences/jewellery/product-classic-gold-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Ivory Kundan" aria-pressed="false" data-jewellery-option data-model="Ivory Kundan"><img src="/experiences/jewellery/product-kundan-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Temple Gold" aria-pressed="false" data-jewellery-option data-model="Temple Gold"><img src="/experiences/jewellery/product-temple-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Emerald" aria-pressed="false" data-jewellery-option data-model="Emerald"><img src="/experiences/jewellery/product-meenakari-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Pearl" aria-pressed="false" data-jewellery-option data-model="Pearl"><img src="/experiences/jewellery/product-silver-v2.webp" alt="" /></button>
+                </div>
+              </div>
+              <div class="experience-showcase__copy"><p class="experience-showcase__status">Available now · Five styles</p><h3>Jewellery Try-On</h3><p>Choose a jewellery set and see the look instantly on the same model.</p><strong>Select. Preview. Find your sparkle.</strong></div>
+            </article>
+            <article class="experience-showcase__row experience-showcase__row--blouse" data-blouse-tryon>
+              <div class="blouse-tryon">
+                <div class="blouse-tryon__stage">
+                  <img class="is-selected" src="/experiences/blouse/royal-jewel.webp" alt="Standing model showcasing the Royal Jewel blouse from the front and back" loading="eager" data-blouse-model="Royal Jewel" />
+                  <img src="/experiences/blouse/lotus-muse.webp" alt="Standing model showcasing the Lotus Muse blouse from the front and back" loading="lazy" data-blouse-model="Lotus Muse" />
+                  <img src="/experiences/blouse/midnight-pearl.webp" alt="Standing model showcasing the Midnight Pearl blouse from the front and back" loading="lazy" data-blouse-model="Midnight Pearl" />
+                  <div class="blouse-tryon__views" aria-hidden="true"><span>Front</span><span>Back</span></div>
+                  <span class="sr-only" aria-live="polite" data-blouse-selection>Royal Jewel selected, front and back views shown</span>
+                </div>
+                <div class="blouse-tryon__choices" role="group" aria-label="Choose a blouse design">
+                  <button class="is-selected" type="button" aria-label="Try Royal Jewel blouse" aria-pressed="true" data-blouse-option data-model="Royal Jewel"><img src="/experiences/blouse/product-royal-jewel.webp" alt="Ruby zardozi blouse" loading="lazy" /></button>
+                  <button type="button" aria-label="Try Lotus Muse blouse" aria-pressed="false" data-blouse-option data-model="Lotus Muse"><img src="/experiences/blouse/product-lotus-muse.webp" alt="Emerald lotus silk blouse" loading="lazy" /></button>
+                  <button type="button" aria-label="Try Midnight Pearl blouse" aria-pressed="false" data-blouse-option data-model="Midnight Pearl"><img src="/experiences/blouse/product-midnight-pearl.webp" alt="Midnight navy pearl blouse" loading="lazy" /></button>
+                </div>
+              </div>
+              <div class="experience-showcase__copy"><p class="experience-showcase__status">Available now · Three designs</p><h3>Boutique &amp; Blouse Try-On</h3><p>Explore every blouse from both angles. Compare necklines, sleeves, embroidery, and back details with the same ivory saree.</p><strong>Your saree. Your style. Beautifully matched.</strong></div>
+            </article>
+            <article class="experience-showcase__row experience-showcase__row--upcoming">
+              <img src="/hero-jewellery/jewellery-10.webp" alt="An editorial Indian fashion look" loading="lazy" />
+              <div><p class="experience-showcase__status">Coming soon</p><h3>Fashion Try-On</h3><p>Experiment with outfits and discover new looks without the uncertainty of imagining how they might fit your style.</p><strong>Explore more. Choose confidently.</strong></div>
+            </article>
+          </section>
+        </section>
+
+        <section class="experience-finale" aria-labelledby="experience-finale-title">
+          <div class="experience-finale__star">${star("gold-star--hero")}</div><p>Ready when you are</p>
+          <h2 id="experience-finale-title">Your next favourite<br /><em>look awaits.</em></h2><p>Why just imagine it when you can see it?</p>
+          <a class="luxury-button" href="/app/">Experience Wearo ${star("gold-star--button")}</a>
+        </section>
+      </main>
+      <footer class="business-footer">© 2026 All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+    </div>`;
+
+  const jewellerySelection = root.querySelector("[data-jewellery-selection]");
+  root.querySelectorAll("[data-jewellery-option]").forEach((option) => {
+    option.addEventListener("click", () => {
+      root.querySelectorAll("[data-jewellery-option]").forEach((candidate) => {
+        const selected = candidate === option;
+        candidate.classList.toggle("is-selected", selected);
+        candidate.setAttribute("aria-pressed", String(selected));
+      });
+      root.querySelectorAll("[data-jewellery-model]").forEach((model) => model.classList.toggle("is-selected", model.dataset.jewelleryModel === option.dataset.model));
+      jewellerySelection.textContent = `${option.dataset.model} selected`;
+    });
+  });
+  const blouseSelection = root.querySelector("[data-blouse-selection]");
+  root.querySelectorAll("[data-blouse-option]").forEach((option) => {
+    option.addEventListener("click", () => {
+      root.querySelectorAll("[data-blouse-option]").forEach((candidate) => {
+        const selected = candidate === option;
+        candidate.classList.toggle("is-selected", selected);
+        candidate.setAttribute("aria-pressed", String(selected));
+      });
+      root.querySelectorAll("[data-blouse-model]").forEach((model) => model.classList.toggle("is-selected", model.dataset.blouseModel === option.dataset.model));
+      blouseSelection.textContent = `${option.dataset.model} selected, front and back views shown`;
+    });
+  });
+  wirePublicHeader(root);
+}
+
+export function renderAboutSite(root) {
+  document.documentElement.dataset.experience = "public";
+  document.title = "About Us — Wearo.ai";
+
+  root.innerHTML = `
+    <div class="public-site about-site">
+      ${publicHeader("About Us")}
+      <main id="main">
+        <section class="about-hero" aria-labelledby="about-title">
+          <div class="about-hero__glow" aria-hidden="true"></div>
+          <div class="about-hero__inner">
+            <div class="about-hero__copy">
+              <p class="hero-kicker reveal-item">Our story <span></span> Confidence, made visible</p>
+              <h1 id="about-title" class="reveal-item">See it.<br /><em>Love it.</em><br />Wear it.</h1>
+              <p class="about-hero__lede reveal-item">At <strong>Wearo.ai</strong>, we believe AI should become a natural part of everyday life — helping people make choices with greater confidence.</p>
+            </div>
+            <figure class="about-portrait reveal-item">
+              <img src="/hero-jewellery/jewellery-4.webp" alt="A woman wearing elegant jewellery, illustrating the Wearo virtual try-on experience" fetchpriority="high" />
+              <figcaption><span>01</span> Imagination, made tangible</figcaption>
+            </figure>
+          </div>
+          <a class="scroll-cue" href="#our-belief" aria-label="Read our story"><span>Our belief</span><i aria-hidden="true"></i></a>
+        </section>
+
+        <section class="about-belief" id="our-belief" aria-labelledby="belief-title">
+          <div class="about-belief__marker">${star("gold-star--section")}</div>
+          <p class="phase-roadmap__eyebrow">What we are building</p>
+          <h2 id="belief-title">From imagination<br />to <em>experience.</em></h2>
+          <div class="about-belief__copy">
+            <p>We are building experiences that let you <strong>see how something looks on you before you buy it.</strong></p>
+            <p>Whether it is jewellery, fashion, or a new style, we want to turn imagination into something you can actually see and experience.</p>
+          </div>
+        </section>
+
+        <section class="about-confidence" aria-labelledby="confidence-title">
+          <div class="about-confidence__image" aria-hidden="true">
+            <img src="/hero-jewellery/jewellery-8.webp" alt="" loading="lazy" />
+          </div>
+          <div class="about-confidence__content">
+            <p class="phase-roadmap__eyebrow">Why it matters</p>
+            <h2 id="confidence-title">Confidence changes<br /><em>everything.</em></h2>
+            <p>Because when you can <strong>try before you buy</strong>, you choose with confidence, feel better about your decision, and enjoy the way you shine.</p>
+            <div class="about-steps" aria-label="The Wearo experience">
+              <div><span>01</span><strong>Discover</strong><small>Find what catches your eye.</small></div>
+              <div><span>02</span><strong>Try</strong><small>See it become part of you.</small></div>
+              <div><span>03</span><strong>Shine</strong><small>Choose with true confidence.</small></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="about-finale" aria-labelledby="finale-title">
+          <div class="about-finale__star">${star("gold-star--hero")}</div>
+          <p>Wearo.ai</p>
+          <h2 id="finale-title">Discover <i></i> try <i></i> shine.</h2>
+          <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
+        </section>
+      </main>
+      <footer class="about-footer">© 2026 Wearo.ai · All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+    </div>`;
+
+  wirePublicHeader(root);
+}
+
+export function renderContactSite(root) {
+  document.documentElement.dataset.experience = "public";
+  document.title = "Contact for Business — Wearo.ai";
+
+  root.innerHTML = `
+    <div class="public-site contact-site">
+      ${publicHeader("Contact")}
+      <main id="main">
+        <section class="contact-hero" aria-labelledby="contact-title">
+          <div class="contact-hero__orb" aria-hidden="true">${star("gold-star--hero")}</div>
+          <div class="contact-hero__inner">
+            <div class="contact-intro">
+              <p class="hero-kicker reveal-item">Business enquiries <span></span> Let’s create what’s next</p>
+              <h1 id="contact-title" class="reveal-item">Bring the<br /><em>try-on moment</em><br />to your brand.</h1>
+              <p class="contact-intro__copy reveal-item">Tell us a little about your business and what you would like to explore with Wearo.ai. We’ll use these details to understand the right next conversation.</p>
+              <aside class="contact-business-note reveal-item" aria-label="Who this form is for">
+                <span aria-hidden="true">B2B</span>
+                <div>
+                  <strong>For brands and businesses</strong>
+                  <p>This form is for retail, brand, partnership, and enterprise enquiries.</p>
+                </div>
+              </aside>
+              <p class="contact-consumer-link reveal-item">Looking to try Wearo for yourself? <a href="/app/">Start your try-on <span aria-hidden="true">↗</span></a></p>
+            </div>
+
+            <div class="contact-form-card reveal-item">
+              <div class="contact-form-card__heading">
+                <p>Start a conversation</p>
+                <span>Required fields are marked *</span>
+              </div>
+              <form class="contact-form" data-contact-form novalidate>
+                <label for="contact-name">Name <span aria-hidden="true">*</span>
+                  <input id="contact-name" name="name" type="text" autocomplete="name" maxlength="120" required />
+                </label>
+                <label for="contact-email">Business email <span aria-hidden="true">*</span>
+                  <input id="contact-email" name="email" type="email" autocomplete="email" maxlength="254" required />
+                </label>
+                <label for="contact-mobile">Mobile number <span aria-hidden="true">*</span>
+                  <input id="contact-mobile" name="mobile" type="tel" autocomplete="tel" inputmode="tel" maxlength="24" pattern="[0-9+() .-]{7,24}" aria-describedby="contact-mobile-help" required />
+                  <small id="contact-mobile-help">Include your country code.</small>
+                </label>
+                <label for="contact-website">Business website <small>Optional</small>
+                  <input id="contact-website" name="website" type="url" autocomplete="url" maxlength="300" placeholder="https://" />
+                </label>
+                <label for="contact-purpose">Purpose <span aria-hidden="true">*</span>
+                  <select id="contact-purpose" name="purpose" required>
+                    <option value="">Select a purpose</option>
+                    <option value="BRAND_TRY_ON">Virtual try-on for my brand</option>
+                    <option value="RETAIL_PARTNERSHIP">Retail partnership</option>
+                    <option value="ENTERPRISE_DEMO">Enterprise demo</option>
+                    <option value="TECHNOLOGY_PARTNERSHIP">Technology partnership</option>
+                    <option value="PRESS">Press or media</option>
+                    <option value="OTHER">Something else</option>
+                  </select>
+                </label>
+                <button class="luxury-button contact-submit" type="submit"><span data-contact-submit-label>Submit enquiry</span> ${star("gold-star--button")}</button>
+                <p class="contact-form__error" data-contact-error role="alert" hidden>Please check the highlighted fields and try again.</p>
+              </form>
+
+              <div class="contact-success" data-contact-success role="status" aria-live="polite" hidden>
+                <div class="contact-success__star">${star("gold-star--section")}</div>
+                <p>Thank you</p>
+                <h2>Your business enquiry<br /><em>is with us.</em></h2>
+                <p>Thank you for your interest in building with Wearo.ai. Our team will review your enquiry and follow up using the details you provided.</p>
+                <button class="text-link contact-success__again" type="button" data-contact-again>Send another enquiry <span aria-hidden="true">↗</span></button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+      <footer class="about-footer">© 2026 Wearo.ai · All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+    </div>`;
+
+  wirePublicHeader(root);
+
+  const form = root.querySelector("[data-contact-form]");
+  const success = root.querySelector("[data-contact-success]");
+  const error = root.querySelector("[data-contact-error]");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.checkValidity()) {
+      form.classList.add("was-validated");
+      error.hidden = false;
+      form.reportValidity();
+      return;
+    }
+    const submitButton = form.querySelector(".contact-submit");
+    const submitLabel = form.querySelector("[data-contact-submit-label]");
+    submitButton.disabled = true;
+    submitLabel.textContent = "Sending…";
+    error.hidden = true;
+    try {
+      const values = new FormData(form);
+      const response = await fetch("/api/v1/public/contact-enquiries", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Wearo-Contact-Token": import.meta.env.VITE_WEARO_CONTACT_FORM_TOKEN || "",
+        },
+        body: JSON.stringify({
+          name: values.get("name"),
+          email: values.get("email"),
+          mobile: values.get("mobile"),
+          website_url: values.get("website") || null,
+          purpose: values.get("purpose"),
+        }),
+      });
+      if (!response.ok) throw new Error("CONTACT_SUBMISSION_FAILED");
+      form.hidden = true;
+      root.querySelector(".contact-form-card__heading").hidden = true;
+      success.hidden = false;
+      success.setAttribute("tabindex", "-1");
+      success.focus();
+      form.reset();
+    } catch {
+      error.textContent = "We couldn’t send your enquiry right now. Please try again in a moment.";
+      error.hidden = false;
+    } finally {
+      submitButton.disabled = false;
+      submitLabel.textContent = "Submit enquiry";
+    }
   });
 
-  mobileMenu.querySelectorAll("a").forEach((link) => link.addEventListener("click", closeMenu));
-  window.addEventListener("scroll", () => header.classList.toggle("is-scrolled", window.scrollY > 24), { passive: true });
+  root.querySelector("[data-contact-again]").addEventListener("click", () => {
+    success.hidden = true;
+    form.hidden = false;
+    root.querySelector(".contact-form-card__heading").hidden = false;
+    form.classList.remove("was-validated");
+    root.querySelector("#contact-name").focus();
+  });
 }

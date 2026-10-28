@@ -26,6 +26,7 @@ from .admin_audit import AdminAuditError, PostgresAdminAudit
 from .admin_billing import AdminBillingError, PostgresAdminBilling
 from .admin_customers import AdminCustomerError, PostgresAdminCustomers
 from .admin_dashboard import AdminDashboardError, PostgresAdminDashboard
+from .admin_enquiries import AdminEnquiryError, PostgresAdminEnquiries
 from .admin_operations import AdminOperationsError, PostgresAdminOperations
 from .admin_organizations import (
     AdminOrganizationError,
@@ -101,6 +102,11 @@ from .communications_governance import (
     PostgresCommunicationsGovernance,
 )
 from .consent import ConsentAttestation, ConsentError, ConsentService
+from .contact_enquiries import (
+    ContactEnquiryError,
+    ContactPurpose,
+    PostgresContactEnquiries,
+)
 from .database import normalize_database_url
 from .durable_worker import DurableRenderWorker
 from .email_otp import (
@@ -205,6 +211,7 @@ class ApiContainer:
     platform_admin_auth: PlatformAdminAuth | None = None
     admin_organizations: PostgresAdminOrganizations | None = None
     admin_dashboard: PostgresAdminDashboard | None = None
+    admin_enquiries: PostgresAdminEnquiries | None = None
     admin_usage_analytics: PostgresAdminUsageAnalytics | None = None
     admin_customers: PostgresAdminCustomers | None = None
     admin_subscriptions: PostgresAdminSubscriptions | None = None
@@ -214,6 +221,8 @@ class ApiContainer:
     admin_operations: PostgresAdminOperations | None = None
     admin_platform_controls: PostgresAdminPlatformControls | None = None
     admin_audit: PostgresAdminAudit | None = None
+    contact_enquiries: PostgresContactEnquiries | None = None
+    contact_form_token: bytes = b""
 
 
 class OtpRequestBody(BaseModel):
@@ -221,6 +230,16 @@ class OtpRequestBody(BaseModel):
 
     destination: str
     purpose: str = "SIGN_IN"
+
+
+class ContactEnquiryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=320)
+    mobile: str = Field(min_length=7, max_length=32, pattern=r"^[0-9+() .-]+$")
+    website_url: str | None = Field(default=None, max_length=2048)
+    purpose: ContactPurpose
 
 
 class TopUpOrderBody(BaseModel):
@@ -692,6 +711,7 @@ def create_app(
         container.engine
     )
     platform_dashboard = container.admin_dashboard or PostgresAdminDashboard(container.engine)
+    admin_enquiries = container.admin_enquiries or PostgresAdminEnquiries(container.engine)
     admin_usage_analytics = container.admin_usage_analytics or PostgresAdminUsageAnalytics(
         container.engine
     )
@@ -782,6 +802,7 @@ def create_app(
     @app.exception_handler(SupportAccessError)
     @app.exception_handler(SponsoredTryOnError)
     @app.exception_handler(AccountLifecycleError)
+    @app.exception_handler(ContactEnquiryError)
     @app.exception_handler(ConsentError)
     @app.exception_handler(MediaRuntimeError)
     @app.exception_handler(RenderPreflightError)
@@ -833,6 +854,32 @@ def create_app(
         else:
             status = 422
         return _problem(status, code, str(error), _request_id(request))
+
+    @app.post("/api/v1/public/contact-enquiries", status_code=201)
+    def create_contact_enquiry(
+        body: ContactEnquiryBody,
+        request: Request,
+        x_wearo_contact_token: Annotated[str | None, Header(alias="X-Wearo-Contact-Token")] = None,
+    ) -> dict[str, object]:
+        configured_origin = os.environ.get("WEARO_CONSUMER_ORIGIN", "").rstrip("/")
+        request_origin = request.headers.get("origin", "").rstrip("/")
+        if configured_origin and request_origin != configured_origin:
+            raise ApiProblem(403, "CONTACT_ORIGIN_REJECTED", "Contact request rejected.")
+        supplied_token = (x_wearo_contact_token or "").encode()
+        if not container.contact_form_token or not hmac.compare_digest(
+            supplied_token, container.contact_form_token
+        ):
+            raise ApiProblem(401, "INVALID_CONTACT_TOKEN", "Contact request rejected.")
+        if container.contact_enquiries is None:
+            raise ApiProblem(503, "CONTACT_ENQUIRIES_UNAVAILABLE", "Contact is unavailable.")
+        return container.contact_enquiries.create(
+            name=body.name,
+            email=body.email,
+            mobile=body.mobile,
+            website_url=body.website_url,
+            purpose=body.purpose,
+            request_id=_request_id(request),
+        )
 
     @app.exception_handler(AnalysisServiceError)
     async def analysis_problem(request: Request, error: AnalysisServiceError) -> JSONResponse:
@@ -963,6 +1010,19 @@ def create_app(
             return admin_customers.list(status=status)
         except AdminCustomerError as error:
             raise ApiProblem(422, "INVALID_CUSTOMER_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/enquiries")
+    def admin_enquiry_list(
+        request: Request,
+        search: str = "",
+        purpose: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_enquiries.list(search=search, purpose=purpose, status=status)
+        except AdminEnquiryError as error:
+            raise ApiProblem(422, "INVALID_ENQUIRY_FILTER", str(error)) from None
 
     @app.get("/api/v1/admin/subscriptions/{tenant_id}")
     def admin_subscription_detail(request: Request, tenant_id: UUID) -> dict[str, object]:
@@ -2759,6 +2819,9 @@ def create_app_from_env() -> FastAPI:
         raise RuntimeError("WEARO_DATABASE_URL is required")
     if len(pepper) < 32:
         raise RuntimeError("WEARO_AUTH_PEPPER must contain at least 32 bytes")
+    contact_form_token = os.environ.get("VITE_WEARO_CONTACT_FORM_TOKEN", "").encode()
+    if contact_form_token and len(contact_form_token) < 32:
+        raise RuntimeError("VITE_WEARO_CONTACT_FORM_TOKEN must contain at least 32 bytes")
     secure_cookie = os.environ.get("WEARO_SECURE_COOKIE", "true").casefold() == "true"
     test_auth_enabled = os.environ.get("WEARO_TEST_AUTH_ENABLED", "false").casefold() == "true"
     embedded_worker_enabled = (
@@ -2883,6 +2946,8 @@ def create_app_from_env() -> FastAPI:
         support_access=PostgresSupportAccess(engine),
         sponsored_tryons=PostgresSponsoredTryOns(engine),
         account_lifecycle=PostgresAccountLifecycle(engine, blob_store),
+        contact_enquiries=PostgresContactEnquiries(engine),
+        contact_form_token=contact_form_token,
         registration_test_otp=fixed_test_code,
         preflight=preflight,
         secure_cookie=secure_cookie,

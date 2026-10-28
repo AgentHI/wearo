@@ -3,6 +3,7 @@ const API_ROOT = "/api/v1";
 const ADMIN_SECTIONS = [
   { slug: "dashboard", label: "Dashboard", icon: "▦", description: "Platform overview and key operational signals." },
   { slug: "organizations", label: "Businesses", icon: "◇", description: "Manage business profiles, usage, tokens, and operational access." },
+  { slug: "enquiries", label: "Enquiries", icon: "✦", description: "Review business enquiries submitted through the public contact page." },
   { slug: "customers-subscriptions", label: "Subscriptions", icon: "◎", description: "Manage plans, trials, billing status, cancellations, and renewals." },
   { slug: "billing-pricing", label: "Billing & Pricing", icon: "₹", description: "Review platform billing and pricing configuration." },
   { slug: "platform-operations", label: "Platform Operations", icon: "⚙", description: "Monitor the services that operate Wearo." },
@@ -97,9 +98,27 @@ function auditHistoryView() {
   return `<form id="admin-audit-filter" class="admin-filters"><label>Search audit history<input name="search" type="search" placeholder="Action, organization, target, or reason" /></label><label>From<input name="dateFrom" type="date" /></label><label>To<input name="dateTo" type="date" /></label><button class="button button--primary">Apply filters</button></form><p class="field-help">Audit records are immutable and cannot be edited or deleted.</p><div id="admin-audit-list" class="admin-data-panel" aria-live="polite">Loading audit history…</div>`;
 }
 
+function enquiriesView() {
+  return `<div class="admin-stat-grid" aria-label="Enquiry summary">
+      <article><span>Total enquiries</span><strong data-enquiry-count="total">—</strong></article>
+      <article><span>New enquiries</span><strong data-enquiry-count="submitted">—</strong></article>
+      <article><span>In review</span><strong data-enquiry-count="in_review">—</strong></article>
+      <article><span>Closed</span><strong data-enquiry-count="closed">—</strong></article>
+    </div>
+    <form id="admin-enquiry-filter" class="admin-filters" role="search">
+      <label>Search enquiries<input name="search" type="search" placeholder="Name, email, mobile, or website" /></label>
+      <label>Purpose<select name="purpose"><option value="">All purposes</option><option value="BRAND_TRY_ON">Virtual try-on for a brand</option><option value="RETAIL_PARTNERSHIP">Retail partnership</option><option value="ENTERPRISE_DEMO">Enterprise demo</option><option value="TECHNOLOGY_PARTNERSHIP">Technology partnership</option><option value="PRESS">Press or media</option><option value="OTHER">Something else</option></select></label>
+      <label>Status<select name="status"><option value="">All statuses</option><option value="SUBMITTED">New</option><option value="IN_REVIEW">In review</option><option value="CLOSED">Closed</option></select></label>
+      <button class="button button--primary" type="submit">Apply filters</button>
+    </form>
+    <p class="field-help">Contact details contain personal information. Use them only to respond to the submitted business enquiry.</p>
+    <div id="admin-enquiry-list" class="admin-data-panel" aria-live="polite">Loading enquiries…</div>`;
+}
+
 function sectionContent(active, pathname) {
   if (active.slug === "dashboard") return platformDashboardView();
   if (active.slug === "organizations") return organizationsView(pathname);
+  if (active.slug === "enquiries") return enquiriesView();
   if (active.slug === "customers-subscriptions") return customerDashboardView();
   if (active.slug === "billing-pricing") return pricingSettingsView();
   if (active.slug === "platform-operations") return tryOnOperationsView();
@@ -233,6 +252,29 @@ function attachAuditHistory(root) {
     if (!response.ok) return void (list.textContent = "Audit history could not be loaded.");
     const data = await response.json();
     list.innerHTML = data.events.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Organization / target</th><th>Change</th><th>Reason</th></tr></thead><tbody>${data.events.map((event) => `<tr><td>${escapeHtml(new Date(event.occurred_at).toLocaleString())}</td><td>${escapeHtml(event.actor_name)}<br><small>${escapeHtml(event.actor_id || event.actor_type)}</small></td><td>${escapeHtml(displayEnum(event.action))}</td><td>${escapeHtml(event.organization_name || displayEnum(event.target_type))}<br><small>${escapeHtml(event.target_id || "Platform")}</small></td><td><details><summary>View change</summary><strong>Before</strong><pre>${escapeHtml(JSON.stringify(event.before_summary ?? {}, null, 2))}</pre><strong>After</strong><pre>${escapeHtml(JSON.stringify(event.after_summary ?? {}, null, 2))}</pre></details></td><td>${escapeHtml(event.reason || "Not applicable")}</td></tr>`).join("")}</tbody></table></div>` : "<p>No audit events match these filters.</p>";
+  };
+  form.addEventListener("submit", (event) => { event.preventDefault(); load(); });
+  load();
+}
+
+function attachEnquiries(root) {
+  const form = root.querySelector("#admin-enquiry-filter");
+  const load = async () => {
+    const parameters = new URLSearchParams();
+    for (const field of ["search", "purpose", "status"]) {
+      if (form.elements[field].value) parameters.set(field, form.elements[field].value);
+    }
+    const list = root.querySelector("#admin-enquiry-list");
+    list.textContent = "Loading enquiries…";
+    const response = await fetch(`${API_ROOT}/admin/enquiries?${parameters}`, { credentials: "same-origin" });
+    if (response.status === 401) return redirect("/admin");
+    if (!response.ok) return void (list.textContent = "Enquiries could not be loaded.");
+    const data = await response.json();
+    Object.entries(data.summary).forEach(([key, value]) => {
+      const count = root.querySelector(`[data-enquiry-count="${key}"]`);
+      if (count) count.textContent = value;
+    });
+    list.innerHTML = data.enquiries.length ? `<div class="admin-table-wrap"><table class="admin-table admin-enquiry-table"><thead><tr><th>Received</th><th>Business contact</th><th>Contact details</th><th>Website</th><th>Purpose</th><th>Status</th></tr></thead><tbody>${data.enquiries.map((item) => `<tr><td>${escapeHtml(new Date(item.created_at).toLocaleString())}</td><td><strong>${escapeHtml(item.name)}</strong><br><small>${escapeHtml(item.contact_enquiry_id)}</small></td><td><a href="mailto:${encodeURIComponent(item.email)}">${escapeHtml(item.email)}</a><br><a href="tel:${escapeHtml(item.mobile.replace(/[^0-9+]/g, ""))}">${escapeHtml(item.mobile)}</a></td><td>${item.website_url ? `<a href="${escapeHtml(item.website_url)}" target="_blank" rel="noopener noreferrer">Visit website ↗</a>` : "—"}</td><td>${escapeHtml(displayEnum(item.purpose))}</td><td><span class="admin-status admin-status--${escapeHtml(item.status.toLowerCase())}">${escapeHtml(item.status === "SUBMITTED" ? "New" : displayEnum(item.status))}</span></td></tr>`).join("")}</tbody></table></div>` : "<p>No enquiries match these filters.</p>";
   };
   form.addEventListener("submit", (event) => { event.preventDefault(); load(); });
   load();
@@ -546,6 +588,7 @@ function renderAuthenticatedSection(root, pathname) {
     redirect("/admin");
   });
   if (adminSection(pathname).slug === "organizations") attachOrganizationControls(root, pathname);
+  if (adminSection(pathname).slug === "enquiries") attachEnquiries(root);
   if (adminSection(pathname).slug === "dashboard") attachDashboardControls(root);
   if (adminSection(pathname).slug === "customers-subscriptions") attachCustomerControls(root);
   if (adminSection(pathname).slug === "billing-pricing") attachPricingControls(root);

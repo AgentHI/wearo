@@ -1,11 +1,25 @@
-const CACHE_NAME = "wearo-shell-v28";
+const CACHE_NAME = "wearo-shell-v30";
 const APP_SHELL = [
   "/",
+  "/about",
+  "/experiences",
+  "/contact",
   "/app/",
   "/agent/",
   "/manifest.webmanifest",
   "/agent.webmanifest",
   "/wearo-brand.png",
+  "/experiences-jewellery-catalogue.png",
+  "/experiences/jewellery/model-classic-gold-v2.webp",
+  "/experiences/jewellery/model-kundan-v2.webp",
+  "/experiences/jewellery/model-temple-v2.webp",
+  "/experiences/jewellery/model-emerald-v2.webp",
+  "/experiences/jewellery/model-pearl-v2.webp",
+  "/experiences/jewellery/product-classic-gold-v2.webp",
+  "/experiences/jewellery/product-kundan-v2.webp",
+  "/experiences/jewellery/product-temple-v2.webp",
+  "/experiences/jewellery/product-meenakari-v2.webp",
+  "/experiences/jewellery/product-silver-v2.webp",
   "/wearo-tryon-complete.wav",
 ];
 
