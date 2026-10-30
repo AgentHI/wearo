@@ -211,7 +211,6 @@ export function renderExperiencesSite(root) {
                   <img src="/experiences/fashion/model-lehenga.webp" alt="Same model wearing a midnight blue lehenga" loading="lazy" data-fashion-model="Midnight Lehenga" />
                   <img src="/experiences/fashion/model-punjabi-suit.webp" alt="Same model wearing a mustard Punjabi suit" loading="lazy" data-fashion-model="Punjabi Suit" />
                   <img src="/experiences/fashion/model-indo-western.webp" alt="Same model wearing a plum Indo-western outfit" loading="lazy" data-fashion-model="Indo-Western" />
-                  <div class="fashion-tryon__label" aria-hidden="true"><span>Try a new look</span><strong data-fashion-label>Choose a dress</strong></div>
                   <span class="sr-only" aria-live="polite" data-fashion-selection>No dress selected. Choose a style to preview it.</span>
                 </div>
                 <div class="fashion-tryon__choices" role="group" aria-label="Choose an Indian outfit style">
@@ -261,7 +260,6 @@ export function renderExperiencesSite(root) {
     });
   });
   const fashionSelection = root.querySelector("[data-fashion-selection]");
-  const fashionLabel = root.querySelector("[data-fashion-label]");
   root.querySelectorAll("[data-fashion-option]").forEach((option) => {
     option.addEventListener("click", () => {
       root.querySelectorAll("[data-fashion-option]").forEach((candidate) => {
@@ -270,7 +268,6 @@ export function renderExperiencesSite(root) {
         candidate.setAttribute("aria-pressed", String(selected));
       });
       root.querySelectorAll("[data-fashion-model]").forEach((model) => model.classList.toggle("is-selected", model.dataset.fashionModel === option.dataset.model));
-      fashionLabel.textContent = option.dataset.model;
       fashionSelection.textContent = `${option.dataset.model} selected`;
     });
   });

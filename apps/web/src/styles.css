@@ -223,9 +223,6 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .fashion-tryon__portrait > img { position: absolute; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .38s ease, transform .7s cubic-bezier(.2, .7, .2, 1); inset: 0; }
 .fashion-tryon__portrait > img.is-selected { opacity: 1; }
 .fashion-tryon__portrait:hover > img.is-selected { transform: scale(1.012); }
-.fashion-tryon__label { position: absolute; z-index: 2; bottom: 1rem; left: 1rem; display: grid; gap: .15rem; padding: .65rem .85rem; border: 1px solid rgb(255 255 255 / 48%); border-radius: .75rem; color: #fff; background: rgb(36 14 31 / 72%); backdrop-filter: blur(10px); }
-.fashion-tryon__label span { font-size: .5rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-.fashion-tryon__label strong { margin: 0; color: #fff; font-size: .78rem; }
 .fashion-tryon__choices { display: grid; height: 100%; min-height: 0; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: .4rem; overflow: hidden; }
 .fashion-tryon__choices button { position: relative; min-height: 0; overflow: hidden; padding: 0; border: 1px solid rgb(134 96 55 / 20%); border-radius: .8rem; background: #eadfce; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
 .fashion-tryon__choices button:hover { border-color: #b58243; transform: translateX(-2px); }
