@@ -59,6 +59,16 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(publicSite, /data-blouse-option/);
   for (const design of ["Royal Jewel", "Lotus Muse", "Midnight Pearl"]) assert.match(publicSite, new RegExp(design));
   assert.match(publicSite, /front and back views shown/);
+  assert.match(publicSite, /data-fashion-tryon/);
+  assert.match(publicSite, /data-fashion-option/);
+  assert.match(publicSite, /data-fashion-model/);
+  assert.match(publicSite, /product-banarasi-saree\.webp/);
+  assert.doesNotMatch(publicSite, /data-fashion-option[^>]*>[\s\S]*?model-banarasi-saree\.webp/);
+  for (const look of ["Banarasi Saree", "Emerald Anarkali", "Midnight Lehenga", "Punjabi Suit", "Indo-Western"]) assert.match(publicSite, new RegExp(look));
+  assert.match(publicSite, /model-everyday-kurta\.webp/);
+  assert.doesNotMatch(publicSite, /data-fashion-option[^>]*data-model="Everyday Kurta"/);
+  assert.match(publicSite, /No dress selected/);
+  assert.doesNotMatch(publicSite, /<p class="experience-showcase__status">Coming soon<\/p><h3>Fashion Try-On/);
   assert.match(main, /pathname === "\/contact"/);
   assert.match(publicSite, /For brands and businesses/);
   assert.match(publicSite, /name="name"[^>]*required/);

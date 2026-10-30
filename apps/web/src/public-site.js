@@ -192,7 +192,6 @@ export function renderExperiencesSite(root) {
                   <img class="is-selected" src="/experiences/blouse/royal-jewel.webp" alt="Standing model showcasing the Royal Jewel blouse from the front and back" loading="eager" data-blouse-model="Royal Jewel" />
                   <img src="/experiences/blouse/lotus-muse.webp" alt="Standing model showcasing the Lotus Muse blouse from the front and back" loading="lazy" data-blouse-model="Lotus Muse" />
                   <img src="/experiences/blouse/midnight-pearl.webp" alt="Standing model showcasing the Midnight Pearl blouse from the front and back" loading="lazy" data-blouse-model="Midnight Pearl" />
-                  <div class="blouse-tryon__views" aria-hidden="true"><span>Front</span><span>Back</span></div>
                   <span class="sr-only" aria-live="polite" data-blouse-selection>Royal Jewel selected, front and back views shown</span>
                 </div>
                 <div class="blouse-tryon__choices" role="group" aria-label="Choose a blouse design">
@@ -203,9 +202,27 @@ export function renderExperiencesSite(root) {
               </div>
               <div class="experience-showcase__copy"><p class="experience-showcase__status">Available now · Three designs</p><h3>Boutique &amp; Blouse Try-On</h3><p>Explore every blouse from both angles. Compare necklines, sleeves, embroidery, and back details with the same ivory saree.</p><strong>Your saree. Your style. Beautifully matched.</strong></div>
             </article>
-            <article class="experience-showcase__row experience-showcase__row--upcoming">
-              <img src="/hero-jewellery/jewellery-10.webp" alt="An editorial Indian fashion look" loading="lazy" />
-              <div><p class="experience-showcase__status">Coming soon</p><h3>Fashion Try-On</h3><p>Experiment with outfits and discover new looks without the uncertainty of imagining how they might fit your style.</p><strong>Explore more. Choose confidently.</strong></div>
+            <article class="experience-showcase__row experience-showcase__row--fashion" data-fashion-tryon>
+              <div class="fashion-tryon">
+                <div class="fashion-tryon__portrait">
+                  <img class="is-selected" src="/experiences/fashion/model-everyday-kurta.webp" alt="Model wearing an everyday teal kurta, ready to try a dress" loading="eager" data-fashion-model="" />
+                  <img src="/experiences/fashion/model-banarasi-saree.webp" alt="Same model wearing a ruby Banarasi saree" loading="lazy" data-fashion-model="Banarasi Saree" />
+                  <img src="/experiences/fashion/model-anarkali.webp" alt="Same model wearing an emerald Anarkali suit" loading="lazy" data-fashion-model="Emerald Anarkali" />
+                  <img src="/experiences/fashion/model-lehenga.webp" alt="Same model wearing a midnight blue lehenga" loading="lazy" data-fashion-model="Midnight Lehenga" />
+                  <img src="/experiences/fashion/model-punjabi-suit.webp" alt="Same model wearing a mustard Punjabi suit" loading="lazy" data-fashion-model="Punjabi Suit" />
+                  <img src="/experiences/fashion/model-indo-western.webp" alt="Same model wearing a plum Indo-western outfit" loading="lazy" data-fashion-model="Indo-Western" />
+                  <div class="fashion-tryon__label" aria-hidden="true"><span>Try a new look</span><strong data-fashion-label>Choose a dress</strong></div>
+                  <span class="sr-only" aria-live="polite" data-fashion-selection>No dress selected. Choose a style to preview it.</span>
+                </div>
+                <div class="fashion-tryon__choices" role="group" aria-label="Choose an Indian outfit style">
+                  <button type="button" aria-label="Try Banarasi Saree" aria-pressed="false" data-fashion-option data-model="Banarasi Saree"><img src="/experiences/fashion/product-banarasi-saree.webp" alt="Ruby Banarasi saree and blouse" loading="lazy" /><span>Saree</span></button>
+                  <button type="button" aria-label="Try Emerald Anarkali" aria-pressed="false" data-fashion-option data-model="Emerald Anarkali"><img src="/experiences/fashion/product-anarkali.webp" alt="Emerald Anarkali and dupatta" loading="lazy" /><span>Anarkali</span></button>
+                  <button type="button" aria-label="Try Midnight Lehenga" aria-pressed="false" data-fashion-option data-model="Midnight Lehenga"><img src="/experiences/fashion/product-lehenga.webp" alt="Midnight blue lehenga set" loading="lazy" /><span>Lehenga</span></button>
+                  <button type="button" aria-label="Try Punjabi Suit" aria-pressed="false" data-fashion-option data-model="Punjabi Suit"><img src="/experiences/fashion/product-punjabi-suit.webp" alt="Mustard Punjabi suit and coral dupatta" loading="lazy" /><span>Punjabi</span></button>
+                  <button type="button" aria-label="Try Indo-Western" aria-pressed="false" data-fashion-option data-model="Indo-Western"><img src="/experiences/fashion/product-indo-western.webp" alt="Plum Indo-western draped outfit" loading="lazy" /><span>Fusion</span></button>
+                </div>
+              </div>
+              <div class="experience-showcase__copy"><h3>Fashion Try-On</h3><p>Wearo’s AI-powered try-on brings every outfit to life before you commit—giving you the clarity to compare styles, the confidence to choose, and fewer surprises after purchase.</p><strong>See it on. Feel sure. Choose with Wearo.</strong></div>
             </article>
           </section>
         </section>
@@ -241,6 +258,20 @@ export function renderExperiencesSite(root) {
       });
       root.querySelectorAll("[data-blouse-model]").forEach((model) => model.classList.toggle("is-selected", model.dataset.blouseModel === option.dataset.model));
       blouseSelection.textContent = `${option.dataset.model} selected, front and back views shown`;
+    });
+  });
+  const fashionSelection = root.querySelector("[data-fashion-selection]");
+  const fashionLabel = root.querySelector("[data-fashion-label]");
+  root.querySelectorAll("[data-fashion-option]").forEach((option) => {
+    option.addEventListener("click", () => {
+      root.querySelectorAll("[data-fashion-option]").forEach((candidate) => {
+        const selected = candidate === option;
+        candidate.classList.toggle("is-selected", selected);
+        candidate.setAttribute("aria-pressed", String(selected));
+      });
+      root.querySelectorAll("[data-fashion-model]").forEach((model) => model.classList.toggle("is-selected", model.dataset.fashionModel === option.dataset.model));
+      fashionLabel.textContent = option.dataset.model;
+      fashionSelection.textContent = `${option.dataset.model} selected`;
     });
   });
   wirePublicHeader(root);
