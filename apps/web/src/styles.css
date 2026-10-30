@@ -294,6 +294,97 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .about-footer a, .business-footer a { color: #d9b473; font-weight: 400; text-decoration: none; }
 .about-footer a:hover, .business-footer a:hover { text-decoration: underline; }
 
+/* For Businesses — confidence-led retail story */
+.for-business-site { background: #1d0a22; }
+.for-business-site .public-header { border-color: rgb(224 190 129 / 12%); background: rgb(29 10 34 / 72%); backdrop-filter: blur(14px); }
+.business-marketing-hero { position: relative; display: grid; min-height: 100svh; align-items: center; overflow: hidden; isolation: isolate; }
+.business-marketing-hero__media, .business-marketing-hero__shade { position: absolute; z-index: -2; inset: 0; }
+.business-marketing-hero__media img { width: 100%; height: 100%; object-fit: cover; object-position: 68% 28%; filter: saturate(.78) contrast(1.04); }
+.business-marketing-hero__shade { z-index: -1; background: linear-gradient(90deg, rgb(27 7 31 / 98%) 0%, rgb(34 10 38 / 91%) 38%, rgb(34 10 38 / 30%) 69%, rgb(24 7 27 / 20%) 100%), linear-gradient(0deg, rgb(24 7 28 / 86%), transparent 42%); }
+.business-marketing-hero__inner { width: min(calc(100% - clamp(2rem, 7vw, 7rem)), 96rem); margin: auto; padding: 11rem 0 9rem; }
+.business-marketing-hero h1 { max-width: 12ch; margin: 0; color: #fffaf3; font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: clamp(3.8rem, 6.5vw, 7rem); font-weight: 400; line-height: .91; letter-spacing: -.055em; text-shadow: 0 1.2rem 3rem rgb(13 2 15 / 28%); }
+.business-marketing-hero h1 em, .business-section-heading h2 em, .business-journey h2 em, .business-segments h2 em, .business-outcomes h2 em, .business-marketing-cta h2 em { color: #e7bc73; font-weight: 400; }
+.business-marketing-hero__copy { max-width: 42rem; margin: 2rem 0 0; color: rgb(255 248 240 / 72%); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: clamp(1.08rem, 1.45vw, 1.32rem); line-height: 1.7; }
+.business-hero-proof { position: absolute; right: clamp(1.5rem, 5vw, 5rem); bottom: 2rem; display: flex; align-items: center; gap: .85rem; color: rgb(255 248 240 / 48%); font-size: .57rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+.business-hero-proof i { width: .28rem; height: .28rem; background: #d6a85c; transform: rotate(45deg); }
+.business-confidence, .business-segments, .business-outcomes { padding: clamp(6.5rem, 11vw, 10rem) max(1.5rem, calc((100vw - 88rem) / 2)); }
+.business-confidence { color: var(--ink-charcoal); background: #f7f1e7; }
+.business-section-heading { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(18rem, .65fr); align-items: end; gap: clamp(2rem, 7vw, 7rem); }
+.business-section-heading h2, .business-journey h2, .business-segments h2, .business-outcomes h2, .business-marketing-cta h2 { margin: 0; font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: clamp(2.8rem, 5vw, 5.2rem); font-weight: 400; line-height: .98; letter-spacing: -.05em; }
+.business-section-heading h2 { color: var(--brand-aubergine); }
+.business-section-heading > p { margin: 0 0 .4rem; color: var(--ink-mauve); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1.12rem; line-height: 1.7; }
+.business-benefit-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: clamp(4rem, 7vw, 7rem); border: 1px solid rgb(134 96 55 / 20%); background: rgb(134 96 55 / 20%); }
+.business-benefit-grid article { min-height: 27rem; padding: clamp(1.5rem, 3vw, 2.7rem); background: #fbf7f0; }
+.business-benefit-grid article > span, .business-segment-card > span, .business-segment-card > div > span { color: #9b6c35; font-size: .6rem; font-weight: 800; letter-spacing: .15em; }
+.business-benefit-grid__icon { display: grid; width: 3.4rem; aspect-ratio: 1; place-items: center; margin: 4rem 0 1.6rem; border: 1px solid rgb(134 96 55 / 25%); border-radius: 50%; color: #a8793e; font-family: Georgia, serif; font-size: 1.15rem; }
+.business-benefit-grid h3, .business-journey__steps h3, .business-segment-card h3 { margin: 0; color: var(--brand-aubergine); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: clamp(1.65rem, 2.2vw, 2.2rem); font-weight: 400; line-height: 1.05; letter-spacing: -.035em; }
+.business-benefit-grid p, .business-journey__steps p, .business-segment-card p { color: var(--ink-mauve); font-size: .86rem; line-height: 1.7; }
+.business-journey { display: grid; min-height: 53rem; grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); color: #fffaf3; background: #210b26; }
+.business-journey__visual { position: relative; min-height: 43rem; overflow: hidden; }
+.business-journey__visual::after { position: absolute; inset: 0; background: linear-gradient(0deg, rgb(25 7 29 / 72%), transparent 55%); content: ""; }
+.business-journey__visual img { width: 100%; height: 100%; object-fit: cover; object-position: center top; filter: saturate(.78); }
+.business-journey__tag { position: absolute; z-index: 1; right: 2rem; bottom: 2rem; left: 2rem; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.2rem; border: 1px solid rgb(255 255 255 / 20%); background: rgb(30 8 34 / 65%); backdrop-filter: blur(14px); }
+.business-journey__tag span { color: #e2bb78; font-size: .57rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+.business-journey__tag strong { font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1rem; font-weight: 400; }
+.business-journey__content { display: flex; flex-direction: column; justify-content: center; padding: clamp(4rem, 8vw, 8rem); }
+.business-journey h2 { color: #fffaf3; }
+.business-journey .phase-roadmap__eyebrow { color: #d9b473; }
+.business-journey__steps { margin-top: 3rem; border-top: 1px solid rgb(231 190 117 / 18%); }
+.business-journey__steps article { display: grid; grid-template-columns: 2.5rem 1fr; gap: 1rem; padding: 1.35rem 0; border-bottom: 1px solid rgb(231 190 117 / 18%); }
+.business-journey__steps article > span { padding-top: .25rem; color: #d8ad67; font-size: .58rem; font-weight: 800; }
+.business-journey__steps h3 { color: #fffaf3; font-size: 1.5rem; }
+.business-journey__steps p { margin: .35rem 0 0; color: rgb(255 248 240 / 58%); }
+.business-segments { color: var(--ink-charcoal); background: #efe5d7; }
+.business-segments__heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; }
+.business-segments h2 { color: var(--brand-aubergine); }
+.business-segment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 4rem; }
+.business-segment-card { min-height: 22rem; padding: clamp(1.8rem, 4vw, 3.5rem); border: 1px solid rgb(134 96 55 / 18%); background: #f8f2e9; }
+.business-segment-card:not(.business-segment-card--image) { display: flex; flex-direction: column; justify-content: flex-end; }
+.business-segment-card h3 { margin-top: 1rem; font-size: clamp(2rem, 3vw, 3.2rem); }
+.business-segment-card p { max-width: 34rem; font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1.04rem; }
+.business-segment-card strong { margin-top: .75rem; color: var(--brand-plum); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: .95rem; font-weight: 400; }
+.business-segment-card--image { position: relative; min-height: 34rem; overflow: hidden; padding: 0; color: white; isolation: isolate; }
+.business-segment-card--image::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(0deg, rgb(25 7 29 / 94%), transparent 65%); content: ""; }
+.business-segment-card--image img { position: absolute; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: center 22%; filter: saturate(.75); }
+.business-segment-card--boutique img { object-position: center 24%; }
+.business-segment-card--saree img { object-position: center 18%; }
+.business-segment-card--retail img { object-position: center 20%; }
+.business-segment-card--image > div { position: absolute; right: 0; bottom: 0; left: 0; padding: clamp(2rem, 4vw, 3.5rem); }
+.business-segment-card--image h3, .business-segment-card--dark h3 { color: #fffaf3; }
+.business-segment-card--image p, .business-segment-card--dark p { color: rgb(255 248 240 / 66%); }
+.business-segment-card--image strong { color: #e5bd78; }
+.business-segment-card--dark { color: white; background: radial-gradient(circle at 90% 10%, rgb(126 62 105 / 35%), transparent 38%), #28102d; }
+.business-segment-card--dark strong { color: #e5bd78; }
+.business-vertical-list { display: grid; gap: clamp(4rem, 8vw, 8rem); margin-top: clamp(4rem, 8vw, 7rem); }
+.business-vertical-card { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(19rem, .88fr); align-items: center; gap: clamp(2.5rem, 7vw, 7rem); }
+.business-vertical-card--reverse figure { grid-column: 2; }
+.business-vertical-card--reverse .business-vertical-card__copy { grid-row: 1; grid-column: 1; }
+.business-vertical-card figure { position: relative; margin: 0; overflow: hidden; border-radius: 1.5rem; background: #29102d; box-shadow: 0 1.5rem 4rem rgb(59 23 70 / 16%); }
+.business-vertical-card figure::after { position: absolute; right: 0; bottom: 0; left: 0; height: 38%; background: linear-gradient(transparent, rgb(24 7 28 / 76%)); content: ""; pointer-events: none; }
+.business-vertical-card figure img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; }
+.business-vertical-card figcaption { position: absolute; z-index: 1; right: 1.25rem; bottom: 1rem; left: 1.25rem; display: flex; align-items: center; gap: .75rem; color: rgb(255 248 240 / 78%); font-size: .56rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.business-vertical-card figcaption i { width: 2.5rem; height: 1px; background: linear-gradient(90deg, #d8ad67, transparent); }
+.business-vertical-card__copy > span { display: block; margin-bottom: 1rem; color: #966a35; font-size: .62rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.business-vertical-card h3 { margin: 0; color: var(--brand-aubergine); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: clamp(2.2rem, 3.7vw, 4rem); font-weight: 400; line-height: 1; letter-spacing: -.045em; }
+.business-vertical-card__copy > p { max-width: 34rem; margin: 1.4rem 0 1.6rem; color: var(--ink-mauve); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1.08rem; line-height: 1.65; }
+.business-vertical-card ul { display: grid; gap: .8rem; margin: 0; padding: 1.4rem 0 0; border-top: 1px solid rgb(134 96 55 / 20%); list-style: none; }
+.business-vertical-card li { position: relative; padding-left: 1.35rem; color: #665b68; font-size: .78rem; line-height: 1.55; }
+.business-vertical-card li::before { position: absolute; top: .55em; left: 0; width: .38rem; height: .38rem; background: #b88848; content: ""; transform: rotate(45deg); }
+.business-outcomes { color: #fffaf3; background: radial-gradient(circle at 15% 20%, rgb(112 50 94 / 30%), transparent 28%), #1d0a22; text-align: center; }
+.business-outcomes .phase-roadmap__eyebrow { color: #d9b473; }
+.business-outcomes h2 { color: #fffaf3; }
+.business-outcomes__list { display: grid; grid-template-columns: 1fr 1fr; max-width: 68rem; gap: 0 3rem; margin: 4rem auto 0; border-top: 1px solid rgb(231 190 117 / 18%); text-align: left; }
+.business-outcomes__list div { display: grid; grid-template-columns: 2.5rem 1fr; align-items: center; gap: 1rem; min-height: 6rem; border-bottom: 1px solid rgb(231 190 117 / 18%); }
+.business-outcomes__list span { color: #d8ad67; font-size: .58rem; font-weight: 800; }
+.business-outcomes__list strong { font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1.12rem; font-weight: 400; }
+.business-marketing-cta { position: relative; display: grid; min-height: 42rem; place-items: center; align-content: center; gap: 1.25rem; padding: 6rem 1.5rem; overflow: hidden; color: #fffaf3; background: radial-gradient(circle at 50% 48%, rgb(126 62 105 / 42%), transparent 34%), #210b26; text-align: center; }
+.business-marketing-cta::before { position: absolute; width: min(72vw, 50rem); aspect-ratio: 1; border: 1px solid rgb(232 191 118 / 12%); border-radius: 50%; content: ""; }
+.business-marketing-cta > * { position: relative; }
+.business-marketing-cta__star { width: 4rem; height: 4rem; }
+.business-marketing-cta p:first-of-type { margin: 0; color: #dcb97c; font-size: .65rem; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+.business-marketing-cta h2 { color: #fffaf3; }
+.business-marketing-cta h2 + p { max-width: 38rem; margin: .5rem 0 1rem; color: rgb(255 248 240 / 62%); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1.08rem; line-height: 1.65; }
+
 /* Business contact page */
 .contact-site { background: #1d0a22; }
 .contact-hero { position: relative; display: grid; min-height: 100svh; align-items: center; overflow: hidden; padding: 11rem 0 5rem; background: radial-gradient(circle at 16% 26%, rgb(123 56 101 / 36%), transparent 30%), linear-gradient(135deg, #1c091f, #301132 58%, #210b26); isolation: isolate; }
@@ -423,6 +514,26 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .about-confidence__content { padding: 4.5rem 1.5rem; }
   .about-steps { grid-template-columns: 1fr; }
   .about-steps div { grid-template-columns: 2rem 5rem 1fr; align-items: baseline; padding: 1.2rem 0; border-bottom: 1px solid rgb(134 96 55 / 18%); }
+  .business-marketing-hero { min-height: 52rem; align-items: end; }
+  .business-marketing-hero__media img { object-position: 61% top; }
+  .business-marketing-hero__shade { background: linear-gradient(0deg, rgb(27 7 31 / 99%) 0%, rgb(30 8 34 / 88%) 52%, rgb(30 8 34 / 16%) 85%); }
+  .business-marketing-hero__inner { width: min(100% - 2rem, 40rem); padding: 24rem 0 6rem; }
+  .business-marketing-hero h1 { font-size: clamp(3.25rem, 13vw, 5rem); }
+  .business-hero-proof { display: none; }
+  .business-section-heading { grid-template-columns: 1fr; align-items: start; }
+  .business-benefit-grid { grid-template-columns: 1fr; }
+  .business-benefit-grid article { min-height: 0; }
+  .business-benefit-grid__icon { margin-top: 2rem; }
+  .business-journey { grid-template-columns: 1fr; }
+  .business-journey__visual { min-height: min(42rem, 115vw); }
+  .business-journey__content { padding: 5rem 1.5rem; }
+  .business-segment-grid { grid-template-columns: 1fr; }
+  .business-segment-card--image { min-height: min(40rem, 120vw); grid-row: auto; }
+  .business-vertical-list { gap: 5rem; }
+  .business-vertical-card { grid-template-columns: 1fr; gap: 2rem; }
+  .business-vertical-card--reverse figure, .business-vertical-card--reverse .business-vertical-card__copy { grid-row: auto; grid-column: auto; }
+  .business-vertical-card figure { border-radius: 1rem; }
+  .business-outcomes__list { grid-template-columns: 1fr; }
   .contact-hero { padding: 9rem 0 4rem; }
   .contact-hero__inner { width: min(100% - 2rem, 40rem); grid-template-columns: 1fr; gap: 3rem; }
   .contact-intro h1 { font-size: clamp(3.35rem, 14vw, 5rem); }
@@ -445,6 +556,12 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .contact-form { grid-template-columns: 1fr; }
   .contact-form label { grid-column: 1 / -1; }
   .contact-form-card__heading { display: grid; }
+  .business-marketing-hero__inner { padding-top: 21rem; }
+  .business-marketing-hero .hero-ctas { display: grid; }
+  .business-marketing-hero .text-link { justify-content: start; }
+  .business-segments__heading { display: block; }
+  .business-segment-card { min-height: 20rem; }
+  .business-outcomes__list div { min-height: 5.5rem; }
 }
 
 @media (max-width: 24rem) {

@@ -1,7 +1,7 @@
 const navItems = [
   ["Home", "/"],
   ["Experiences", "/experiences"],
-  ["For Businesses", "#", true],
+  ["For Businesses", "/for-business"],
   ["Gallery", "#", true],
   ["About Us", "/about"],
   ["Contact", "/contact"],
@@ -23,7 +23,9 @@ function star(size = "") {
   return `<span class="gold-star ${size}" aria-hidden="true"><i></i></span>`;
 }
 
-function publicHeader(active = "Home") {
+function publicHeader(active = "Home", options = {}) {
+  const primaryCtaHref = options.primaryCtaHref || "/app/";
+  const primaryCtaLabel = options.primaryCtaLabel || "Try Wearo";
   return `
     <header class="public-header" data-public-header>
       <div class="public-header__inner">
@@ -33,7 +35,7 @@ function publicHeader(active = "Home") {
         </nav>
         <div class="public-header__actions">
           <a class="public-login" href="/business/sign-in">Business login</a>
-          <a class="luxury-button luxury-button--compact" href="/app/">Try Wearo ${star("gold-star--button")}</a>
+          <a class="luxury-button luxury-button--compact" href="${primaryCtaHref}">${primaryCtaLabel} ${star("gold-star--button")}</a>
           <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
             <span></span><span></span>
           </button>
@@ -43,7 +45,7 @@ function publicHeader(active = "Home") {
         <nav aria-label="Mobile navigation">
           ${navItems.map(([label, href, upcoming]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}${upcoming ? ` data-coming-soon="${label}"` : " data-public-route"}>${label}<span aria-hidden="true">↗</span></a>`).join("")}
           <a class="mobile-menu__login" href="/business/sign-in">Business login</a>
-          <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
+          <a class="luxury-button" href="${primaryCtaHref}">${primaryCtaLabel} ${star("gold-star--button")}</a>
         </nav>
       </div>
       <div class="public-coming-soon" role="status" aria-live="polite" data-coming-soon-message hidden></div>
@@ -242,6 +244,114 @@ export function renderExperiencesSite(root) {
       blouseSelection.textContent = `${option.dataset.model} selected, front and back views shown`;
     });
   });
+  wirePublicHeader(root);
+}
+
+export function renderForBusinessSite(root) {
+  document.documentElement.dataset.experience = "public";
+  document.title = "For Businesses - Wearo.ai";
+
+  root.innerHTML = `
+    <div class="public-site for-business-site">
+      ${publicHeader("For Businesses")}
+      <main id="main">
+        <section class="business-marketing-hero" aria-labelledby="business-marketing-title">
+          <div class="business-marketing-hero__media" aria-hidden="true">
+            <img src="/hero-jewellery/jewellery-6.webp" alt="" fetchpriority="high" />
+          </div>
+          <div class="business-marketing-hero__shade" aria-hidden="true"></div>
+          <div class="business-marketing-hero__inner">
+            <p class="hero-kicker reveal-item">Virtual try-on for modern retail <span></span> Built for your customers</p>
+            <h1 id="business-marketing-title" class="reveal-item">Turn “Will it suit me?”<br />into <em>“I’ll take it.”</em></h1>
+            <p class="business-marketing-hero__copy reveal-item">Help every customer see the look before they buy - so decisions feel easier, conversations move faster, and confidence follows them to checkout.</p>
+            <div class="hero-ctas reveal-item">
+              <a class="luxury-button" href="/business/signup">Bring Wearo to your store ${star("gold-star--button")}</a>
+              <a class="text-link" href="#how-it-helps">See how it helps <span aria-hidden="true">↓</span></a>
+            </div>
+          </div>
+          <div class="business-hero-proof" aria-label="Designed for four retail categories">
+            <span>Jewellery</span><i></i><span>Boutiques</span><i></i><span>Sarees</span><i></i><span>Retail</span>
+          </div>
+        </section>
+
+        <section class="business-confidence" id="how-it-helps" aria-labelledby="business-confidence-title">
+          <div class="business-section-heading">
+            <div>
+              <p class="phase-roadmap__eyebrow">Confidence is the conversion</p>
+              <h2 id="business-confidence-title">Your products already catch their eye.<br /><em>Wearo helps them decide.</em></h2>
+            </div>
+            <p>Customers hesitate when they cannot picture the final look. Wearo closes that imagination gap with a personal, visual try-on moment.</p>
+          </div>
+          <div class="business-benefit-grid">
+            <article><span>01</span><div class="business-benefit-grid__icon" aria-hidden="true">✦</div><h3>Make the choice feel real</h3><p>Let customers see jewellery, blouse designs, sarees, and styles on a person - not only on a shelf or product card.</p></article>
+            <article><span>02</span><div class="business-benefit-grid__icon" aria-hidden="true">↗</div><h3>Move from doubt to decision</h3><p>Give shoppers a clearer reason to say yes while their interest is highest, in store or while browsing online.</p></article>
+            <article><span>03</span><div class="business-benefit-grid__icon" aria-hidden="true">◎</div><h3>Create a better sales conversation</h3><p>Help staff guide customers through alternatives visually, making recommendations feel personal and easy to compare.</p></article>
+          </div>
+        </section>
+
+        <section class="business-journey" aria-labelledby="business-journey-title">
+          <div class="business-journey__visual">
+            <img src="/experiences/jewellery/model-temple-v2.webp" alt="Customer previewing a temple jewellery look with Wearo" loading="lazy" />
+            <div class="business-journey__tag"><span>Live preview</span><strong>Temple Gold</strong></div>
+          </div>
+          <div class="business-journey__content">
+            <p class="phase-roadmap__eyebrow">A simpler path to purchase</p>
+            <h2 id="business-journey-title">See it. Believe it.<br /><em>Buy confidently.</em></h2>
+            <div class="business-journey__steps">
+              <article><span>01</span><div><h3>Discover</h3><p>Your customer finds a piece, blouse, saree, or style that catches their attention.</p></div></article>
+              <article><span>02</span><div><h3>Try</h3><p>They preview the look virtually and compare the options that suit them best.</p></div></article>
+              <article><span>03</span><div><h3>Choose</h3><p>They move forward with a clearer picture and greater confidence in the purchase.</p></div></article>
+            </div>
+          </div>
+        </section>
+
+        <section class="business-segments" aria-labelledby="business-segments-title">
+          <div class="business-segments__heading">
+            <p class="phase-roadmap__eyebrow">Made for the way you sell</p>
+            <h2 id="business-segments-title">One experience.<br /><em>Many storefronts.</em></h2>
+          </div>
+          <div class="business-vertical-list">
+            <article class="business-vertical-card">
+              <figure><img src="/for-business/jewellery-phone-tryon.webp" alt="A necklace photographed on a phone and shown virtually on the customer" loading="lazy" /><figcaption><span>Capture</span><i></i><span>Preview</span></figcaption></figure>
+              <div class="business-vertical-card__copy"><span>01 · Jewellery shops</span><h3>Let every piece be tried<br />without leaving the counter.</h3><p>Photograph a necklace or set, then help the customer see that same piece on herself.</p><ul><li>Compare high-value pieces with less repeated handling</li><li>Keep the sales conversation moving while stock stays organised</li><li>Show more of the catalogue than the counter can hold at once</li></ul></div>
+            </article>
+            <article class="business-vertical-card business-vertical-card--reverse">
+              <figure><img src="/for-business/boutique-phone-tryon.webp" alt="A Punjabi dress photographed on a phone and shown virtually on the customer" loading="lazy" /><figcaption><span>Photograph</span><i></i><span>See it worn</span></figcaption></figure>
+              <div class="business-vertical-card__copy"><span>02 · Women’s boutiques</span><h3>Turn a new arrival into<br />a personal fitting moment.</h3><p>Capture a Punjabi dress, kurta, or blouse and present it on the customer before she changes outfits.</p><ul><li>Browse the catalogue easily</li><li>Try a selected design with virtual try-on</li><li>Create a new design based on customer requirements</li></ul></div>
+            </article>
+            <article class="business-vertical-card">
+              <figure><img src="/for-business/saree-phone-tryon.webp" alt="A saree and blouse photographed on a phone and shown as a complete virtual look" loading="lazy" /><figcaption><span>Pair</span><i></i><span>Complete the look</span></figcaption></figure>
+              <div class="business-vertical-card__copy"><span>03 · Saree sellers</span><h3>Show the complete look<br />before the first drape.</h3><p>Photograph the saree and matching blouse, then reveal how the combination comes together on the customer.</p><ul><li>Present blouse pairings before opening multiple sarees</li><li>Compare borders, colours, and combinations side by side</li><li>Make coordinated blouse and jewellery suggestions feel natural</li></ul></div>
+            </article>
+            <article class="business-vertical-card business-vertical-card--reverse">
+              <figure><img src="/for-business/retail-phone-tryon.webp" alt="A traditional children’s dress photographed on a phone and shown virtually on a young shopper" loading="lazy" /><figcaption><span>Select</span><i></i><span>Try virtually</span></figcaption></figure>
+              <div class="business-vertical-card__copy"><span>04 · Family retail</span><h3>Make family shopping<br />quicker and more engaging.</h3><p>Capture a traditional outfit and let families preview the same design on the young shopper.</p><ul><li>Explore festive options without repeated outfit changes</li><li>Help parents compare colours and designs in one place</li><li>Bring less-visible catalogue choices into the conversation</li></ul></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="business-outcomes" aria-labelledby="business-outcomes-title">
+          <p class="phase-roadmap__eyebrow">What changes for your business</p>
+          <h2 id="business-outcomes-title">A customer who can see the choice<br /><em>can make the choice.</em></h2>
+          <div class="business-outcomes__list">
+            <div><span>01</span><strong>More confident purchase decisions</strong></div>
+            <div><span>02</span><strong>More engaging in-store conversations</strong></div>
+            <div><span>03</span><strong>Better product discovery and comparison</strong></div>
+            <div><span>04</span><strong>A modern experience customers remember</strong></div>
+          </div>
+        </section>
+
+        <section class="business-marketing-cta" aria-labelledby="business-cta-title">
+          <div class="business-marketing-cta__star">${star("gold-star--hero")}</div>
+          <p>Let customers picture the yes</p>
+          <h2 id="business-cta-title">Bring confident buying<br /><em>to your business.</em></h2>
+          <p>Tell us about your store, catalogue, and customers. We’ll help you explore the right Wearo experience.</p>
+          <a class="luxury-button" href="/contact">Talk to Wearo ${star("gold-star--button")}</a>
+        </section>
+      </main>
+      <footer class="business-footer">© 2026 Wearo.ai · All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+    </div>`;
+
   wirePublicHeader(root);
 }
 

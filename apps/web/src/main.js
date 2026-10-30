@@ -5,12 +5,13 @@ import { renderBusinessApp } from "./business-app.js";
 import { renderConsumerApp } from "./consumer-app.js";
 import { renderAgentApp } from "./agent-app.js";
 import { renderAdminApp } from "./admin-app.js";
-import { renderAboutSite, renderContactSite, renderExperiencesSite, renderPublicSite } from "./public-site.js";
+import { renderAboutSite, renderContactSite, renderExperiencesSite, renderForBusinessSite, renderPublicSite } from "./public-site.js";
 import "./styles.css";
 
 function currentExperience(pathname) {
   if (pathname === "/" || pathname === "/index.html") return "public";
   if (pathname === "/experiences" || pathname === "/experiences/") return "experiences";
+  if (pathname === "/for-business" || pathname === "/for-business/") return "for-business";
   if (pathname === "/about" || pathname === "/about/") return "about";
   if (pathname === "/contact" || pathname === "/contact/") return "contact";
   if (pathname.startsWith("/admin")) return "admin";
@@ -48,6 +49,7 @@ function renderCurrentRoute() {
   if (experience === "public") renderPublicSite(root);
   else if (experience === "about") renderAboutSite(root);
   else if (experience === "experiences") renderExperiencesSite(root);
+  else if (experience === "for-business") renderForBusinessSite(root);
   else if (experience === "contact") renderContactSite(root);
   else if (experience === "admin") renderAdminApp(root, window.location.pathname);
   else if (experience === "agent") renderAgentApp(root);
