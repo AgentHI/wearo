@@ -168,20 +168,20 @@ export function renderExperiencesSite(root) {
             <article class="experience-showcase__row experience-showcase__row--jewellery" data-jewellery-tryon>
               <div class="jewellery-tryon">
                 <div class="jewellery-tryon__portrait">
-                  <img class="is-selected" src="/experiences/jewellery/model-neutral-v2.webp" alt="Model ready for a jewellery selection" loading="eager" data-jewellery-model="" />
-                  <img src="/experiences/jewellery/model-classic-gold-v2.webp" alt="Model wearing the classic gold jewellery set" loading="eager" data-jewellery-model="Classic Gold" />
-                  <img src="/experiences/jewellery/model-kundan-v2.webp" alt="Model wearing the ivory kundan jewellery set" loading="eager" data-jewellery-model="Ivory Kundan" />
-                  <img src="/experiences/jewellery/model-temple-v2.webp" alt="Model wearing the South Indian temple jewellery set" loading="eager" data-jewellery-model="Temple Gold" />
-                  <img src="/experiences/jewellery/model-emerald-v2.webp" alt="Model wearing the emerald jewellery set" loading="eager" data-jewellery-model="Emerald" />
-                  <img src="/experiences/jewellery/model-pearl-v2.webp" alt="Model wearing the pearl jewellery set" loading="eager" data-jewellery-model="Pearl" />
+                  <img class="is-selected" src="/tryon-assets/jewellery/model-neutral-v2.webp" alt="Model ready for a jewellery selection" loading="eager" data-jewellery-model="" />
+                  <img src="/tryon-assets/jewellery/model-classic-gold-v2.webp" alt="Model wearing the classic gold jewellery set" loading="eager" data-jewellery-model="Classic Gold" />
+                  <img src="/tryon-assets/jewellery/model-kundan-v2.webp" alt="Model wearing the ivory kundan jewellery set" loading="eager" data-jewellery-model="Ivory Kundan" />
+                  <img src="/tryon-assets/jewellery/model-temple-v2.webp" alt="Model wearing the South Indian temple jewellery set" loading="eager" data-jewellery-model="Temple Gold" />
+                  <img src="/tryon-assets/jewellery/model-emerald-v2.webp" alt="Model wearing the emerald jewellery set" loading="eager" data-jewellery-model="Emerald" />
+                  <img src="/tryon-assets/jewellery/model-pearl-v2.webp" alt="Model wearing the pearl jewellery set" loading="eager" data-jewellery-model="Pearl" />
                   <span class="sr-only" aria-live="polite" data-jewellery-selection>No jewellery selected. Choose a style to preview it.</span>
                 </div>
                 <div class="jewellery-tryon__choices" role="group" aria-label="Choose a jewellery style">
-                  <button type="button" aria-label="Try Classic Gold" aria-pressed="false" data-jewellery-option data-model="Classic Gold"><img src="/experiences/jewellery/product-classic-gold-v2.webp" alt="" /></button>
-                  <button type="button" aria-label="Try Ivory Kundan" aria-pressed="false" data-jewellery-option data-model="Ivory Kundan"><img src="/experiences/jewellery/product-kundan-v2.webp" alt="" /></button>
-                  <button type="button" aria-label="Try Temple Gold" aria-pressed="false" data-jewellery-option data-model="Temple Gold"><img src="/experiences/jewellery/product-temple-v2.webp" alt="" /></button>
-                  <button type="button" aria-label="Try Emerald" aria-pressed="false" data-jewellery-option data-model="Emerald"><img src="/experiences/jewellery/product-meenakari-v2.webp" alt="" /></button>
-                  <button type="button" aria-label="Try Pearl" aria-pressed="false" data-jewellery-option data-model="Pearl"><img src="/experiences/jewellery/product-silver-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Classic Gold" aria-pressed="false" data-jewellery-option data-model="Classic Gold"><img src="/tryon-assets/jewellery/product-classic-gold-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Ivory Kundan" aria-pressed="false" data-jewellery-option data-model="Ivory Kundan"><img src="/tryon-assets/jewellery/product-kundan-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Temple Gold" aria-pressed="false" data-jewellery-option data-model="Temple Gold"><img src="/tryon-assets/jewellery/product-temple-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Emerald" aria-pressed="false" data-jewellery-option data-model="Emerald"><img src="/tryon-assets/jewellery/product-meenakari-v2.webp" alt="" /></button>
+                  <button type="button" aria-label="Try Pearl" aria-pressed="false" data-jewellery-option data-model="Pearl"><img src="/tryon-assets/jewellery/product-silver-v2.webp" alt="" /></button>
                 </div>
               </div>
               <div class="experience-showcase__copy"><p class="experience-showcase__status">Available now · Five styles</p><h3>Jewellery Try-On</h3><p>Choose a jewellery set and see the look instantly on the same model.</p><strong>Select. Preview. Find your sparkle.</strong></div>
@@ -189,15 +189,15 @@ export function renderExperiencesSite(root) {
             <article class="experience-showcase__row experience-showcase__row--blouse" data-blouse-tryon>
               <div class="blouse-tryon">
                 <div class="blouse-tryon__stage">
-                  <img class="is-selected" src="/experiences/blouse/royal-jewel.webp" alt="Standing model showcasing the Royal Jewel blouse from the front and back" loading="eager" data-blouse-model="Royal Jewel" />
-                  <img src="/experiences/blouse/lotus-muse.webp" alt="Standing model showcasing the Lotus Muse blouse from the front and back" loading="lazy" data-blouse-model="Lotus Muse" />
-                  <img src="/experiences/blouse/midnight-pearl.webp" alt="Standing model showcasing the Midnight Pearl blouse from the front and back" loading="lazy" data-blouse-model="Midnight Pearl" />
+                  <img class="is-selected" src="/tryon-assets/blouse/royal-jewel.webp" alt="Standing model showcasing the Royal Jewel blouse from the front and back" loading="eager" data-blouse-model="Royal Jewel" />
+                  <img src="/tryon-assets/blouse/lotus-muse.webp" alt="Standing model showcasing the Lotus Muse blouse from the front and back" loading="lazy" data-blouse-model="Lotus Muse" />
+                  <img src="/tryon-assets/blouse/midnight-pearl.webp" alt="Standing model showcasing the Midnight Pearl blouse from the front and back" loading="lazy" data-blouse-model="Midnight Pearl" />
                   <span class="sr-only" aria-live="polite" data-blouse-selection>Royal Jewel selected, front and back views shown</span>
                 </div>
                 <div class="blouse-tryon__choices" role="group" aria-label="Choose a blouse design">
-                  <button class="is-selected" type="button" aria-label="Try Royal Jewel blouse" aria-pressed="true" data-blouse-option data-model="Royal Jewel"><img src="/experiences/blouse/product-royal-jewel.webp" alt="Ruby zardozi blouse" loading="lazy" /></button>
-                  <button type="button" aria-label="Try Lotus Muse blouse" aria-pressed="false" data-blouse-option data-model="Lotus Muse"><img src="/experiences/blouse/product-lotus-muse.webp" alt="Emerald lotus silk blouse" loading="lazy" /></button>
-                  <button type="button" aria-label="Try Midnight Pearl blouse" aria-pressed="false" data-blouse-option data-model="Midnight Pearl"><img src="/experiences/blouse/product-midnight-pearl.webp" alt="Midnight navy pearl blouse" loading="lazy" /></button>
+                  <button class="is-selected" type="button" aria-label="Try Royal Jewel blouse" aria-pressed="true" data-blouse-option data-model="Royal Jewel"><img src="/tryon-assets/blouse/product-royal-jewel.webp" alt="Ruby zardozi blouse" loading="lazy" /></button>
+                  <button type="button" aria-label="Try Lotus Muse blouse" aria-pressed="false" data-blouse-option data-model="Lotus Muse"><img src="/tryon-assets/blouse/product-lotus-muse.webp" alt="Emerald lotus silk blouse" loading="lazy" /></button>
+                  <button type="button" aria-label="Try Midnight Pearl blouse" aria-pressed="false" data-blouse-option data-model="Midnight Pearl"><img src="/tryon-assets/blouse/product-midnight-pearl.webp" alt="Midnight navy pearl blouse" loading="lazy" /></button>
                 </div>
               </div>
               <div class="experience-showcase__copy"><p class="experience-showcase__status">Available now · Three designs</p><h3>Boutique &amp; Blouse Try-On</h3><p>Explore every blouse from both angles. Compare necklines, sleeves, embroidery, and back details with the same ivory saree.</p><strong>Your saree. Your style. Beautifully matched.</strong></div>
@@ -205,20 +205,20 @@ export function renderExperiencesSite(root) {
             <article class="experience-showcase__row experience-showcase__row--fashion" data-fashion-tryon>
               <div class="fashion-tryon">
                 <div class="fashion-tryon__portrait">
-                  <img class="is-selected" src="/experiences/fashion/model-everyday-kurta.webp" alt="Model wearing an everyday teal kurta, ready to try a dress" loading="eager" data-fashion-model="" />
-                  <img src="/experiences/fashion/model-banarasi-saree.webp" alt="Same model wearing a ruby Banarasi saree" loading="lazy" data-fashion-model="Banarasi Saree" />
-                  <img src="/experiences/fashion/model-anarkali.webp" alt="Same model wearing an emerald Anarkali suit" loading="lazy" data-fashion-model="Emerald Anarkali" />
-                  <img src="/experiences/fashion/model-lehenga.webp" alt="Same model wearing a midnight blue lehenga" loading="lazy" data-fashion-model="Midnight Lehenga" />
-                  <img src="/experiences/fashion/model-punjabi-suit.webp" alt="Same model wearing a mustard Punjabi suit" loading="lazy" data-fashion-model="Punjabi Suit" />
-                  <img src="/experiences/fashion/model-indo-western.webp" alt="Same model wearing a plum Indo-western outfit" loading="lazy" data-fashion-model="Indo-Western" />
+                  <img class="is-selected" src="/tryon-assets/fashion/model-everyday-kurta.webp" alt="Model wearing an everyday teal kurta, ready to try a dress" loading="eager" data-fashion-model="" />
+                  <img src="/tryon-assets/fashion/model-banarasi-saree.webp" alt="Same model wearing a ruby Banarasi saree" loading="lazy" data-fashion-model="Banarasi Saree" />
+                  <img src="/tryon-assets/fashion/model-anarkali.webp" alt="Same model wearing an emerald Anarkali suit" loading="lazy" data-fashion-model="Emerald Anarkali" />
+                  <img src="/tryon-assets/fashion/model-lehenga.webp" alt="Same model wearing a midnight blue lehenga" loading="lazy" data-fashion-model="Midnight Lehenga" />
+                  <img src="/tryon-assets/fashion/model-punjabi-suit.webp" alt="Same model wearing a mustard Punjabi suit" loading="lazy" data-fashion-model="Punjabi Suit" />
+                  <img src="/tryon-assets/fashion/model-indo-western.webp" alt="Same model wearing a plum Indo-western outfit" loading="lazy" data-fashion-model="Indo-Western" />
                   <span class="sr-only" aria-live="polite" data-fashion-selection>No dress selected. Choose a style to preview it.</span>
                 </div>
                 <div class="fashion-tryon__choices" role="group" aria-label="Choose an Indian outfit style">
-                  <button type="button" aria-label="Try Banarasi Saree" aria-pressed="false" data-fashion-option data-model="Banarasi Saree"><img src="/experiences/fashion/product-banarasi-saree.webp" alt="Ruby Banarasi saree and blouse" loading="lazy" /><span>Saree</span></button>
-                  <button type="button" aria-label="Try Emerald Anarkali" aria-pressed="false" data-fashion-option data-model="Emerald Anarkali"><img src="/experiences/fashion/product-anarkali.webp" alt="Emerald Anarkali and dupatta" loading="lazy" /><span>Anarkali</span></button>
-                  <button type="button" aria-label="Try Midnight Lehenga" aria-pressed="false" data-fashion-option data-model="Midnight Lehenga"><img src="/experiences/fashion/product-lehenga.webp" alt="Midnight blue lehenga set" loading="lazy" /><span>Lehenga</span></button>
-                  <button type="button" aria-label="Try Punjabi Suit" aria-pressed="false" data-fashion-option data-model="Punjabi Suit"><img src="/experiences/fashion/product-punjabi-suit.webp" alt="Mustard Punjabi suit and coral dupatta" loading="lazy" /><span>Punjabi</span></button>
-                  <button type="button" aria-label="Try Indo-Western" aria-pressed="false" data-fashion-option data-model="Indo-Western"><img src="/experiences/fashion/product-indo-western.webp" alt="Plum Indo-western draped outfit" loading="lazy" /><span>Fusion</span></button>
+                  <button type="button" aria-label="Try Banarasi Saree" aria-pressed="false" data-fashion-option data-model="Banarasi Saree"><img src="/tryon-assets/fashion/product-banarasi-saree.webp" alt="Ruby Banarasi saree and blouse" loading="lazy" /><span>Saree</span></button>
+                  <button type="button" aria-label="Try Emerald Anarkali" aria-pressed="false" data-fashion-option data-model="Emerald Anarkali"><img src="/tryon-assets/fashion/product-anarkali.webp" alt="Emerald Anarkali and dupatta" loading="lazy" /><span>Anarkali</span></button>
+                  <button type="button" aria-label="Try Midnight Lehenga" aria-pressed="false" data-fashion-option data-model="Midnight Lehenga"><img src="/tryon-assets/fashion/product-lehenga.webp" alt="Midnight blue lehenga set" loading="lazy" /><span>Lehenga</span></button>
+                  <button type="button" aria-label="Try Punjabi Suit" aria-pressed="false" data-fashion-option data-model="Punjabi Suit"><img src="/tryon-assets/fashion/product-punjabi-suit.webp" alt="Mustard Punjabi suit and coral dupatta" loading="lazy" /><span>Punjabi</span></button>
+                  <button type="button" aria-label="Try Indo-Western" aria-pressed="false" data-fashion-option data-model="Indo-Western"><img src="/tryon-assets/fashion/product-indo-western.webp" alt="Plum Indo-western draped outfit" loading="lazy" /><span>Fusion</span></button>
                 </div>
               </div>
               <div class="experience-showcase__copy"><h3>Fashion Try-On</h3><p>Wearo’s AI-powered try-on brings every outfit to life before you commit—giving you the clarity to compare styles, the confidence to choose, and fewer surprises after purchase.</p><strong>See it on. Feel sure. Choose with Wearo.</strong></div>
@@ -318,7 +318,7 @@ export function renderForBusinessSite(root) {
 
         <section class="business-journey" aria-labelledby="business-journey-title">
           <div class="business-journey__visual">
-            <img src="/experiences/jewellery/model-temple-v2.webp" alt="Customer previewing a temple jewellery look with Wearo" loading="lazy" />
+            <img src="/tryon-assets/jewellery/model-temple-v2.webp" alt="Customer previewing a temple jewellery look with Wearo" loading="lazy" />
             <div class="business-journey__tag"><span>Live preview</span><strong>Temple Gold</strong></div>
           </div>
           <div class="business-journey__content">

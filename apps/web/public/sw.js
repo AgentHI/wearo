@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-shell-v30";
+const CACHE_NAME = "wearo-shell-v31";
 const APP_SHELL = [
   "/",
   "/about",
@@ -18,16 +18,16 @@ const APP_SHELL = [
   "/agent.webmanifest",
   "/wearo-brand.png",
   "/experiences-jewellery-catalogue.png",
-  "/experiences/jewellery/model-classic-gold-v2.webp",
-  "/experiences/jewellery/model-kundan-v2.webp",
-  "/experiences/jewellery/model-temple-v2.webp",
-  "/experiences/jewellery/model-emerald-v2.webp",
-  "/experiences/jewellery/model-pearl-v2.webp",
-  "/experiences/jewellery/product-classic-gold-v2.webp",
-  "/experiences/jewellery/product-kundan-v2.webp",
-  "/experiences/jewellery/product-temple-v2.webp",
-  "/experiences/jewellery/product-meenakari-v2.webp",
-  "/experiences/jewellery/product-silver-v2.webp",
+  "/tryon-assets/jewellery/model-classic-gold-v2.webp",
+  "/tryon-assets/jewellery/model-kundan-v2.webp",
+  "/tryon-assets/jewellery/model-temple-v2.webp",
+  "/tryon-assets/jewellery/model-emerald-v2.webp",
+  "/tryon-assets/jewellery/model-pearl-v2.webp",
+  "/tryon-assets/jewellery/product-classic-gold-v2.webp",
+  "/tryon-assets/jewellery/product-kundan-v2.webp",
+  "/tryon-assets/jewellery/product-temple-v2.webp",
+  "/tryon-assets/jewellery/product-meenakari-v2.webp",
+  "/tryon-assets/jewellery/product-silver-v2.webp",
   "/wearo-tryon-complete.wav",
 ];
 

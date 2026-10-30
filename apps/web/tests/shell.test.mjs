@@ -43,6 +43,11 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(main, /addEventListener\("popstate", renderCurrentRoute\)/);
   assert.match(publicSite, /href="\/experiences"/);
   assert.match(publicSite, /aria-label="Explore Wearo experiences"/);
+  assert.match(publicSite, /\/tryon-assets\/jewellery\//);
+  assert.match(publicSite, /\/tryon-assets\/blouse\//);
+  assert.match(publicSite, /\/tryon-assets\/fashion\//);
+  assert.doesNotMatch(publicSite, /\/experiences\/(?:jewellery|blouse|fashion)\//);
+  assert.doesNotMatch(worker, /\/experiences\/(?:jewellery|blouse|fashion)\//);
   assert.match(publicSite, /data-public-route/);
   assert.match(publicSite, /data-coming-soon="\$\{label\}"/);
   assert.match(publicSite, /For Businesses/);
