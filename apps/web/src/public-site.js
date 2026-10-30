@@ -2,7 +2,6 @@ const navItems = [
   ["Home", "/"],
   ["Experiences", "/experiences"],
   ["For Businesses", "/for-business"],
-  ["Gallery", "#", true],
   ["About Us", "/about"],
   ["Contact", "/contact"],
 ];

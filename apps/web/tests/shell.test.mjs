@@ -46,7 +46,7 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(publicSite, /data-public-route/);
   assert.match(publicSite, /data-coming-soon="\$\{label\}"/);
   assert.match(publicSite, /For Businesses/);
-  assert.match(publicSite, /Gallery/);
+  assert.doesNotMatch(publicSite, /\["Gallery",/);
   assert.match(publicSite, /coming soon/);
   assert.match(publicSite, /Experience the Magic of Try-On/);
   assert.match(publicSite, /data-jewellery-tryon/);
