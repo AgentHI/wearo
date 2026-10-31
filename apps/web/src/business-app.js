@@ -3,6 +3,7 @@ import { brandMarkup } from "./brand.js";
 const API_BASE = "/api/v1";
 const BUSINESS_AUTH_KEY = "wearo_business_auth";
 let currentAgentAppUrl = "";
+let pendingAgentMove = null;
 
 async function copyToClipboard(value) {
   if (navigator.clipboard?.writeText) {
@@ -31,7 +32,8 @@ const sections = [
   ["dashboard", "Overview", "▦"],
   ["experience", "Wearo experience", "◇"],
   ["customers", "Customers", "♙"],
-  ["agents", "Agent management", "♧"],
+  ["stores", "Stores", "⌂"],
+  ["agents", "Agent transfers", "♧"],
   ["billing", "Plans & billing", "▤"],
   ["settings", "Settings", "⚙"],
 ];
@@ -361,12 +363,99 @@ async function loadCustomers({ page = 1, search = "" } = {}) {
 
 function agentsView() {
   return `
-    <header class="page-heading"><div><p class="eyebrow">Workspace access</p><h1>Agent management</h1><p>Add and manage the agents who operate Wearo for this business.</p></div></header>
+    <header class="page-heading"><div><p class="eyebrow">Workspace access</p><h1>Agent transfers</h1><p>Review agents across stores and move them when their store assignment changes.</p></div></header>
     <section class="agent-management">
       <article class="panel agent-link-panel"><div class="panel__heading"><div><h2>Agent app URL</h2><p>Share this business-specific link only with agents assigned to this workspace.</p></div></div><label>Agent URL<input id="agent-app-url" readonly value="Loading…" /></label><button id="agent-copy-link" class="button button--quiet" type="button">Copy link</button><p id="agent-link-status" class="form-status" role="status"></p></article>
-      <article class="panel"><div class="panel__heading"><div><h2 id="agent-form-title">Add agent</h2><p>Create an agent using their name and mobile number.</p></div></div><form id="agent-form"><label>Name<input name="name" required maxlength="120" /></label><label>Mobile number<input name="mobile" type="tel" required placeholder="+919876543210" /></label><div class="form-actions"><button id="agent-submit" class="button button--primary" type="submit">Add agent</button><button id="agent-cancel" class="button button--quiet" type="button" hidden>Cancel update</button></div><p id="agent-status" class="form-status" role="status" aria-live="polite"></p></form></article>
+      <article class="panel"><div class="panel__heading"><div><h2>Store ownership</h2><p>Store administrators create, update, and delete agents. Only the business administrator can transfer them between stores.</p></div></div><p id="agent-status" class="form-status" role="status" aria-live="polite"></p></article>
       <article class="panel"><div class="panel__heading"><div><h2>Business agents</h2><p>Agents currently configured for this workspace.</p></div></div><div id="agent-list" class="settings-list agent-list" aria-live="polite">Loading agents…</div></article>
-    </section>`;
+    </section>
+    <dialog id="agent-move-dialog" class="cancellation-dialog" aria-labelledby="agent-move-title" aria-describedby="agent-move-copy"><div class="cancellation-dialog__panel"><header><div><p class="eyebrow">Agent transfer</p><h2 id="agent-move-title">Move agent</h2></div><button id="agent-move-close" class="camera-dialog__close" type="button" aria-label="Close transfer">×</button></header><div class="cancellation-dialog__details"><p id="agent-move-copy"></p><label>Destination store<select id="agent-move-destination" required></select></label><p id="agent-move-status" class="form-status" role="status" aria-live="polite"></p></div><div class="cancellation-dialog__actions"><button id="agent-move-cancel" class="button button--quiet" type="button">Cancel</button><button id="agent-move-confirm" class="button button--primary" type="button">Move agent</button></div></div></dialog>`;
+}
+
+function openAgentMoveDialog(agent, stores) {
+  const dialog = document.querySelector("#agent-move-dialog");
+  const destination = document.querySelector("#agent-move-destination");
+  const currentStore = stores.find((store) => store.store_id === agent.store_id);
+  pendingAgentMove = { agent, stores };
+  destination.replaceChildren();
+  const prompt = document.createElement("option");
+  prompt.value = ""; prompt.textContent = "Select destination store"; prompt.disabled = true;
+  prompt.selected = true; destination.append(prompt);
+  for (const store of stores.filter((item) => item.store_id !== agent.store_id && item.status === "ACTIVE")) {
+    const option = document.createElement("option"); option.value = store.store_id;
+    option.textContent = store.name; destination.append(option);
+  }
+  document.querySelector("#agent-move-title").textContent = `Move ${agent.name}`;
+  document.querySelector("#agent-move-copy").textContent = `Current store: ${currentStore?.name || "Unknown"}. Select the destination store for this agent.`;
+  document.querySelector("#agent-move-status").textContent = destination.options.length === 1
+    ? "No other active store is available." : "";
+  document.querySelector("#agent-move-confirm").disabled = destination.options.length === 1;
+  dialog.showModal();
+  if (destination.options.length > 1) destination.focus();
+}
+
+function storesView() {
+  const match = window.location.pathname.match(/^\/business\/stores\/(new|[0-9a-f-]+\/edit)\/?$/i);
+  if (match) {
+    const storeId = match[1] === "new" ? "" : match[1].replace(/\/edit$/i, "");
+    return `<header class="page-heading store-editor-heading"><div><a class="back-link" href="/business/stores">← Back to stores</a><p class="eyebrow">Business structure</p><h1 id="store-form-title">${storeId ? "Edit store" : "Add store"}</h1><p>${storeId ? "Update store details and administrator access." : "Create a store and assign its administrator."}</p></div></header>
+      <section class="panel store-editor"><div class="panel__heading"><div><h2>Store details</h2><p>Store administrators can sign in at <strong>/store</strong> using either their email or mobile.</p></div></div>
+      <form id="store-form" data-store-id="${storeId}"><div class="store-form-grid"><label>Store name<input name="name" maxlength="120" autocomplete="organization" required /><small class="field-help">The name shown to agents and the store administrator.</small></label><label>Store code<input name="code" maxlength="40" placeholder="indiranagar" pattern="[a-z0-9-]+" required /><small class="field-help">Lowercase letters, numbers, and hyphens.</small></label><label>Admin email<input name="adminEmail" type="email" autocomplete="email" required /><small class="field-help">Used for email OTP sign-in.</small></label><label>Admin mobile<input name="adminMobile" type="tel" autocomplete="tel" placeholder="+919876543210" required /><small class="field-help">Include the international country code.</small></label></div>
+      <div class="form-actions store-form-actions"><button class="button button--primary" type="submit">${storeId ? "Save changes" : "Add store"}</button><a class="button button--quiet" href="/business/stores">Cancel</a></div><p id="store-status" class="form-status" role="status" aria-live="polite"></p></form></section>`;
+  }
+  return `<header class="page-heading"><div><p class="eyebrow">Business structure</p><h1>Stores</h1><p>Manage your stores and their administrators.</p></div><a class="button button--primary" href="/business/stores/new">Add store</a></header>
+    <section class="panel store-directory"><div class="panel__heading"><div><h2>Business stores</h2><p>Each store has one administrator and its own team of agents.</p></div><span id="store-count" class="status-chip">Loading</span></div><div id="store-list" class="store-list" aria-live="polite">Loading stores…</div></section>`;
+}
+
+async function loadStores() {
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  const list = document.querySelector("#store-list");
+  const result = await businessApi(`/business/tenants/${tenantId}/stores`);
+  if (!list) return result.items;
+  list.replaceChildren();
+  const count = document.querySelector("#store-count");
+  if (count) count.textContent = `${result.items.length} store${result.items.length === 1 ? "" : "s"}`;
+  if (!result.items.length) {
+    list.innerHTML = `<div class="table-empty"><span aria-hidden="true">⌂</span><strong>No stores yet</strong><p>Add your first store and assign its administrator.</p><a class="button button--primary" href="/business/stores/new">Add store</a></div>`;
+    return result.items;
+  }
+  for (const store of result.items) {
+    const row = document.createElement("article"); row.className = "store-row";
+    row.innerHTML = `<div class="store-row__identity"><span class="store-row__mark" aria-hidden="true"></span><div><div class="store-row__title"><strong></strong><span class="status-chip"></span></div><small class="store-row__code"></small></div></div><dl class="store-row__details"><div><dt>Administrator</dt><dd class="store-admin-email"></dd><small class="store-admin-mobile"></small></div><div><dt>Agents</dt><dd class="store-agent-count"></dd></div></dl><a class="button button--quiet store-row__edit">Edit store</a>`;
+    row.querySelector(".store-row__mark").textContent = store.name.slice(0, 2).toUpperCase();
+    row.querySelector(".store-row__title strong").textContent = store.name;
+    row.querySelector(".store-row__title .status-chip").textContent = store.status === "ACTIVE" ? "Active" : store.status;
+    row.querySelector(".store-row__code").textContent = `Store code · ${store.code}`;
+    row.querySelector(".store-admin-email").textContent = store.admin_email || "Not assigned";
+    row.querySelector(".store-admin-mobile").textContent = store.admin_mobile || "Add administrator contacts";
+    row.querySelector(".store-agent-count").textContent = `${store.agent_count} agent${Number(store.agent_count) === 1 ? "" : "s"}`;
+    row.querySelector(".store-row__edit").href = `/business/stores/${store.store_id}/edit`;
+    list.append(row);
+  }
+  return result.items;
+}
+
+function setupStores() {
+  const form = document.querySelector("#store-form"), status = document.querySelector("#store-status");
+  if (!form) {
+    loadStores().catch((error) => { document.querySelector("#store-list").textContent = error.message; });
+    return;
+  }
+  const id = form.dataset.storeId;
+  if (id) {
+    status.textContent = "Loading store…";
+    loadStores().then((stores) => {
+      const store = stores.find((item) => item.store_id === id);
+      if (!store) throw new Error("Store unavailable.");
+      form.elements.name.value = store.name;
+      form.elements.code.value = store.code;
+      form.elements.adminEmail.value = store.admin_email || "";
+      form.elements.adminMobile.value = store.admin_mobile || "";
+      document.querySelector("#store-form-title").textContent = `Edit ${store.name}`;
+      status.textContent = "";
+    }).catch((error) => { status.textContent = error.message; });
+  }
+  form.addEventListener("submit", async (event) => { event.preventDefault(); status.textContent = id ? "Saving changes…" : "Adding store…"; try { await businessApi(`/business/tenants/${localStorage.getItem("wearo_business_tenant_id")}/stores${id ? `/${id}` : ""}`, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.elements.name.value, code: form.elements.code.value, admin_email: form.elements.adminEmail.value, admin_mobile: form.elements.adminMobile.value }) }); window.history.pushState({}, "", "/business/stores"); renderBusinessApp(document.querySelector("#app"), "/business/stores"); } catch (error) { status.textContent = error.message; } });
 }
 
 function billingView() {
@@ -748,7 +837,10 @@ async function loadAgents() {
   const tenantId = localStorage.getItem("wearo_business_tenant_id");
   if (!list || !status || !tenantId) return;
   try {
-    const result = await businessApi(`/business/tenants/${tenantId}/agents`);
+    const [result, storesResult] = await Promise.all([
+      businessApi(`/business/tenants/${tenantId}/agents`),
+      businessApi(`/business/tenants/${tenantId}/stores`),
+    ]);
     list.replaceChildren();
     if (!result.items.length) { list.textContent = "No agents configured."; return; }
     for (const agent of result.items) {
@@ -762,10 +854,11 @@ async function loadAgents() {
       label.append(name, mobile);
       const actions = document.createElement("span");
       actions.className = "agent-row__actions";
-      const remove = document.createElement("button");
-      remove.className = "button button--quiet"; remove.type = "button"; remove.textContent = "Delete";
-      const edit = document.createElement("button");
-      edit.className = "button button--quiet"; edit.type = "button"; edit.textContent = "Edit";
+      const currentStore = storesResult.items.find((store) => store.store_id === agent.store_id);
+      const storeName = document.createElement("span"); storeName.className = "status-chip";
+      storeName.textContent = currentStore?.name || "Store unavailable";
+      const move = document.createElement("button");
+      move.className = "button button--quiet"; move.type = "button"; move.textContent = "Move store";
       const copyLink = document.createElement("button");
       copyLink.className = "button button--quiet"; copyLink.type = "button";
       copyLink.textContent = "Copy app URL";
@@ -774,25 +867,8 @@ async function loadAgents() {
         try { await copyToClipboard(currentAgentAppUrl); status.textContent = `Agent app URL copied for ${agent.name}.`; }
         catch { status.textContent = "Could not copy automatically. Copy the URL from the Agent app URL panel."; }
       });
-      edit.addEventListener("click", () => {
-        const form = document.querySelector("#agent-form");
-        form.dataset.agentId = agent.agent_id;
-        form.elements.name.value = agent.name;
-        form.elements.mobile.value = agent.normalized_mobile;
-        document.querySelector("#agent-form-title").textContent = `Update ${agent.name}`;
-        document.querySelector("#agent-submit").textContent = "Update agent";
-        document.querySelector("#agent-cancel").hidden = false;
-        status.textContent = `Editing ${agent.name}.`;
-        form.elements.name.focus();
-      });
-      remove.addEventListener("click", async () => {
-        if (!window.confirm(`Delete ${agent.name} from this workspace?`)) return;
-        try {
-          await businessApi(`/business/tenants/${tenantId}/agents/${agent.agent_id}`, { method: "DELETE" });
-          status.textContent = `${agent.name} deleted.`; await loadAgents();
-        } catch (error) { status.textContent = error.message; }
-      });
-      actions.append(copyLink, edit, remove); row.append(label, actions); list.append(row);
+      move.addEventListener("click", () => openAgentMoveDialog(agent, storesResult.items));
+      actions.append(storeName, move, copyLink); row.append(label, actions); list.append(row);
     }
   } catch (error) { list.textContent = error.message; }
 }
@@ -810,7 +886,32 @@ function resetAgentForm() {
 function setupAgentManagement() {
   const form = document.querySelector("#agent-form");
   const status = document.querySelector("#agent-status");
-  if (!form || !status) return;
+  if (!status) return;
+  const dialog = document.querySelector("#agent-move-dialog");
+  const closeMoveDialog = () => { pendingAgentMove = null; dialog?.close(); };
+  document.querySelector("#agent-move-close")?.addEventListener("click", closeMoveDialog);
+  document.querySelector("#agent-move-cancel")?.addEventListener("click", closeMoveDialog);
+  dialog?.addEventListener("cancel", () => { pendingAgentMove = null; });
+  document.querySelector("#agent-move-confirm")?.addEventListener("click", async () => {
+    const destination = document.querySelector("#agent-move-destination");
+    const moveStatus = document.querySelector("#agent-move-status");
+    if (!pendingAgentMove || !destination.value) {
+      moveStatus.textContent = "Select a destination store."; destination.focus(); return;
+    }
+    const button = document.querySelector("#agent-move-confirm"); button.disabled = true;
+    moveStatus.textContent = "Moving agent…";
+    try {
+      const tenantId = localStorage.getItem("wearo_business_tenant_id");
+      await businessApi(`/business/tenants/${tenantId}/agents/${pendingAgentMove.agent.agent_id}/store`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store_id: destination.value }),
+      });
+      const agentName = pendingAgentMove.agent.name;
+      const storeName = pendingAgentMove.stores.find((store) => store.store_id === destination.value)?.name;
+      closeMoveDialog(); status.textContent = `${agentName} moved to ${storeName}.`; await loadAgents();
+    } catch (error) { moveStatus.textContent = error.message; button.disabled = false; }
+  });
+  if (!form) { loadAgentAppLink().then(loadAgents); return; }
   document.querySelector("#agent-cancel").addEventListener("click", () => {
     resetAgentForm();
     status.textContent = "Update cancelled.";
@@ -1459,12 +1560,14 @@ export function renderBusinessApp(root, pathname) {
     dashboard: dashboardView,
         experience: experienceView,
         customers: customersView,
+        stores: storesView,
         agents: agentsView,
         billing: billingView,
     settings: settingsView,
   };
   root.innerHTML = businessFrame(section, views[section]());
   attachBusinessInteractions(section);
+  if (section === "stores") setupStores();
   if (window.location.hash) {
     const targetId = decodeURIComponent(window.location.hash.slice(1));
     window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView());

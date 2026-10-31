@@ -93,6 +93,7 @@ from .business_platform import (
 )
 from .business_reports import BusinessReportError, PostgresBusinessReports, reconciliation_csv
 from .business_shop import BusinessShopError, PostgresBusinessShop, qr_poster
+from .business_stores import BusinessStoreError, PostgresBusinessStores
 from .business_tryon_status import (
     BusinessTryOnStatusError,
     PostgresBusinessTryOnStatus,
@@ -198,6 +199,7 @@ class ApiContainer:
     topups: PostgresTopUps | None = None
     sensitive_audit: PostgresSensitiveAudit | None = None
     business_agents: PostgresBusinessAgents | None = None
+    business_stores: PostgresBusinessStores | None = None
     business_shop: PostgresBusinessShop | None = None
     business_tryon_status: PostgresBusinessTryOnStatus | None = None
     business_allowances: PostgresBusinessAllowances | None = None
@@ -273,6 +275,22 @@ class BusinessAgentBody(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     mobile: str = Field(min_length=7, max_length=32)
+    store_id: UUID
+
+
+class BusinessStoreBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    code: str = Field(min_length=1, max_length=40)
+    admin_email: str = Field(min_length=3, max_length=320)
+    admin_mobile: str = Field(min_length=7, max_length=32)
+
+
+class AgentMoveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    store_id: UUID
 
 
 class AllowancePolicyBody(BaseModel):
@@ -450,6 +468,7 @@ def _request_id(request: Request) -> str:
 CONSUMER_SESSION_COOKIE = "wearo_consumer_session"
 BUSINESS_SESSION_COOKIE = "wearo_business_session"
 AGENT_SESSION_COOKIE = "wearo_agent_session"
+STORE_SESSION_COOKIE = "wearo_store_session"
 LEGACY_SESSION_COOKIE = "wearo_session"
 ADMIN_SESSION_COOKIE = "wearo_admin_session"
 
@@ -637,6 +656,19 @@ def _authenticate_agent(
             csrf_token=csrf_token,
             mutation=mutation,
         )
+    except SessionAuthenticationError:
+        status = 403 if token and mutation else 401
+        raise ApiProblem(status, "AUTHENTICATION_REQUIRED", "Authentication required.") from None
+
+
+def _authenticate_store(
+    request: Request, container: ApiContainer, *, mutation: bool = False,
+    csrf_token: str | None = None,
+) -> BrowserSession:
+    token = request.cookies.get(STORE_SESSION_COOKIE, "")
+    try:
+        return container.sessions.authenticate(token, expected_realm="BUSINESS",
+            csrf_token=csrf_token, mutation=mutation)
     except SessionAuthenticationError:
         status = 403 if token and mutation else 401
         raise ApiProblem(status, "AUTHENTICATION_REQUIRED", "Authentication required.") from None
@@ -839,6 +871,7 @@ def create_app(
     @app.exception_handler(TopUpError)
     @app.exception_handler(SensitiveAuditError)
     @app.exception_handler(BusinessAgentError)
+    @app.exception_handler(BusinessStoreError)
     @app.exception_handler(BusinessShopError)
     @app.exception_handler(BusinessTryOnStatusError)
     @app.exception_handler(BusinessAllowanceError)
@@ -1547,11 +1580,20 @@ def create_app(
         )
 
     @app.get("/api/v1/business/tenants/{tenant_id}/agents")
-    def list_business_agents(tenant_id: UUID, request: Request) -> dict[str, object]:
+    def list_business_agents(
+        tenant_id: UUID, request: Request, store_id: UUID | None = None
+    ) -> dict[str, object]:
         session = _authenticate_business(request, container)
         if container.business_agents is None:
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
-        return {"items": container.business_agents.list(session.principal_id, tenant_id)}
+        return {"items": container.business_agents.list(session.principal_id, tenant_id, store_id)}
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/stores")
+    def list_business_stores(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_stores is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Stores are unavailable.")
+        return {"items": container.business_stores.list(session.principal_id, tenant_id)}
 
     @app.get("/api/v1/agent/me")
     def agent_context(request: Request, business: str, key: str) -> dict[str, object]:
@@ -1560,6 +1602,67 @@ def create_app(
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agent access is unavailable.")
         origin = _public_origin(request)
         return container.business_agents.context(session.principal_id, origin, business, key)
+
+    @app.get("/api/v1/store/me")
+    def store_context(request: Request) -> dict[str, object]:
+        session = _authenticate_store(request, container)
+        if container.business_stores is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Store access is unavailable.")
+        return container.business_stores.context(session.principal_id)
+
+    @app.get("/api/v1/store/agents")
+    def store_agents(request: Request) -> dict[str, object]:
+        session = _authenticate_store(request, container)
+        if container.business_stores is None or container.business_agents is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Store access is unavailable.")
+        context = container.business_stores.context(session.principal_id)
+        return {"items": container.business_agents.list(session.principal_id,
+            UUID(str(context["tenant_id"])), UUID(str(context["store_id"])))}
+
+    @app.post("/api/v1/store/agents", status_code=201)
+    def create_store_agent(
+        body: BusinessAgentBody, request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_stores is None or container.business_agents is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Store access is unavailable.")
+        context = container.business_stores.context(session.principal_id)
+        store_id = UUID(str(context["store_id"]))
+        if body.store_id != store_id:
+            raise ApiProblem(403, "STORE_SCOPE_REQUIRED", "Resource unavailable.")
+        return container.business_agents.save(session.principal_id,
+            UUID(str(context["tenant_id"])), agent_id=None, store_id=store_id,
+            name=body.name, mobile=body.mobile)
+
+    @app.put("/api/v1/store/agents/{agent_id}")
+    def update_store_agent(
+        agent_id: UUID, body: BusinessAgentBody, request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_stores is None or container.business_agents is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Store access is unavailable.")
+        context = container.business_stores.context(session.principal_id)
+        store_id = UUID(str(context["store_id"]))
+        if body.store_id != store_id:
+            raise ApiProblem(403, "STORE_SCOPE_REQUIRED", "Resource unavailable.")
+        return container.business_agents.save(session.principal_id,
+            UUID(str(context["tenant_id"])), agent_id=agent_id, store_id=store_id,
+            name=body.name, mobile=body.mobile)
+
+    @app.delete("/api/v1/store/agents/{agent_id}", status_code=204)
+    def delete_store_agent(
+        agent_id: UUID, request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_stores is None or container.business_agents is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Store access is unavailable.")
+        context = container.business_stores.context(session.principal_id)
+        container.business_agents.delete(session.principal_id,
+            UUID(str(context["tenant_id"])), agent_id, UUID(str(context["store_id"])))
+        return Response(status_code=204)
 
     @app.get("/api/v1/public/agent-manifest")
     def public_agent_manifest(business: str, key: str) -> JSONResponse:
@@ -1845,7 +1948,8 @@ def create_app(
         if container.business_agents is None:
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
         return container.business_agents.save(
-            session.principal_id, tenant_id, agent_id=None, name=body.name, mobile=body.mobile
+            session.principal_id, tenant_id, agent_id=None, store_id=body.store_id,
+            name=body.name, mobile=body.mobile
         )
 
     @app.put("/api/v1/business/tenants/{tenant_id}/agents/{agent_id}")
@@ -1860,7 +1964,20 @@ def create_app(
         if container.business_agents is None:
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
         return container.business_agents.save(
-            session.principal_id, tenant_id, agent_id=agent_id, name=body.name, mobile=body.mobile
+            session.principal_id, tenant_id, agent_id=agent_id, store_id=body.store_id,
+            name=body.name, mobile=body.mobile
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/agents/{agent_id}/store")
+    def move_business_agent(
+        tenant_id: UUID, agent_id: UUID, body: AgentMoveBody, request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_agents is None:
+            raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
+        return container.business_agents.move(
+            session.principal_id, tenant_id, agent_id, body.store_id
         )
 
     @app.delete("/api/v1/business/tenants/{tenant_id}/agents/{agent_id}", status_code=204)
@@ -1875,6 +1992,30 @@ def create_app(
             raise ApiProblem(503, "AGENTS_UNAVAILABLE", "Agents are unavailable.")
         container.business_agents.delete(session.principal_id, tenant_id, agent_id)
         return Response(status_code=204)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/stores", status_code=201)
+    def create_business_store(
+        tenant_id: UUID, body: BusinessStoreBody, request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_stores is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Stores are unavailable.")
+        return container.business_stores.save(session.principal_id, tenant_id, store_id=None,
+            name=body.name, code=body.code, admin_email=body.admin_email,
+            admin_mobile=body.admin_mobile)
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/stores/{store_id}")
+    def update_business_store(
+        tenant_id: UUID, store_id: UUID, body: BusinessStoreBody, request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_stores is None:
+            raise ApiProblem(503, "STORES_UNAVAILABLE", "Stores are unavailable.")
+        return container.business_stores.save(session.principal_id, tenant_id, store_id=store_id,
+            name=body.name, code=body.code, admin_email=body.admin_email,
+            admin_mobile=body.admin_mobile)
 
     @app.get("/api/v1/business/tenants/{tenant_id}/shop-link")
     def business_shop_link(tenant_id: UUID, request: Request) -> dict[str, object]:
@@ -2476,6 +2617,34 @@ def create_app(
             "expires_at": result.expires_at,
         }
 
+    @app.post("/api/v1/auth/store-otp/verify")
+    def verify_store_otp(body: OtpVerifyBody, response: Response) -> dict[str, Any]:
+        try:
+            result = container.otp.verify_code(body.challenge_id, body.code)
+        except OtpAuthenticationError:
+            raise ApiProblem(401, "INVALID_OTP", "Invalid or expired sign-in code.") from None
+        if result.realm != "BUSINESS" or container.business_stores is None:
+            raise ApiProblem(401, "INVALID_OTP", "Invalid or expired sign-in code.")
+        container.business_stores.context(result.principal_id)
+        response.set_cookie(STORE_SESSION_COOKIE, result.session_token,
+            max_age=EmailOtpPolicy().session_ttl.days * 86400, httponly=True,
+            secure=container.secure_cookie, samesite="lax", path="/")
+        return {"id": result.principal_id, "account_id": result.account_id,
+            "type": "STORE_ADMIN", "verified": True, "csrf_token": result.csrf_token,
+            "expires_at": result.expires_at}
+
+    @app.post("/api/v1/store/logout")
+    def store_logout(
+        request: Request, response: Response,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, bool]:
+        token = request.cookies.get(STORE_SESSION_COOKIE, "")
+        if token:
+            container.sessions.logout(token, x_csrf_token or "")
+        response.delete_cookie(STORE_SESSION_COOKIE, path="/", secure=container.secure_cookie,
+            httponly=True, samesite="lax")
+        return {"logged_out": True}
+
     @app.post("/api/v1/agent/logout")
     def agent_logout(
         request: Request,
@@ -3072,6 +3241,7 @@ def create_app_from_env() -> FastAPI:
         ),
         sensitive_audit=PostgresSensitiveAudit(engine),
         business_agents=PostgresBusinessAgents(engine),
+        business_stores=PostgresBusinessStores(engine),
         business_shop=PostgresBusinessShop(engine),
         business_tryon_status=PostgresBusinessTryOnStatus(engine),
         business_allowances=PostgresBusinessAllowances(engine),

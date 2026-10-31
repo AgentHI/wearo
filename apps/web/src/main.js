@@ -4,6 +4,7 @@ import "@fontsource/inter/latin-700.css";
 import { renderBusinessApp } from "./business-app.js";
 import { renderConsumerApp } from "./consumer-app.js";
 import { renderAgentApp } from "./agent-app.js";
+import { renderStoreApp } from "./store-app.js";
 import { renderAdminApp } from "./admin-app.js";
 import { renderAboutSite, renderContactSite, renderExperiencesSite, renderForBusinessSite, renderPublicSite } from "./public-site.js";
 import "./styles.css";
@@ -16,6 +17,7 @@ function currentExperience(pathname) {
   if (pathname === "/contact" || pathname === "/contact/") return "contact";
   if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/agent")) return "agent";
+  if (pathname.startsWith("/store")) return "store";
   return pathname.startsWith("/business") ? "business" : "consumer";
 }
 
@@ -53,6 +55,7 @@ function renderCurrentRoute() {
   else if (experience === "contact") renderContactSite(root);
   else if (experience === "admin") renderAdminApp(root, window.location.pathname);
   else if (experience === "agent") renderAgentApp(root);
+  else if (experience === "store") renderStoreApp(root, window.location.pathname);
   else if (experience === "business") renderBusinessApp(root, window.location.pathname);
   else {
     showConsumerSplash();
@@ -64,7 +67,20 @@ function renderCurrentRoute() {
 renderCurrentRoute();
 window.addEventListener("popstate", renderCurrentRoute);
 
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && import.meta.env.DEV) {
+  window.addEventListener("load", async () => {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    if ("caches" in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter((cacheName) => cacheName.startsWith("wearo-shell-"))
+          .map((cacheName) => caches.delete(cacheName)),
+      );
+    }
+  });
+} else if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     const registration = await navigator.serviceWorker.register("/sw.js", {
       scope: "/",

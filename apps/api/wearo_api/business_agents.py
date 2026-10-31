@@ -40,16 +40,46 @@ class PostgresBusinessAgents:
         except TenantScopeError:
             raise BusinessAgentError("AGENT_UNAVAILABLE", "Resource unavailable.") from None
 
-    def list(self, principal_id: UUID, tenant_id: UUID) -> tuple[dict[str, object], ...]:
+    @classmethod
+    def _manager(
+        cls, connection: Connection, principal_id: UUID, tenant_id: UUID, store_id: UUID
+    ) -> UUID:
+        account_id = connection.execute(text("""SELECT account_id FROM business_stores
+            WHERE store_id=:store AND tenant_id=:tenant AND admin_principal_id=:principal
+              AND status='ACTIVE'"""), {"store": store_id, "tenant": tenant_id,
+            "principal": principal_id}).scalar_one_or_none()
+        return (
+            account_id
+            if account_id is not None
+            else cls._owner(connection, principal_id, tenant_id)
+        )
+
+    def list(
+        self, principal_id: UUID, tenant_id: UUID, store_id: UUID | None = None
+    ) -> tuple[dict[str, object], ...]:
         with self.engine.connect() as connection:
-            account_id = self._owner(connection, principal_id, tenant_id)
+            account_id: UUID | None
+            if store_id is None:
+                account_id = self._owner(connection, principal_id, tenant_id)
+            else:
+                account_id = connection.execute(text("""SELECT account_id FROM business_stores
+                    WHERE store_id=:store AND tenant_id=:tenant
+                      AND (admin_principal_id=:principal OR EXISTS (
+                        SELECT 1 FROM tenant_memberships WHERE tenant_id=:tenant
+                          AND principal_id=:principal AND role='OWNER' AND revoked_at IS NULL))"""),
+                    {"store": store_id, "tenant": tenant_id, "principal": principal_id}
+                ).scalar_one_or_none()
+                if account_id is None:
+                    raise BusinessAgentError("AGENT_UNAVAILABLE", "Resource unavailable.")
             rows = connection.execute(
                 text(
-                    """SELECT agent_id, name, normalized_mobile, status, created_at, updated_at
+                    """SELECT agent_id, store_id, name, normalized_mobile, status,
+                              created_at, updated_at
                     FROM business_agents WHERE tenant_id=:tenant AND account_id=:account
+                      AND (CAST(:store AS uuid) IS NULL OR store_id=CAST(:store AS uuid))
                       AND status <> 'DELETED' ORDER BY name, agent_id"""
                 ),
-                {"tenant": tenant_id, "account": account_id},
+                {"tenant": tenant_id, "account": account_id, "store": store_id},
             ).mappings()
             return tuple(dict(row) for row in rows)
 
@@ -59,6 +89,7 @@ class PostgresBusinessAgents:
         tenant_id: UUID,
         *,
         agent_id: UUID | None,
+        store_id: UUID,
         name: str,
         mobile: str,
     ) -> dict[str, object]:
@@ -66,7 +97,13 @@ class PostgresBusinessAgents:
         now = datetime.now(UTC)
         actor_principal_id = principal_id
         with self.engine.begin() as connection:
-            account_id = self._owner(connection, principal_id, tenant_id)
+            account_id = self._manager(connection, principal_id, tenant_id, store_id)
+            valid_store = connection.execute(text("""SELECT 1 FROM business_stores
+                WHERE store_id=:store AND tenant_id=:tenant AND account_id=:account
+                  AND status='ACTIVE'"""), {"store": store_id, "tenant": tenant_id,
+                "account": account_id}).scalar_one_or_none()
+            if valid_store is None:
+                raise BusinessAgentError("AGENT_STORE_UNAVAILABLE", "Select an active store.")
             conflicting_business_identity = connection.execute(
                 text(
                     """SELECT identity.principal_id
@@ -104,19 +141,26 @@ class PostgresBusinessAgents:
                     connection.execute(
                         text(
                             """UPDATE business_agents SET name=:name, normalized_mobile=:mobile,
+                               store_id=:store,
                                status='ACTIVE', updated_at=:now
                         WHERE agent_id=:agent AND tenant_id=:tenant AND account_id=:account
+                          AND (store_id=:store OR EXISTS (
+                            SELECT 1 FROM tenant_memberships m WHERE m.tenant_id=:tenant
+                              AND m.principal_id=:actor AND m.role='OWNER'
+                              AND m.revoked_at IS NULL))
                           AND status <> 'DELETED'
-                        RETURNING agent_id, name, normalized_mobile, status,
+                        RETURNING agent_id, store_id, name, normalized_mobile, status,
                                   created_at, updated_at"""
                         ),
                         {
                             "name": clean_name,
                             "mobile": normalized_mobile,
+                            "store": store_id,
                             "now": now,
                             "agent": agent_id,
                             "tenant": tenant_id,
                             "account": account_id,
+                            "actor": principal_id,
                         },
                     )
                     .mappings()
@@ -204,16 +248,18 @@ class PostgresBusinessAgents:
                     connection.execute(
                         text(
                             """INSERT INTO business_agents
-                        (agent_id, tenant_id, account_id, principal_id, name,
+                        (agent_id, tenant_id, account_id, store_id, principal_id, name,
                          normalized_mobile, status)
-                        VALUES (:agent, :tenant, :account, :principal, :name, :mobile, 'ACTIVE')
-                        RETURNING agent_id, name, normalized_mobile, status,
+                        VALUES (:agent, :tenant, :account, :store, :principal,
+                                :name, :mobile, 'ACTIVE')
+                        RETURNING agent_id, store_id, name, normalized_mobile, status,
                                   created_at, updated_at"""
                         ),
                         {
                             "agent": identifier,
                             "tenant": tenant_id,
                             "account": account_id,
+                            "store": store_id,
                             "principal": agent_principal_id,
                             "name": clean_name,
                             "mobile": normalized_mobile,
@@ -230,18 +276,25 @@ class PostgresBusinessAgents:
             )
             return dict(row)
 
-    def delete(self, principal_id: UUID, tenant_id: UUID, agent_id: UUID) -> None:
+    def delete(
+        self, principal_id: UUID, tenant_id: UUID, agent_id: UUID, store_id: UUID | None = None
+    ) -> None:
         now = datetime.now(UTC)
         actor_principal_id = principal_id
         with self.engine.begin() as connection:
-            account_id = self._owner(connection, principal_id, tenant_id)
+            if store_id is None:
+                account_id = self._owner(connection, principal_id, tenant_id)
+            else:
+                account_id = self._manager(connection, principal_id, tenant_id, store_id)
             changed = connection.execute(
                 text(
                     """UPDATE business_agents SET status='DELETED', updated_at=:now
                     WHERE agent_id=:agent AND tenant_id=:tenant AND account_id=:account
+                      AND (CAST(:store AS uuid) IS NULL OR store_id=CAST(:store AS uuid))
                       AND status <> 'DELETED'"""
                 ),
-                {"now": now, "agent": agent_id, "tenant": tenant_id, "account": account_id},
+                {"now": now, "agent": agent_id, "tenant": tenant_id,
+                 "account": account_id, "store": store_id},
             ).rowcount
             if not changed:
                 raise BusinessAgentError("AGENT_UNAVAILABLE", "Resource unavailable.")
@@ -317,6 +370,28 @@ class PostgresBusinessAgents:
         result["shop_url"] = f"{origin.rstrip('/')}/shop/{row['slug']}?key={row['public_code']}"
         result["agent_url"] = f"{origin.rstrip('/')}/agent/{row['slug']}?key={row['public_code']}"
         return result
+
+    def move(
+        self, principal_id: UUID, tenant_id: UUID, agent_id: UUID, store_id: UUID
+    ) -> dict[str, object]:
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            account_id = self._owner(connection, principal_id, tenant_id)
+            row = connection.execute(text("""UPDATE business_agents a SET
+                    store_id=:store, updated_at=:now
+                FROM business_stores s
+                WHERE a.agent_id=:agent AND a.tenant_id=:tenant AND a.account_id=:account
+                  AND a.status <> 'DELETED' AND s.store_id=:store
+                  AND s.tenant_id=:tenant AND s.account_id=:account AND s.status='ACTIVE'
+                RETURNING a.agent_id, a.store_id, a.name, a.normalized_mobile,
+                          a.status, a.created_at, a.updated_at"""),
+                {"store": store_id, "now": now, "agent": agent_id,
+                 "tenant": tenant_id, "account": account_id}).mappings().one_or_none()
+            if row is None:
+                raise BusinessAgentError("AGENT_UNAVAILABLE", "Resource unavailable.")
+            self._audit(connection, account_id, tenant_id, principal_id, agent_id,
+                        "BUSINESS_AGENT_STORE_MOVED", now)
+            return dict(row)
 
     @staticmethod
     def _audit(
