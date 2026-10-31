@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, text
 
+from .render_preflight import ModelRoute
+
 
 class AdminAiCostError(ValueError):
     pass
@@ -245,6 +247,20 @@ class PostgresAdminAiCosts:
         if normalized not in {"ACTIVE", "DISABLED", "ARCHIVED"}:
             raise AdminAiCostError("Unsupported lifecycle status.")
         with self.engine.begin() as connection:
+            if normalized != "ACTIVE":
+                selected_statement = (
+                    "SELECT EXISTS (SELECT 1 FROM ai_models "
+                    "WHERE selected_for_tryon AND provider_id=:id)"
+                    if entity == "providers"
+                    else "SELECT EXISTS (SELECT 1 FROM ai_models "
+                    "WHERE selected_for_tryon AND model_id=:id)"
+                )
+                selected = connection.execute(
+                    text(selected_statement),
+                    {"id": entity_id},
+                ).scalar_one()
+                if selected:
+                    raise AdminAiCostError("Select another try-on model before disabling this one.")
             changed = connection.execute(
                 text(statement),
                 {"status": normalized, "id": entity_id},
@@ -252,6 +268,30 @@ class PostgresAdminAiCosts:
         if not changed.rowcount:
             raise AdminAiCostError("Provider or model not found.")
         return {column: entity_id, "status": normalized}
+
+    def select_tryon_model(self, model_id: UUID) -> dict[str, object]:
+        with self.engine.begin() as connection:
+            eligible = connection.execute(
+                text("""SELECT m.model_id FROM ai_models m JOIN ai_providers p USING (provider_id)
+                  WHERE m.model_id=:id AND m.status='ACTIVE' AND p.status='ACTIVE'
+                    AND m.capability='TRY_ON'"""),
+                {"id": model_id},
+            ).scalar_one_or_none()
+            if eligible is None:
+                raise AdminAiCostError(
+                    "Only an active try-on model on an active provider can be selected."
+                )
+            connection.execute(
+                text("UPDATE ai_models SET selected_for_tryon=false WHERE selected_for_tryon")
+            )
+            connection.execute(
+                text(
+                    "UPDATE ai_models SET selected_for_tryon=true, updated_at=now() "
+                    "WHERE model_id=:id"
+                ),
+                {"id": model_id},
+            )
+        return {"model_id": model_id, "selected_for_tryon": True}
 
     def delete_model(self, model_id: UUID) -> None:
         with self.engine.begin() as connection:
@@ -302,4 +342,33 @@ class PostgresAdminAiCosts:
           JOIN render_jobs j USING (quote_id) LEFT JOIN render_results r USING (job_id)
           WHERE m.model_id=:id ON CONFLICT (job_id) DO NOTHING"""),
             {"id": model_id},
+        )
+
+
+class PostgresTryOnRouteRegistry:
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
+
+    def route_for(self, capability: str, at: datetime) -> ModelRoute | None:
+        if capability != "APPAREL":
+            return None
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text("""SELECT p.code provider, m.api_model_id model, m.region
+                  FROM ai_models m JOIN ai_providers p USING (provider_id)
+                  WHERE m.selected_for_tryon AND m.status='ACTIVE' AND p.status='ACTIVE'
+                    AND m.capability='TRY_ON'""")
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            return None
+        return ModelRoute(
+            provider=row["provider"],
+            model=row["model"],
+            region=row["region"],
+            capability="APPAREL",
+            enabled=True,
         )

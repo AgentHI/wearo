@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -73,6 +74,7 @@ class DurableRenderWorker:
         *,
         worker_id: str,
         enforce_quality_gate: bool = True,
+        provider_resolver: Callable[[DurableRenderJob], WorkerProvider] | None = None,
     ) -> None:
         if not worker_id.strip():
             raise ValueError("worker identity is required")
@@ -82,6 +84,7 @@ class DurableRenderWorker:
         self.quality = quality
         self.worker_id = worker_id
         self.enforce_quality_gate = enforce_quality_gate
+        self.provider_resolver = provider_resolver
 
     def recover_stale(self, *, now: datetime | None = None) -> RecoverySummary:
         return self.runtime.recover_expired(now=now)
@@ -93,7 +96,8 @@ class DurableRenderWorker:
             return WorkerOutcome(False, None)
         job = work.job
         try:
-            configured_route = (self.provider.provider, self.provider.model, self.provider.region)
+            provider = self.provider_resolver(job) if self.provider_resolver else self.provider
+            configured_route = (provider.provider, provider.model, provider.region)
             quoted_route = (job.provider, job.model, job.region)
             if configured_route != quoted_route:
                 failed = self.runtime.complete_failure(
@@ -106,7 +110,7 @@ class DurableRenderWorker:
                 job.person_asset_id, job.account_id, "PERSON"
             )
             item, item_mime = self.media.read_prepared(job.item_asset_id, job.account_id, "GARMENT")
-            response = self.provider.render(
+            response = provider.render(
                 RenderRequest(
                     person,
                     item,
@@ -115,9 +119,9 @@ class DurableRenderWorker:
                     "APPAREL",
                     on_partial=lambda image, mime, _index: self.media.store_progressive_preview(
                         job.job_id,
-                        apply_generated_image_watermark(
-                            image, mime, company_name=job.company_name
-                        )[0],
+                        apply_generated_image_watermark(image, mime, company_name=job.company_name)[
+                            0
+                        ],
                     ),
                 )
             )
@@ -138,9 +142,7 @@ class DurableRenderWorker:
             watermarked, watermarked_type = apply_generated_image_watermark(
                 response.image, response.mime_type, company_name=job.company_name
             )
-            result_asset_id = self.media.store_result(
-                job.account_id, watermarked, watermarked_type
-            )
+            result_asset_id = self.media.store_result(job.account_id, watermarked, watermarked_type)
             delivered = self.runtime.complete_success(
                 job_id=job.job_id,
                 result_asset_id=result_asset_id,

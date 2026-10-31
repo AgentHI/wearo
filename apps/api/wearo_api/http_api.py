@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
 from .account_lifecycle import AccountLifecycleError, PostgresAccountLifecycle
-from .admin_ai_costs import AdminAiCostError, PostgresAdminAiCosts
+from .admin_ai_costs import AdminAiCostError, PostgresAdminAiCosts, PostgresTryOnRouteRegistry
 from .admin_audit import AdminAuditError, PostgresAdminAudit
 from .admin_billing import AdminBillingError, PostgresAdminBilling
 from .admin_customers import AdminCustomerError, PostgresAdminCustomers
@@ -122,7 +122,6 @@ from .email_otp import (
 from .environment import load_wearo_environment
 from .external_runtime import (
     AnalysisServiceError,
-    ApprovedBetaRouteRegistry,
     HttpAnalysisClient,
     OpenAIAnalysisClient,
 )
@@ -1098,6 +1097,14 @@ def create_app(
             return admin_ai_costs.update_model(model_id, body.model_dump())
         except AdminAiCostError as error:
             raise ApiProblem(422, "INVALID_AI_MODEL", str(error)) from None
+
+    @app.put("/api/v1/admin/ai-costs/models/{model_id}/select")
+    def admin_select_tryon_model(request: Request, model_id: UUID) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.select_tryon_model(model_id)
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_TRYON_MODEL", str(error)) from None
 
     @app.post("/api/v1/admin/ai-costs/purchases", status_code=201)
     def admin_add_provider_purchase(
@@ -2980,14 +2987,10 @@ def create_app_from_env() -> FastAPI:
     selected_provider = os.environ.get("WEARO_RENDER_PROVIDER", "GOOGLE_VERTEX").strip().upper()
     if selected_provider == "OPENAI":
         openai_api_key = os.environ.get("WEARO_OPENAI_API_KEY", "")
-        route_model = os.environ.get("WEARO_OPENAI_MODEL", "gpt-image-2.5-sunburst")
-        route_region = "global"
         route_enabled = os.environ.get(
             "WEARO_OPENAI_ENABLED", "false"
         ).casefold() == "true" and bool(openai_api_key)
     elif selected_provider == "GOOGLE_VERTEX":
-        route_model = "virtual-try-on-001"
-        route_region = os.environ.get("WEARO_VERTEX_REGION", "asia-southeast1")
         route_enabled = os.environ.get(
             "WEARO_VERTEX_ENABLED", "false"
         ).casefold() == "true" and bool(os.environ.get("WEARO_VERTEX_PROJECT_ID", ""))
@@ -3013,12 +3016,7 @@ def create_app_from_env() -> FastAPI:
                 allow_jewellery=test_auth_enabled,
             ),
             quota_service,
-            ApprovedBetaRouteRegistry(
-                enabled=True,
-                provider=selected_provider,
-                model=route_model,
-                region=route_region,
-            ),
+            PostgresTryOnRouteRegistry(engine),
             PostgresQuoteStore(engine),
         )
     blob_store = FilesystemPrivateBlobStore(storage_root)

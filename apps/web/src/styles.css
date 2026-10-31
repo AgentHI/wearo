@@ -1558,6 +1558,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-model-price { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: .15rem .45rem; }
 .admin-model-price small { color: var(--ink-mauve); font-size: .67rem; }
 .admin-model-price strong { color: var(--brand-aubergine); font-size: .75rem; font-weight: 700; }
+.admin-selected-model { display: inline-flex; margin-left: .45rem; padding: .18rem .42rem; border-radius: 99rem; color: #225b43; background: #e0f1e9; font-size: .62rem; font-weight: 800; }
+.admin-select-model { color: white; border-color: var(--brand-plum); background: var(--brand-plum); }
 @keyframes admin-live-pulse { 70% { box-shadow: 0 0 0 .55rem rgb(41 166 111 / 0%); } }
 @media (max-width: 1000px) { .admin-realtime .admin-platform-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .admin-realtime-toolbar { align-items: stretch; flex-direction: column; } .admin-realtime .admin-platform-metrics { grid-template-columns: 1fr; } .admin-ai-section .admin-section-heading { align-items: stretch; flex-direction: column; } .admin-ai-section .admin-section-heading .button { width: 100%; } .admin-ai-empty { align-items: flex-start; flex-wrap: wrap; } .admin-ai-empty .button { width: 100%; } .admin-ai-form { grid-template-columns: 1fr; } }

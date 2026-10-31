@@ -367,7 +367,6 @@ function profileView(auth) {
           <div id="profile-photo-library" class="profile-library__grid" aria-live="polite"></div>
         </div>
         <p class="field-help">Store up to 10 JPEG, PNG or WebP photos · Maximum 7 MB each. Originals remain private.</p>
-        <div class="field-row"><label>Height <span>Optional, cm</span><input name="height" type="number" min="80" max="260" inputmode="decimal" /></label><label>Weight <span>Optional, kg</span><input name="weight" type="number" min="20" max="350" inputmode="decimal" /></label></div>
         <p class="field-help">Used only as visual guidance, never for sizing or measurements.</p>
       </section>
       <fieldset id="consent-fields" class="consent-card" ${setup ? "" : "hidden"}>
@@ -786,8 +785,6 @@ function attachProfileFlow(auth) {
     api("/me/person-profile", {}, auth)
       .then((profile) => {
         existingProfile = profile;
-        form.elements.height.value = profile.height_cm ?? "";
-        form.elements.weight.value = profile.weight_kg ?? "";
         const fullBody = currentImages().find((image) => image.photo_type === "FULL_BODY");
         const closeUp = currentImages().find((image) => image.photo_type === "CLOSE_UP");
         if (fullBody) {
@@ -1000,8 +997,8 @@ function attachProfileFlow(auth) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             images,
-            height_cm: form.elements.height.value ? Number(form.elements.height.value) : null,
-            weight_kg: form.elements.weight.value ? Number(form.elements.weight.value) : null,
+            height_cm: existingProfile?.height_cm ?? null,
+            weight_kg: existingProfile?.weight_kg ?? null,
           }),
         },
         auth,

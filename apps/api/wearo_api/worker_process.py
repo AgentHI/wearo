@@ -6,7 +6,7 @@ import socket
 import time
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from .database import normalize_database_url
 from .durable_worker import DurableRenderWorker, WorkerProvider
@@ -21,7 +21,7 @@ from .external_runtime import (
 from .media_runtime import FilesystemPrivateBlobStore, PostgresMediaRuntime
 from .render_provider import OpenAIImageEditAdapter, VertexTryOnAdapter
 from .render_quality import QualityAnalyzer, RenderQualityGate
-from .render_runtime import PostgresRenderRuntime
+from .render_runtime import DurableRenderJob, PostgresRenderRuntime
 
 
 def _required(name: str) -> str:
@@ -78,6 +78,35 @@ def build_worker() -> DurableRenderWorker:
             "WEARO_ANALYSIS_ENDPOINT and WEARO_ANALYSIS_TOKEN are required for Google Vertex"
         )
     worker_id = os.environ.get("WEARO_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+
+    def resolve_provider(job: DurableRenderJob) -> WorkerProvider:
+        with engine.connect() as connection:
+            route = (
+                connection.execute(
+                    text("""SELECT p.adapter_type, p.credential_env_name
+                  FROM ai_models m JOIN ai_providers p USING (provider_id)
+                  WHERE p.code=:provider AND m.api_model_id=:model AND m.region=:region"""),
+                    {"provider": job.provider, "model": job.model, "region": job.region},
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if route is None:
+            raise SystemExit("Quoted model is not configured in AI Models & Cost")
+        credential = _required(str(route["credential_env_name"]))
+        if route["adapter_type"] == "OPENAI":
+            return OpenAIImageEditAdapter(
+                RequestsMultipartTransport(), api_key=credential, model=job.model
+            )
+        if route["adapter_type"] == "GOOGLE_VERTEX":
+            return VertexTryOnAdapter(
+                RequestsJsonTransport(),
+                GoogleDefaultAccessTokenProvider(),
+                project_id=credential,
+                region=job.region,
+            )
+        raise SystemExit("Selected model uses an unsupported provider adapter")
+
     return DurableRenderWorker(
         PostgresRenderRuntime(
             engine,
@@ -92,6 +121,7 @@ def build_worker() -> DurableRenderWorker:
         enforce_quality_gate=(
             os.environ.get("WEARO_RENDER_QUALITY_GATE_ENABLED", "true").casefold() == "true"
         ),
+        provider_resolver=resolve_provider,
     )
 
 
@@ -107,9 +137,7 @@ def main() -> None:
         recovery = worker.recover_stale()
         outcome = worker.run_once()
         if args.once:
-            print(
-                f"timed_out={recovery.failed} claimed={str(outcome.claimed).lower()}"
-            )
+            print(f"timed_out={recovery.failed} claimed={str(outcome.claimed).lower()}")
             return
         if not outcome.claimed:
             time.sleep(args.poll_seconds)
