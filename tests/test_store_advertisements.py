@@ -72,3 +72,12 @@ def test_store_can_delete_its_advertisement_card() -> None:
     source = Path("apps/api/wearo_api/store_advertisements.py").read_text()
     assert "DELETE FROM store_advertisements" in source
     assert "advertisement_id=:advertisement AND store_id=:store_id" in source
+
+
+def test_sponsored_quote_allowance_migration_accepts_business_limits() -> None:
+    source = Path(
+        "apps/api/migrations/versions/20261031_0057_sponsored_quote_allowance.py"
+    ).read_text()
+    assert 'down_revision: str | None = "20261031_0056"' in source
+    assert "type_=sa.Integer()" in source
+    assert "remaining_allowance IS NULL OR remaining_allowance >= 1" in source
