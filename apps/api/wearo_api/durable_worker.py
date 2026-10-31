@@ -7,6 +7,7 @@ from uuid import UUID
 
 from .external_runtime import AnalysisServiceError
 from .image_inputs import InputRole
+from .image_watermark import ImageWatermarkError, apply_generated_image_watermark
 from .render_provider import ProviderError, RenderRequest, RenderResponse
 from .render_quality import QualityDecision
 from .render_runtime import DurableRenderJob, LeasedRenderWork, RecoverySummary
@@ -112,8 +113,11 @@ class DurableRenderWorker:
                     person_mime,
                     item_mime,
                     "APPAREL",
-                    on_partial=lambda image, _mime, _index: self.media.store_progressive_preview(
-                        job.job_id, image
+                    on_partial=lambda image, mime, _index: self.media.store_progressive_preview(
+                        job.job_id,
+                        apply_generated_image_watermark(
+                            image, mime, company_name=job.company_name
+                        )[0],
                     ),
                 )
             )
@@ -131,8 +135,11 @@ class DurableRenderWorker:
                     now=current,
                 )
                 return WorkerOutcome(True, failed)
+            watermarked, watermarked_type = apply_generated_image_watermark(
+                response.image, response.mime_type, company_name=job.company_name
+            )
             result_asset_id = self.media.store_result(
-                job.account_id, response.image, response.mime_type
+                job.account_id, watermarked, watermarked_type
             )
             delivered = self.runtime.complete_success(
                 job_id=job.job_id,
@@ -156,4 +163,8 @@ class DurableRenderWorker:
         except AnalysisServiceError:
             self.media.clear_progressive_preview(job.job_id)
             failed = self.runtime.complete_failure(job.job_id, "ANALYSIS_UNAVAILABLE", now=current)
+            return WorkerOutcome(True, failed)
+        except ImageWatermarkError:
+            self.media.clear_progressive_preview(job.job_id)
+            failed = self.runtime.complete_failure(job.job_id, "WATERMARK_FAILED", now=current)
             return WorkerOutcome(True, failed)

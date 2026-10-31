@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
+
+from PIL import Image
 
 from apps.api.wearo_api.render_execution import RenderCommandService, RenderJob, RenderWorker
 from apps.api.wearo_api.render_preflight import BetaRenderQuote, ModelRoute
@@ -9,6 +12,12 @@ from apps.api.wearo_api.render_provider import RenderResponse
 from apps.api.wearo_api.render_quality import QualityDecision
 
 NOW = datetime(2026, 10, 17, 12, tzinfo=UTC)
+
+
+def generated_image() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (640, 800), "#c6a7cf").save(output, "PNG")
+    return output.getvalue()
 
 
 class Jobs:
@@ -78,7 +87,7 @@ class Media:
 class Provider:
     def render(self, request: object) -> RenderResponse:
         return RenderResponse(
-            b"result",
+            generated_image(),
             "image/png",
             "GOOGLE_VERTEX",
             "virtual-try-on-001",
@@ -101,8 +110,11 @@ class Quality:
 class Results:
     def __init__(self) -> None:
         self.ids: list[UUID] = []
+        self.content: bytes | None = None
 
     def store_result(self, account_id: UUID, content: bytes, content_type: str) -> UUID:
+        self.content = content
+        assert content_type == "image/png"
         self.ids.append(uuid4())
         return self.ids[-1]
 
@@ -138,7 +150,7 @@ def test_duplicate_create_returns_one_job_reservation_and_queue_message() -> Non
 
 
 def test_success_delivers_private_result_and_consumes_one_allowance() -> None:
-    jobs, queue, quota = Jobs(), Queue(), Quota()
+    jobs, queue, quota, results = Jobs(), Queue(), Quota(), Results()
     account, principal = uuid4(), uuid4()
     job = RenderCommandService(jobs, queue, quota).create(
         quote(account, principal),
@@ -147,7 +159,7 @@ def test_success_delivers_private_result_and_consumes_one_allowance() -> None:
         idempotency_key="one",
         now=NOW,
     )
-    result = RenderWorker(jobs, Media(), Provider(), Quality(), Results(), quota).execute(
+    result = RenderWorker(jobs, Media(), Provider(), Quality(), results, quota).execute(
         job.job_id, now=NOW
     )
     assert (
@@ -156,6 +168,7 @@ def test_success_delivers_private_result_and_consumes_one_allowance() -> None:
         and result.provider_request_id == "req-1"
     )
     assert quota.successes == 1 and not quota.active
+    assert results.content is not None and results.content != generated_image()
 
 
 def test_quality_failure_never_publishes_or_consumes_allowance() -> None:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
+
+from PIL import Image
 
 from apps.api.wearo_api.durable_worker import DurableRenderWorker
 from apps.api.wearo_api.image_inputs import InputRole
@@ -11,6 +14,12 @@ from apps.api.wearo_api.render_quality import QualityDecision
 from apps.api.wearo_api.render_runtime import DurableRenderJob, LeasedRenderWork, RecoverySummary
 
 NOW = datetime(2026, 10, 17, 12, tzinfo=UTC)
+
+
+def generated_image(color: str = "#c6a7cf") -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (640, 800), color).save(output, "PNG")
+    return output.getvalue()
 
 
 class Runtime:
@@ -61,12 +70,14 @@ class Media:
         self.result_id = uuid4()
         self.partials: list[bytes] = []
         self.cleared: list[UUID] = []
+        self.result: bytes | None = None
 
     def read_prepared(self, asset_id: UUID, account_id: UUID, role: InputRole) -> tuple[bytes, str]:
         return asset_id.bytes, "image/png"
 
     def store_result(self, account_id: UUID, content: bytes, content_type: str) -> UUID:
-        assert content == b"result" and content_type == "image/png"
+        assert content_type == "image/png"
+        self.result = content
         return self.result_id
 
     def store_progressive_preview(self, job_id: UUID, content: bytes) -> None:
@@ -88,9 +99,9 @@ class Provider:
         if self.error is not None:
             raise self.error
         if request.on_partial is not None:
-            request.on_partial(b"partial", "image/png", 0)
+            request.on_partial(generated_image("#d6c0dc"), "image/png", 0)
         return RenderResponse(
-            b"result",
+            generated_image(),
             "image/png",
             "GOOGLE_VERTEX",
             "virtual-try-on-001",
@@ -135,7 +146,9 @@ def test_accepted_result_is_privately_stored_and_settled() -> None:
     assert result.job is not None
     assert result.job.status == "DELIVERED"
     assert result.job.result_asset_id == media.result_id
-    assert media.partials == [b"partial"] and media.cleared == [result.job.job_id]
+    assert len(media.partials) == 1 and media.partials[0] != generated_image("#d6c0dc")
+    assert media.result is not None and media.result != generated_image()
+    assert media.cleared == [result.job.job_id]
 
 
 def test_quality_and_provider_failures_are_terminal_without_publication() -> None:

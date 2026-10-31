@@ -116,5 +116,6 @@ def test_try_on_creation_paths_enforce_business_status() -> None:
     runtime = open("apps/api/wearo_api/render_runtime.py").read()
 
     assert sponsored.count("authorize_business_try_on(") == 2
+    assert sponsored.count("JOIN business_subscriptions subscription") == 3
     assert 'sponsored_access["try_on_status"]' in runtime
     assert 'sponsored_access["subscription_state"]' in runtime

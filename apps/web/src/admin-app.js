@@ -2,12 +2,14 @@ const API_ROOT = "/api/v1";
 
 const ADMIN_SECTIONS = [
   { slug: "dashboard", label: "Dashboard", icon: "▦", description: "Platform overview and key operational signals." },
+  { slug: "realtime", label: "Realtime", icon: "◉", description: "Live try-on volume, generation time, and AI cost." },
   { slug: "organizations", label: "Businesses", icon: "◇", description: "Manage business profiles, usage, tokens, and operational access." },
   { slug: "enquiries", label: "Enquiries", icon: "✦", description: "Review business enquiries submitted through the public contact page." },
   { slug: "customers-subscriptions", label: "Subscriptions", icon: "◎", description: "Manage plans, trials, billing status, cancellations, and renewals." },
   { slug: "billing-pricing", label: "Billing & Pricing", icon: "₹", description: "Review platform billing and pricing configuration." },
   { slug: "platform-operations", label: "Platform Operations", icon: "⚙", description: "Monitor the services that operate Wearo." },
   { slug: "audit-history", label: "Audit History", icon: "≡", description: "Review administrator and platform audit events." },
+  { slug: "ai-models-cost", label: "AI Models & Cost", icon: "$", description: "Manage providers, models, funding, and model-level generation cost." },
 ];
 
 function loginView() {
@@ -117,6 +119,8 @@ function enquiriesView() {
 
 function sectionContent(active, pathname) {
   if (active.slug === "dashboard") return platformDashboardView();
+  if (active.slug === "realtime") return realtimeDashboardView();
+  if (active.slug === "ai-models-cost") return aiCostDashboardView();
   if (active.slug === "organizations") return organizationsView(pathname);
   if (active.slug === "enquiries") return enquiriesView();
   if (active.slug === "customers-subscriptions") return customerDashboardView();
@@ -124,6 +128,120 @@ function sectionContent(active, pathname) {
   if (active.slug === "platform-operations") return tryOnOperationsView();
   if (active.slug === "audit-history") return auditHistoryView();
   return `<article class="admin-welcome-panel"><h2>${active.slug === "dashboard" ? "Wearo Admin home" : `${active.label} overview`}</h2><p>${active.slug === "dashboard" ? "Choose a section from the navigation to manage the Wearo platform." : "This section is ready for its dedicated administration capabilities."}</p></article>`;
+}
+
+function aiCostDashboardView() {
+  return `<div class="admin-ai-costs">
+    <div id="admin-ai-cost-summary" class="admin-platform-metrics admin-ai-summary">Loading AI cost data…</div>
+    <section class="admin-ai-section"><div class="admin-section-heading"><div><h2>Providers</h2><p>Provider accounts and environment-based credentials.</p></div><button class="button button--quiet" type="button" data-open-ai-panel="provider">+ Add provider</button></div><div id="admin-ai-providers" class="admin-data-panel"></div></section>
+    <section class="admin-ai-section"><div class="admin-section-heading"><div><h2>Models</h2><p>Compare usage, speed, and cost across configured models.</p></div><button class="button button--primary" type="button" data-open-ai-panel="model">+ Add model</button></div><div id="admin-ai-models" class="admin-data-panel"></div></section>
+    <section class="admin-ai-section"><div class="admin-section-heading"><div><h2>Provider purchases</h2><p>Track prepaid balance, credits, tokens, or image packs.</p></div><button class="button button--quiet" type="button" data-open-ai-panel="purchase">+ Record purchase</button></div><div id="admin-ai-purchases" class="admin-data-panel"></div></section>
+    <div class="admin-ai-panels">
+      <details id="ai-provider-panel" class="admin-ai-panel" hidden><summary><span><strong>Add provider</strong><small>Connect a provider account without storing its secret.</small></span><span aria-hidden="true">＋</span></summary><form id="ai-provider-form" class="admin-ai-form"><label>Provider code<input name="code" required placeholder="OPENAI" /></label><label>Display name<input name="displayName" required placeholder="OpenAI" /></label><label>Adapter type<input name="adapterType" required placeholder="OPENAI" /></label><label>Credential environment variable<input name="credentialEnvName" required placeholder="WEARO_OPENAI_API_KEY" /></label><div class="admin-ai-form__actions"><button class="button button--primary">Save provider</button><p class="form-status"></p></div></form></details>
+      <details id="ai-model-panel" class="admin-ai-panel" hidden><summary><span><strong>Configure model</strong><small>Configure routing identity and cost calculation.</small></span><span aria-hidden="true">＋</span></summary><form id="ai-model-form" class="admin-ai-form admin-ai-form--model"><label>Provider<select name="providerId" required></select></label><label>API model ID<input name="apiModelId" required placeholder="gpt-image-2" /></label><label>Display name<input name="displayName" required placeholder="GPT Image 2" /></label><label>Region<input name="region" value="global" required /></label><label>Billing method<select name="billingMethod"><option>TOKEN</option><option>REQUEST</option><option>IMAGE</option><option>CREDIT</option></select></label><label>Input price <small>USD per 1M units</small><input name="inputPrice" type="number" min="0" step="0.000001" value="0" /></label><label>Output price <small>USD per 1M units</small><input name="outputPrice" type="number" min="0" step="0.000001" value="0" /></label><label>Request / image price <small>USD</small><input name="requestPrice" type="number" min="0" step="0.000001" value="0" /></label><label>Fallback cost <small>USD per try-on</small><input name="fallbackCost" type="number" min="0" step="0.000001" value="0" /></label><div class="admin-ai-form__actions"><button class="button button--primary">Save model</button><p class="form-status"></p></div></form></details>
+      <details id="ai-purchase-panel" class="admin-ai-panel" hidden><summary><span><strong>Purchase details</strong><small>Add funding at provider level for cost reconciliation.</small></span><span aria-hidden="true">＋</span></summary><form id="ai-purchase-form" class="admin-ai-form"><label>Provider<select name="providerId" required></select></label><label>Amount paid<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>Currency<input name="currency" value="USD" maxlength="3" required /></label><label>Purchased unit<select name="unitType"><option>USD</option><option>TOKEN</option><option>IMAGE</option><option>CREDIT</option></select></label><label>Units purchased<input name="units" type="number" min="0" step="0.000001" placeholder="Optional" /></label><label>Invoice / reference<input name="reference" maxlength="160" placeholder="Optional" /></label><div class="admin-ai-form__actions"><button class="button button--primary">Save purchase</button><p class="form-status"></p></div></form></details>
+    </div>
+  </div>`;
+}
+
+const usdMicros = (value) => `$${(Number(value || 0) / 1000000).toFixed(4)}`;
+
+function modelPricing(model) {
+  if (model.billing_method === "TOKEN") return `<span class="admin-model-price"><small>Input</small><strong>$${Number(model.input_unit_price_usd_micros || 0).toFixed(2)} / 1M</strong><small>Output</small><strong>$${Number(model.output_unit_price_usd_micros || 0).toFixed(2)} / 1M</strong>${Number(model.fallback_cost_usd_micros) ? `<small>Fallback</small><strong>${usdMicros(model.fallback_cost_usd_micros)} / try-on</strong>` : ""}</span>`;
+  const unit = model.billing_method === "IMAGE" ? "image" : model.billing_method === "CREDIT" ? "credit" : "request";
+  return `<span class="admin-model-price"><strong>${usdMicros(model.request_price_usd_micros)} / ${unit}</strong>${Number(model.fallback_cost_usd_micros) ? `<small>Fallback ${usdMicros(model.fallback_cost_usd_micros)} / try-on</small>` : ""}</span>`;
+}
+
+async function loadAiCosts(root) {
+  const response = await fetch(`${API_ROOT}/admin/ai-costs`, { credentials: "same-origin" });
+  if (!response.ok) return;
+  const data = await response.json();
+  root._aiCostData = data;
+  root.querySelectorAll('[data-open-ai-panel="model"], [data-open-ai-panel="purchase"]').forEach((button) => { button.disabled = !data.providers.length; });
+  root.querySelectorAll("#ai-model-form select[name=providerId], #ai-purchase-form select[name=providerId]").forEach((select) => { select.innerHTML = data.providers.map((p) => `<option value="${escapeHtml(p.provider_id)}">${escapeHtml(p.display_name)}</option>`).join(""); });
+  root.querySelector("#admin-ai-cost-summary").innerHTML = `<article class="admin-metric-card"><span>Providers</span><strong>${data.providers.length}</strong><small>Configured accounts</small></article><article class="admin-metric-card"><span>Models</span><strong>${data.models.length}</strong><small>${data.models.filter((m) => m.status === "ACTIVE").length} active</small></article><article class="admin-metric-card"><span>Total model cost</span><strong>${usdMicros(data.models.reduce((sum, m) => sum + Number(m.total_cost_usd_micros), 0))}</strong><small>Recorded usage</small></article>`;
+  root.querySelector("#admin-ai-providers").innerHTML = data.providers.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Provider</th><th>Credential reference</th><th>Purchased</th><th>Used</th><th>Status</th><th>Actions</th></tr></thead><tbody>${data.providers.map((p) => `<tr><td><strong>${escapeHtml(p.display_name)}</strong><br><small>${escapeHtml(p.code)}</small></td><td>${escapeHtml(p.credential_env_name)} <span class="admin-status admin-status--${p.credential_configured ? "active" : "failed"}">${p.credential_configured ? "Configured" : "Missing"}</span></td><td>$${(Number(p.purchased_minor) / 100).toFixed(2)}</td><td>${usdMicros(p.used_usd_micros)}</td><td>${escapeHtml(p.status)}</td><td><div class="admin-ai-row-actions"><button class="admin-history-button" data-ai-edit-provider="${escapeHtml(p.provider_id)}">Edit</button>${aiStatusButtons("providers", p.provider_id, p.status)}<button class="admin-history-button admin-ai-delete" data-ai-delete-provider="${escapeHtml(p.provider_id)}">Delete</button></div></td></tr>`).join("")}</tbody></table></div>` : '<div class="admin-ai-empty"><span>◇</span><div><strong>No providers configured</strong><p>Use “Add provider” above to connect credentials and register models.</p></div></div>';
+  root.querySelector("#admin-ai-models").innerHTML = data.models.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Model</th><th>Billing</th><th>Pricing</th><th>Try-ons</th><th>Avg time</th><th>Avg cost</th><th>Total cost</th><th>Status</th><th>Actions</th></tr></thead><tbody>${data.models.map((m) => `<tr><td><strong>${escapeHtml(m.display_name)}</strong><br><small>${escapeHtml(m.provider_code)} · ${escapeHtml(m.api_model_id)}</small></td><td>${escapeHtml(m.billing_method)}</td><td>${modelPricing(m)}</td><td>${escapeHtml(m.try_ons)}</td><td>${formatDuration(m.average_generation_time_ms)}</td><td>${usdMicros(m.average_cost_usd_micros)}</td><td>${usdMicros(m.total_cost_usd_micros)}</td><td>${escapeHtml(m.status)}</td><td><div class="admin-ai-row-actions"><button class="admin-history-button" data-ai-edit-model="${escapeHtml(m.model_id)}">Edit</button>${aiStatusButtons("models", m.model_id, m.status)}${Number(m.try_ons) === 0 ? `<button data-ai-delete="${escapeHtml(m.model_id)}" class="admin-history-button admin-ai-delete">Delete</button>` : ""}</div></td></tr>`).join("")}</tbody></table></div>` : '<div class="admin-ai-empty"><span>◎</span><div><strong>No models configured</strong><p>Add a provider first, then use “Add model” above.</p></div></div>';
+  root.querySelector("#admin-ai-purchases").innerHTML = data.purchases.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Date</th><th>Provider</th><th>Amount</th><th>Units</th><th>Reference</th></tr></thead><tbody>${data.purchases.map((p) => `<tr><td>${new Date(p.purchased_at).toLocaleDateString()}</td><td>${escapeHtml(p.provider_name)}</td><td>${escapeHtml(p.currency)} ${(Number(p.amount_minor) / 100).toFixed(2)}</td><td>${escapeHtml(p.units_purchased || "—")} ${escapeHtml(p.unit_type)}</td><td>${escapeHtml(p.reference || "—")}</td></tr>`).join("")}</tbody></table></div>` : '<div class="admin-ai-empty"><span>$</span><div><strong>No purchases recorded</strong><p>Use “Record purchase” above when provider funding is added.</p></div></div>';
+  attachAiLifecycle(root);
+  attachAiPanelButtons(root);
+}
+
+function attachAiPanelButtons(root) { root.querySelectorAll("[data-open-ai-panel]").forEach((button) => { if (button.dataset.panelBound) return; button.dataset.panelBound = "true"; button.addEventListener("click", () => { const kind = button.dataset.openAiPanel; const panel = root.querySelector(`#ai-${kind}-panel`); if (!panel) return; const form = panel.querySelector("form"); delete form.dataset.editId; if (form.elements.code) form.elements.code.readOnly = false; form.querySelector("button[type=submit], button:not([type])").textContent = `Save ${kind}`; root.querySelectorAll(".admin-ai-panel").forEach((item) => { item.hidden = item !== panel; item.open = item === panel; }); panel.hidden = false; panel.scrollIntoView({ behavior: "smooth", block: "center" }); panel.querySelector("input, select")?.focus(); }); }); }
+
+function aiStatusButtons(entity, id, status) { return status === "ACTIVE" ? `<button class="admin-history-button" data-ai-status="DISABLED" data-ai-entity="${entity}" data-ai-id="${id}">Disable</button>` : `<button class="admin-history-button" data-ai-status="ACTIVE" data-ai-entity="${entity}" data-ai-id="${id}">Enable</button> <button class="admin-history-button" data-ai-status="ARCHIVED" data-ai-entity="${entity}" data-ai-id="${id}">Archive</button>`; }
+
+function attachAiLifecycle(root) {
+  root.querySelectorAll("[data-ai-status]").forEach((button) => button.addEventListener("click", async () => { await fetch(`${API_ROOT}/admin/ai-costs/${button.dataset.aiEntity}/${button.dataset.aiId}/status`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: button.dataset.aiStatus }) }); loadAiCosts(root); }));
+  root.querySelectorAll("[data-ai-delete]").forEach((button) => button.addEventListener("click", async () => { if (!window.confirm("Delete this unused model?")) return; await fetch(`${API_ROOT}/admin/ai-costs/models/${button.dataset.aiDelete}`, { method: "DELETE", credentials: "same-origin" }); loadAiCosts(root); }));
+  root.querySelectorAll("[data-ai-delete-provider]").forEach((button) => button.addEventListener("click", async () => { if (!window.confirm("Delete this unused provider?")) return; const response = await fetch(`${API_ROOT}/admin/ai-costs/providers/${button.dataset.aiDeleteProvider}`, { method: "DELETE", credentials: "same-origin" }); if (!response.ok) window.alert("This provider has models or purchases. Archive it instead."); loadAiCosts(root); }));
+  root.querySelectorAll("[data-ai-edit-provider]").forEach((button) => button.addEventListener("click", () => editAiProvider(root, button.dataset.aiEditProvider)));
+  root.querySelectorAll("[data-ai-edit-model]").forEach((button) => button.addEventListener("click", () => editAiModel(root, button.dataset.aiEditModel)));
+}
+
+function editAiProvider(root, id) { const item = root._aiCostData?.providers.find((value) => value.provider_id === id); if (!item) return; root.querySelector('[data-open-ai-panel="provider"]').click(); const form = root.querySelector("#ai-provider-form"); form.dataset.editId = id; form.elements.code.value = item.code; form.elements.code.readOnly = true; form.elements.displayName.value = item.display_name; form.elements.adapterType.value = item.adapter_type; form.elements.credentialEnvName.value = item.credential_env_name; form.querySelector("button").textContent = "Update provider"; }
+
+function editAiModel(root, id) { const item = root._aiCostData?.models.find((value) => value.model_id === id); if (!item) return; root.querySelector('[data-open-ai-panel="model"]').click(); const form = root.querySelector("#ai-model-form"); form.dataset.editId = id; form.elements.providerId.value = item.provider_id; form.elements.apiModelId.value = item.api_model_id; form.elements.displayName.value = item.display_name; form.elements.region.value = item.region; form.elements.billingMethod.value = item.billing_method; form.elements.inputPrice.value = Number(item.input_unit_price_usd_micros); form.elements.outputPrice.value = Number(item.output_unit_price_usd_micros); form.elements.requestPrice.value = Number(item.request_price_usd_micros) / 1000000; form.elements.fallbackCost.value = Number(item.fallback_cost_usd_micros) / 1000000; form.querySelector("button").textContent = "Update model"; }
+
+function attachAiCostDashboard(root) {
+  const postForm = (selector, path, payload) => root.querySelector(selector).addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const editId = form.dataset.editId; const target = editId ? `${path}/${editId}` : path; const response = await fetch(`${API_ROOT}${target}`, { method: editId ? "PUT" : "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload(new FormData(form))) }); form.querySelector(".form-status").textContent = response.ok ? "Saved." : "Could not save."; if (response.ok) { delete form.dataset.editId; form.reset(); form.closest("details").hidden = true; loadAiCosts(root); } });
+  postForm("#ai-provider-form", "/admin/ai-costs/providers", (d) => ({ code: d.get("code"), display_name: d.get("displayName"), adapter_type: d.get("adapterType"), credential_env_name: d.get("credentialEnvName") }));
+  postForm("#ai-model-form", "/admin/ai-costs/models", (d) => ({ provider_id: d.get("providerId"), api_model_id: d.get("apiModelId"), display_name: d.get("displayName"), region: d.get("region"), billing_method: d.get("billingMethod"), input_unit_price_usd_micros: Math.round(Number(d.get("inputPrice")) * 1000000 / 1000000), output_unit_price_usd_micros: Math.round(Number(d.get("outputPrice")) * 1000000 / 1000000), request_price_usd_micros: Math.round(Number(d.get("requestPrice")) * 1000000), fallback_cost_usd_micros: Math.round(Number(d.get("fallbackCost")) * 1000000) }));
+  postForm("#ai-purchase-form", "/admin/ai-costs/purchases", (d) => ({ provider_id: d.get("providerId"), amount_minor: Math.round(Number(d.get("amount")) * 100), currency: d.get("currency"), unit_type: d.get("unitType"), units_purchased: d.get("units") ? Number(d.get("units")) : null, reference: d.get("reference") || null }));
+  loadAiCosts(root);
+}
+
+function realtimeDashboardView() {
+  return `<section class="admin-realtime" aria-live="polite">
+    <div class="admin-realtime-toolbar"><div><span class="admin-live-badge"><i></i> Live</span><small id="admin-realtime-updated">Connecting…</small></div><label>Window<select id="admin-realtime-window"><option value="15">Last 15 minutes</option><option value="60" selected>Last hour</option><option value="360">Last 6 hours</option><option value="1440">Last 24 hours</option><option value="10080">Last 7 days</option></select></label></div>
+    <div id="admin-realtime-metrics" class="admin-platform-metrics"><div class="admin-loading-state"><span></span><strong>Loading live telemetry</strong></div></div>
+    <div class="admin-section-heading"><div><p class="eyebrow">Latest activity</p><h2>Try-on generations</h2></div><span>Refreshes every 5 seconds</span></div>
+    <div id="admin-realtime-table" class="admin-data-panel"><div class="admin-loading-state"><span></span><strong>Loading generation table</strong></div></div>
+  </section>`;
+}
+
+function formatDuration(milliseconds) {
+  const value = Number(milliseconds || 0);
+  return value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`;
+}
+
+async function loadRealtimeDashboard(root) {
+  const metrics = root.querySelector("#admin-realtime-metrics");
+  const table = root.querySelector("#admin-realtime-table");
+  const windowSelect = root.querySelector("#admin-realtime-window");
+  if (!metrics || !table || !windowSelect) return;
+  const response = await fetch(`${API_ROOT}/admin/realtime?window_minutes=${encodeURIComponent(windowSelect.value)}`, { credentials: "same-origin" });
+  if (response.status === 401) return redirect("/admin");
+  if (!response.ok) {
+    metrics.innerHTML = '<div class="admin-error-state"><strong>Realtime telemetry is unavailable</strong><p>The dashboard will retry automatically.</p></div>';
+    return;
+  }
+  const data = await response.json();
+  const summary = data.summary;
+  const costNote = data.cost_basis === "ACTUAL" ? "Recorded provider cost" : "Configured estimate; actual cost used when available";
+  const cards = [
+    ["Try-ons", summary.total_try_ons, `Last ${data.window_minutes} minutes`],
+    ["Generating now", Number(summary.queued_try_ons) + Number(summary.processing_try_ons), `${summary.queued_try_ons} queued · ${summary.processing_try_ons} processing`],
+    ["Average generation time", formatDuration(summary.average_generation_time_ms), "Completed generations"],
+    ["Average cost", usdMicros(summary.average_cost_usd_micros), costNote],
+    ["Successful", summary.successful_try_ons, "Delivered generations"],
+    ["Failed", summary.failed_try_ons, "Terminal failures"],
+    ["Total generation cost", usdMicros(summary.total_cost_usd_micros), costNote],
+  ];
+  metrics.innerHTML = cards.map(([label, value, note]) => `<article class="admin-metric-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></article>`).join("");
+  root.querySelector("#admin-realtime-updated").textContent = `Updated ${new Date(data.generated_at).toLocaleTimeString()} · ${data.cache.toLowerCase()} cache`;
+  table.innerHTML = data.try_ons.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Started</th><th>Try-on</th><th>Status</th><th>Generation time</th><th>Cost</th><th>Provider / model</th><th>Failure</th></tr></thead><tbody>${data.try_ons.map((item) => `<tr><td>${escapeHtml(new Date(item.created_at).toLocaleTimeString())}</td><td><small>${escapeHtml(item.job_id)}</small></td><td><span class="admin-status admin-status--${escapeHtml(String(item.status).toLowerCase())}">${escapeHtml(displayEnum(item.status))}</span></td><td>${["PENDING", "PROCESSING"].includes(item.status) ? "In progress" : escapeHtml(formatDuration(item.generation_time_ms))}</td><td>${usdMicros(item.cost_usd_micros)} <small>${escapeHtml(String(item.cost_basis).toLowerCase())}</small></td><td>${escapeHtml(item.provider)}<br><small>${escapeHtml(item.model_version)}</small></td><td>${escapeHtml(item.error_code ? displayEnum(item.error_code) : "—")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="admin-empty">No try-ons in this window.</p>';
+}
+
+function attachRealtimeDashboard(root) {
+  let timer;
+  const refresh = () => loadRealtimeDashboard(root);
+  root.querySelector("#admin-realtime-window").addEventListener("change", refresh);
+  refresh();
+  timer = window.setInterval(() => {
+    if (document.body.contains(root.querySelector("#admin-realtime-metrics"))) refresh();
+    else window.clearInterval(timer);
+  }, 5000);
 }
 
 async function loadPricing(root) {
@@ -590,6 +708,8 @@ function renderAuthenticatedSection(root, pathname) {
   if (adminSection(pathname).slug === "organizations") attachOrganizationControls(root, pathname);
   if (adminSection(pathname).slug === "enquiries") attachEnquiries(root);
   if (adminSection(pathname).slug === "dashboard") attachDashboardControls(root);
+  if (adminSection(pathname).slug === "realtime") attachRealtimeDashboard(root);
+  if (adminSection(pathname).slug === "ai-models-cost") attachAiCostDashboard(root);
   if (adminSection(pathname).slug === "customers-subscriptions") attachCustomerControls(root);
   if (adminSection(pathname).slug === "billing-pricing") attachPricingControls(root);
   if (adminSection(pathname).slug === "platform-operations") attachTryOnOperations(root);

@@ -42,6 +42,7 @@ class DurableRenderJob:
     provider: str = "GOOGLE_VERTEX"
     model: str = "virtual-try-on-001"
     region: str = "asia-southeast1"
+    company_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ def _job_from_row(row: RowMapping) -> DurableRenderJob:
         provider=row["provider"],
         model=row["model_version"],
         region=row["provider_region"],
+        company_name=row["company_name"],
     )
 
 
@@ -115,12 +117,22 @@ JOB_SELECT = """
         r.provider_request_id,
         q.provider,
         q.model_version,
-        q.provider_region
+        q.provider_region,
+        sponsored_business.display_name AS company_name
     FROM render_jobs AS j
     JOIN render_quotes AS q
       ON q.quote_id = j.quote_id AND q.account_id = j.account_id
     LEFT JOIN render_results AS r
       ON r.job_id = j.job_id AND r.account_id = j.account_id
+    LEFT JOIN LATERAL (
+        SELECT profile.display_name
+        FROM business_sponsored_tryons sponsored
+        JOIN business_profiles profile
+          ON profile.tenant_id = sponsored.tenant_id
+         AND profile.account_id = sponsored.business_account_id
+        WHERE sponsored.render_job_id = j.job_id
+        LIMIT 1
+    ) AS sponsored_business ON true
 """
 
 
@@ -809,6 +821,44 @@ class PostgresRenderRuntime:
                     "provider_request": provider_request_id,
                     "provider_usage": json.dumps(provider_usage) if provider_usage else None,
                     "job": job_id,
+                },
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO model_usage_costs
+                    (usage_cost_id, job_id, model_id, input_units, output_units,
+                     cost_usd_micros, cost_basis)
+                    SELECT gen_random_uuid(), j.job_id, model.model_id,
+                      COALESCE((CAST(:provider_usage AS jsonb)->>'input_tokens')::bigint, 0),
+                      COALESCE((CAST(:provider_usage AS jsonb)->>'output_tokens')::bigint, 0),
+                      CASE
+                        WHEN (CAST(:provider_usage AS jsonb)->>'cost_usd_micros') IS NOT NULL
+                          THEN (CAST(:provider_usage AS jsonb)->>'cost_usd_micros')::bigint
+                        WHEN model.billing_method='TOKEN' AND :provider_usage IS NOT NULL THEN
+                          COALESCE((CAST(:provider_usage AS jsonb)->>'input_tokens')::bigint, 0)
+                            * model.input_unit_price_usd_micros
+                          + COALESCE((CAST(:provider_usage AS jsonb)->>'output_tokens')::bigint, 0)
+                            * model.output_unit_price_usd_micros
+                        WHEN model.billing_method IN ('REQUEST','IMAGE','CREDIT')
+                          THEN model.request_price_usd_micros
+                        ELSE model.fallback_cost_usd_micros
+                      END,
+                      CASE
+                        WHEN (CAST(:provider_usage AS jsonb)->>'cost_usd_micros') IS NOT NULL
+                          THEN 'ACTUAL'
+                        WHEN :provider_usage IS NOT NULL THEN 'CALCULATED'
+                        ELSE 'ESTIMATED'
+                      END
+                    FROM render_jobs j JOIN render_quotes q ON q.quote_id=j.quote_id
+                    JOIN ai_providers provider ON provider.code=q.provider
+                    JOIN ai_models model ON model.provider_id=provider.provider_id
+                      AND model.api_model_id=q.model_version AND model.region=q.provider_region
+                    WHERE j.job_id=:job
+                    ON CONFLICT (job_id) DO NOTHING"""
+                ),
+                {
+                    "job": job_id,
+                    "provider_usage": json.dumps(provider_usage) if provider_usage else None,
                 },
             )
             self._finish_job(connection, job_id, "DELIVERED", None, current)

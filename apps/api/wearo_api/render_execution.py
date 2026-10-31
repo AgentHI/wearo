@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from .image_watermark import ImageWatermarkError, apply_generated_image_watermark
 from .render_preflight import BetaRenderQuote
 from .render_provider import ProviderError, RenderRequest, RenderResponse
 from .render_quality import QualityDecision
@@ -142,9 +143,10 @@ class RenderWorker:
             decision = self.quality.evaluate(person, item, response.image)
             if not decision.accepted:
                 return self._fail(processing, "QUALITY_REJECTED", decision.reasons, current)
-            result_id = self.results.store_result(
-                job.account_id, response.image, response.mime_type
+            watermarked, watermarked_type = apply_generated_image_watermark(
+                response.image, response.mime_type
             )
+            result_id = self.results.store_result(job.account_id, watermarked, watermarked_type)
             delivered = replace(
                 processing,
                 state="DELIVERED",
@@ -157,6 +159,8 @@ class RenderWorker:
             return delivered
         except ProviderError as error:
             return self._fail(processing, error.code, (), current)
+        except ImageWatermarkError:
+            return self._fail(processing, "WATERMARK_FAILED", (), current)
 
     def _fail(
         self, job: RenderJob, code: str, reasons: tuple[str, ...], now: datetime

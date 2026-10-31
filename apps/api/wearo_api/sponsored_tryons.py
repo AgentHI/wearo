@@ -361,6 +361,9 @@ class PostgresSponsoredTryOns:
                         JOIN business_participants p ON p.participant_id=s.participant_id
                         JOIN business_tenants t
                           ON t.tenant_id=s.tenant_id AND t.account_id=s.business_account_id
+                        JOIN business_subscriptions subscription
+                          ON subscription.tenant_id=t.tenant_id
+                         AND subscription.account_id=t.account_id
                         JOIN tenant_memberships m
                           ON m.tenant_id=s.tenant_id AND m.account_id=s.business_account_id
                          AND m.role='OWNER' AND m.revoked_at IS NULL

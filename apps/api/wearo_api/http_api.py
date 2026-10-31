@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
@@ -22,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
 from .account_lifecycle import AccountLifecycleError, PostgresAccountLifecycle
+from .admin_ai_costs import AdminAiCostError, PostgresAdminAiCosts
 from .admin_audit import AdminAuditError, PostgresAdminAudit
 from .admin_billing import AdminBillingError, PostgresAdminBilling
 from .admin_customers import AdminCustomerError, PostgresAdminCustomers
@@ -40,6 +42,7 @@ from .admin_platform_controls import (
     PostgresAdminPlatformControls,
 )
 from .admin_pricing import AdminPricingError, PostgresAdminPricing
+from .admin_realtime import AdminRealtimeError, PostgresAdminRealtime
 from .admin_revenue import AdminRevenueError, PostgresAdminRevenue
 from .admin_subscriptions import (
     AdminSubscriptionError,
@@ -213,6 +216,7 @@ class ApiContainer:
     admin_dashboard: PostgresAdminDashboard | None = None
     admin_enquiries: PostgresAdminEnquiries | None = None
     admin_usage_analytics: PostgresAdminUsageAnalytics | None = None
+    admin_realtime: PostgresAdminRealtime | None = None
     admin_customers: PostgresAdminCustomers | None = None
     admin_subscriptions: PostgresAdminSubscriptions | None = None
     admin_pricing: PostgresAdminPricing | None = None
@@ -221,6 +225,7 @@ class ApiContainer:
     admin_operations: PostgresAdminOperations | None = None
     admin_platform_controls: PostgresAdminPlatformControls | None = None
     admin_audit: PostgresAdminAudit | None = None
+    admin_ai_costs: PostgresAdminAiCosts | None = None
     contact_enquiries: PostgresContactEnquiries | None = None
     contact_form_token: bytes = b""
 
@@ -530,6 +535,44 @@ class AdminTokenPackageBody(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class AdminAiProviderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=40)
+    display_name: str = Field(min_length=1, max_length=120)
+    adapter_type: str = Field(min_length=1, max_length=40)
+    credential_env_name: str = Field(min_length=7, max_length=120)
+
+
+class AdminAiModelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: UUID
+    api_model_id: str = Field(min_length=1, max_length=160)
+    display_name: str = Field(min_length=1, max_length=160)
+    capability: str = Field(default="TRY_ON", min_length=1, max_length=40)
+    region: str = Field(default="global", min_length=1, max_length=80)
+    billing_method: Literal["TOKEN", "REQUEST", "IMAGE", "CREDIT"]
+    input_unit_price_usd_micros: int = Field(default=0, ge=0)
+    output_unit_price_usd_micros: int = Field(default=0, ge=0)
+    request_price_usd_micros: int = Field(default=0, ge=0)
+    fallback_cost_usd_micros: int = Field(default=0, ge=0)
+
+
+class AdminProviderPurchaseBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: UUID
+    amount_minor: int = Field(gt=0)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    units_purchased: Decimal | None = Field(default=None, gt=0)
+    unit_type: Literal["USD", "TOKEN", "IMAGE", "CREDIT"]
+    reference: str | None = Field(default=None, max_length=160)
+    purchased_at: datetime | None = None
+
+
+class AdminAiStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["ACTIVE", "DISABLED", "ARCHIVED"]
+
+
 def _authenticate(
     request: Request,
     container: ApiContainer,
@@ -715,6 +758,10 @@ def create_app(
     admin_usage_analytics = container.admin_usage_analytics or PostgresAdminUsageAnalytics(
         container.engine
     )
+    admin_realtime = container.admin_realtime or PostgresAdminRealtime(
+        container.engine, int(os.environ.get("WEARO_ESTIMATED_AI_COST_MINOR", "0"))
+    )
+    admin_ai_costs = container.admin_ai_costs or PostgresAdminAiCosts(container.engine)
     admin_customers = container.admin_customers or PostgresAdminCustomers(container.engine)
     admin_subscriptions = container.admin_subscriptions or PostgresAdminSubscriptions(
         container.engine
@@ -1002,6 +1049,96 @@ def create_app(
             return admin_usage_analytics.history(tenant_id, date_from=date_from, date_to=date_to)
         except AdminUsageAnalyticsError as error:
             raise ApiProblem(404, "ORGANIZATION_USAGE_NOT_FOUND", str(error)) from None
+
+    @app.get("/api/v1/admin/realtime")
+    def admin_realtime_snapshot(request: Request, window_minutes: int = 60) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_realtime.snapshot(window_minutes=window_minutes)
+        except AdminRealtimeError as error:
+            raise ApiProblem(422, "INVALID_REALTIME_WINDOW", str(error)) from None
+
+    @app.get("/api/v1/admin/ai-costs")
+    def admin_ai_cost_dashboard(request: Request) -> dict[str, object]:
+        require_platform_admin(request)
+        return admin_ai_costs.dashboard()
+
+    @app.post("/api/v1/admin/ai-costs/providers", status_code=201)
+    def admin_add_ai_provider(request: Request, body: AdminAiProviderBody) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.add_provider(body.model_dump())
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_AI_PROVIDER", str(error)) from None
+
+    @app.put("/api/v1/admin/ai-costs/providers/{provider_id}")
+    def admin_update_ai_provider(
+        request: Request, provider_id: UUID, body: AdminAiProviderBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.update_provider(provider_id, body.model_dump())
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_AI_PROVIDER", str(error)) from None
+
+    @app.post("/api/v1/admin/ai-costs/models", status_code=201)
+    def admin_add_ai_model(request: Request, body: AdminAiModelBody) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.add_model(body.model_dump())
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_AI_MODEL", str(error)) from None
+
+    @app.put("/api/v1/admin/ai-costs/models/{model_id}")
+    def admin_update_ai_model(
+        request: Request, model_id: UUID, body: AdminAiModelBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.update_model(model_id, body.model_dump())
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_AI_MODEL", str(error)) from None
+
+    @app.post("/api/v1/admin/ai-costs/purchases", status_code=201)
+    def admin_add_provider_purchase(
+        request: Request, body: AdminProviderPurchaseBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.add_purchase(body.model_dump())
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_PROVIDER_PURCHASE", str(error)) from None
+
+    @app.put("/api/v1/admin/ai-costs/{entity}/{entity_id}/status")
+    def admin_set_ai_status(
+        request: Request,
+        entity: Literal["providers", "models"],
+        entity_id: UUID,
+        body: AdminAiStatusBody,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_ai_costs.set_status(entity, entity_id, body.status)
+        except AdminAiCostError as error:
+            raise ApiProblem(422, "INVALID_AI_LIFECYCLE", str(error)) from None
+
+    @app.delete("/api/v1/admin/ai-costs/models/{model_id}", status_code=204)
+    def admin_delete_unused_model(request: Request, model_id: UUID) -> Response:
+        require_platform_admin(request)
+        try:
+            admin_ai_costs.delete_model(model_id)
+        except AdminAiCostError as error:
+            raise ApiProblem(409, "AI_MODEL_HAS_HISTORY", str(error)) from None
+        return Response(status_code=204)
+
+    @app.delete("/api/v1/admin/ai-costs/providers/{provider_id}", status_code=204)
+    def admin_delete_unused_provider(request: Request, provider_id: UUID) -> Response:
+        require_platform_admin(request)
+        try:
+            admin_ai_costs.delete_provider(provider_id)
+        except AdminAiCostError as error:
+            raise ApiProblem(409, "AI_PROVIDER_HAS_HISTORY", str(error)) from None
+        return Response(status_code=204)
 
     @app.get("/api/v1/admin/customers")
     def admin_customer_list(request: Request, status: str | None = None) -> dict[str, object]:

@@ -1412,7 +1412,9 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-workspace-switcher small { color: rgb(255 255 255 / 55%); font-size: .65rem; }
 .admin-workspace-switcher strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
 .admin-sidebar__label { margin: .7rem .75rem .5rem; color: rgb(255 255 255 / 42%); font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.admin-navigation { display: grid; gap: .2rem; }
+.admin-navigation { display: grid; min-height: 0; flex: 1 1 auto; align-content: start; gap: .2rem; overflow-y: auto; padding-right: .25rem; scrollbar-color: rgb(255 255 255 / 24%) transparent; scrollbar-width: thin; }
+.admin-navigation::-webkit-scrollbar { width: .35rem; }
+.admin-navigation::-webkit-scrollbar-thumb { border-radius: 99rem; background: rgb(255 255 255 / 24%); }
 .admin-navigation a { display: flex; min-height: 42px; align-items: center; gap: .75rem; padding: .6rem .75rem; border-radius: .45rem; color: rgb(255 255 255 / 68%); font-size: .875rem; text-decoration: none; }
 .admin-navigation a:hover { background: rgb(255 255 255 / 9%); }
 .admin-navigation a[aria-current="page"] { color: white; background: rgb(255 255 255 / 12%); box-shadow: inset 3px 0 var(--brand-gold); font-weight: 700; }
@@ -1508,6 +1510,57 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-active-label { display: block; width: fit-content; margin-top: .3rem; padding: .18rem .4rem; border-radius: 99rem; color: #225b43; background: #e0f1e9; font-size: .65rem; }
 .admin-history-button { min-height: 36px; padding: .35rem .6rem; border: 1px solid var(--border-mauve); border-radius: .5rem; color: var(--brand-plum); background: white; font-weight: 700; }
 .admin-customer-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: 2rem; }
+.admin-realtime-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: 1rem; border: 1px solid var(--border-mauve); border-radius: .9rem; background: white; }
+.admin-realtime-toolbar > div, .admin-realtime-toolbar label { display: grid; gap: .35rem; }
+.admin-realtime-toolbar small { color: var(--ink-mauve); }
+.admin-live-badge { display: inline-flex; width: fit-content; align-items: center; gap: .4rem; color: #225b43; font-weight: 800; }
+.admin-live-badge i { width: .55rem; height: .55rem; border-radius: 50%; background: #29a66f; box-shadow: 0 0 0 .25rem rgb(41 166 111 / 14%); animation: admin-live-pulse 1.8s ease-out infinite; }
+.admin-realtime .admin-section-heading { margin-top: 2rem; }
+.admin-realtime .admin-platform-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.admin-status--delivered { color: #225b43; background: #e0f1e9; }
+.admin-status--failed { color: #822b38; background: #f8e3e6; }
+.admin-status--processing, .admin-status--pending { color: #795714; background: #fff0c9; }
+.admin-ai-costs { display: grid; gap: 1.75rem; }
+.admin-ai-summary { margin-top: .25rem; }
+.admin-ai-summary article { min-height: 7.5rem; }
+.admin-ai-summary .admin-metric-card strong { font-size: 1.75rem; }
+.admin-ai-section { display: grid; gap: .15rem; }
+.admin-ai-section .admin-section-heading { align-items: center; margin: 0; }
+.admin-ai-section .admin-section-heading h2 { margin: .05rem 0 .2rem; }
+.admin-ai-section .admin-section-heading p:last-child { margin: 0; color: var(--ink-mauve); font-size: .8rem; }
+.admin-ai-section .admin-section-heading .button { flex: 0 0 auto; margin: 0; }
+.admin-ai-section .admin-data-panel { min-height: auto; padding: 0; }
+.admin-ai-empty { display: flex; min-height: 7rem; align-items: center; gap: 1rem; padding: 1.25rem; }
+.admin-ai-empty > span { display: grid; width: 2.7rem; aspect-ratio: 1; flex: 0 0 auto; place-items: center; border-radius: .75rem; color: var(--brand-plum); background: var(--state-lilac); font-size: 1.15rem; font-weight: 800; }
+.admin-ai-empty > div { flex: 1; }
+.admin-ai-empty strong { color: var(--brand-aubergine); }
+.admin-ai-empty p { margin: .2rem 0 0; color: var(--ink-mauve); font-size: .8rem; }
+.admin-ai-empty .button { margin: 0; }
+.admin-ai-panels { display: grid; gap: .75rem; padding-top: .25rem; border-top: 1px solid var(--border-mauve); }
+.admin-ai-panel { overflow: hidden; border: 1px solid var(--border-mauve); border-radius: .85rem; background: white; box-shadow: var(--shadow-sm); }
+.admin-ai-panel summary { display: flex; min-height: 4.5rem; align-items: center; justify-content: space-between; gap: 1rem; padding: .9rem 1.1rem; cursor: pointer; list-style: none; }
+.admin-ai-panel summary::-webkit-details-marker { display: none; }
+.admin-ai-panel summary > span:first-child { display: grid; gap: .15rem; }
+.admin-ai-panel summary strong { color: var(--brand-aubergine); font-size: .95rem; }
+.admin-ai-panel summary small { color: var(--ink-mauve); font-size: .72rem; }
+.admin-ai-panel summary > span:last-child { color: var(--brand-plum); font-size: 1.25rem; transition: transform .2s ease; }
+.admin-ai-panel[open] summary { border-bottom: 1px solid var(--border-mauve); background: #fdfafd; }
+.admin-ai-panel[open] summary > span:last-child { transform: rotate(45deg); }
+.admin-ai-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem 1rem; padding: 1.15rem; }
+.admin-ai-form label { gap: .3rem; color: var(--ink-mauve); font-size: .74rem; }
+.admin-ai-form label > small { font-weight: 400; }
+.admin-ai-form input, .admin-ai-form select { min-height: 40px; padding: .55rem .65rem; border-radius: .55rem; color: var(--ink-charcoal); font-size: .86rem; }
+.admin-ai-form__actions { display: flex; grid-column: 1 / -1; align-items: center; gap: .75rem; padding-top: .2rem; }
+.admin-ai-form__actions .button { margin: 0; }
+.admin-ai-form__actions .form-status { margin: 0; color: var(--ink-mauve); font-size: .75rem; }
+.admin-ai-row-actions { display: flex; align-items: center; gap: .35rem; }
+.admin-ai-delete { color: #822b38; }
+.admin-model-price { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: .15rem .45rem; }
+.admin-model-price small { color: var(--ink-mauve); font-size: .67rem; }
+.admin-model-price strong { color: var(--brand-aubergine); font-size: .75rem; font-weight: 700; }
+@keyframes admin-live-pulse { 70% { box-shadow: 0 0 0 .55rem rgb(41 166 111 / 0%); } }
+@media (max-width: 1000px) { .admin-realtime .admin-platform-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .admin-realtime-toolbar { align-items: stretch; flex-direction: column; } .admin-realtime .admin-platform-metrics { grid-template-columns: 1fr; } .admin-ai-section .admin-section-heading { align-items: stretch; flex-direction: column; } .admin-ai-section .admin-section-heading .button { width: 100%; } .admin-ai-empty { align-items: flex-start; flex-wrap: wrap; } .admin-ai-empty .button { width: 100%; } .admin-ai-form { grid-template-columns: 1fr; } }
 .admin-customer-stats article { padding: 1rem; border: 1px solid rgb(201 164 107 / 42%); border-radius: .8rem; background: white; box-shadow: var(--shadow-sm); }
 .admin-customer-stats span, .admin-customer-stats strong { display: block; }
 .admin-customer-stats span { min-height: 2.6rem; color: var(--ink-mauve); font-size: .78rem; }
@@ -1543,7 +1596,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .admin-sidebar { position: static; height: auto; padding-bottom: .7rem; }
   .admin-sidebar__brand { border: 0; }
   .admin-sidebar__brand > span, .admin-workspace-switcher, .admin-sidebar__label, .admin-identity { display: none; }
-  .admin-navigation { grid-template-columns: repeat(6, minmax(max-content, 1fr)); overflow-x: auto; padding-bottom: .25rem; scrollbar-width: thin; }
+  .admin-navigation { min-height: auto; flex: none; grid-template-columns: repeat(6, minmax(max-content, 1fr)); overflow-x: auto; overflow-y: hidden; padding-bottom: .25rem; scrollbar-width: thin; }
   .admin-navigation a { justify-content: center; white-space: nowrap; }
   .admin-navigation a > span:first-child { display: none; }
   .admin-topbar { position: static; }
