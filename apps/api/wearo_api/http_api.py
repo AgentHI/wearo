@@ -297,12 +297,16 @@ class AdvertisementGenerateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=1000)
+    starts_on: date
+    ends_on: date
     advertisement_id: UUID | None = None
 
 
 class AdvertisementUpdateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=120)
+    starts_on: date
+    ends_on: date
 
 
 class AdvertisementActivationBody(BaseModel):
@@ -1753,6 +1757,8 @@ def create_app(
     async def store_advertisement_upload(
         request: Request,
         title: Annotated[str, Form()],
+        starts_on: Annotated[date, Form()],
+        ends_on: Annotated[date, Form()],
         image: Annotated[UploadFile, File()],
         x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
     ) -> dict[str, object]:
@@ -1760,7 +1766,9 @@ def create_app(
         if container.store_advertisements is None:
             raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
         content = await image.read(15 * 1024 * 1024 + 1)
-        return container.store_advertisements.upload(session.principal_id, title, content)
+        return container.store_advertisements.upload(
+            session.principal_id, title, starts_on, ends_on, content
+        )
 
     @app.post("/api/v1/store/advertisements/generate", status_code=201)
     def store_advertisement_generate(
@@ -1772,7 +1780,12 @@ def create_app(
         if container.store_advertisements is None:
             raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
         return container.store_advertisements.generate(
-            session.principal_id, body.title, body.prompt, body.advertisement_id
+            session.principal_id,
+            body.title,
+            body.prompt,
+            body.starts_on,
+            body.ends_on,
+            body.advertisement_id,
         )
 
     @app.put("/api/v1/store/advertisements/{advertisement_id}")
@@ -1786,7 +1799,11 @@ def create_app(
         if container.store_advertisements is None:
             raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
         return container.store_advertisements.update(
-            session.principal_id, advertisement_id, body.title
+            session.principal_id,
+            advertisement_id,
+            body.title,
+            body.starts_on,
+            body.ends_on,
         )
 
     @app.put("/api/v1/store/advertisements/{advertisement_id}/activate")
@@ -1802,6 +1819,29 @@ def create_app(
         return container.store_advertisements.activate(
             session.principal_id, advertisement_id, body.active_date
         )
+
+    @app.delete("/api/v1/store/advertisements/active/{active_date}")
+    def store_advertisement_deactivate(
+        active_date: date,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        return container.store_advertisements.deactivate(session.principal_id, active_date)
+
+    @app.delete("/api/v1/store/advertisements/{advertisement_id}", status_code=204)
+    def store_advertisement_delete(
+        advertisement_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        container.store_advertisements.delete(session.principal_id, advertisement_id)
+        return Response(status_code=204)
 
     @app.get("/api/v1/store/advertisements/{advertisement_id}/image")
     def store_advertisement_image(advertisement_id: UUID, request: Request) -> Response:

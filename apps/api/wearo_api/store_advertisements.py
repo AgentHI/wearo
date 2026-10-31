@@ -39,6 +39,14 @@ def crop_card(content: bytes) -> bytes:
         ) from None
 
 
+def validate_duration(starts_on: date, ends_on: date) -> None:
+    if ends_on < starts_on:
+        raise StoreAdvertisementError(
+            "INVALID_ADVERTISEMENT_DURATION",
+            "The advertisement end date must be on or after its start date.",
+        )
+
+
 class OpenAIAdvertisementGenerator:
     endpoint = "https://api.openai.com/v1/images/generations"
 
@@ -111,19 +119,23 @@ class PostgresStoreAdvertisements:
         with self.engine.connect() as connection:
             rows = connection.execute(
                 text("""SELECT a.advertisement_id, a.title, a.prompt, a.asset_id,
-                a.source, a.ai_attempts, a.created_at, a.updated_at,
+                a.source, a.ai_attempts, a.starts_on, a.ends_on, a.created_at, a.updated_at,
                 (x.advertisement_id IS NOT NULL) active_today
                 FROM store_advertisements a LEFT JOIN store_advertisement_activations x
                   ON x.store_id=a.store_id AND x.advertisement_id=a.advertisement_id
                  AND x.active_date=(now() AT TIME ZONE 'Asia/Kolkata')::date
+                 AND x.active_date BETWEEN a.starts_on AND a.ends_on
                 WHERE a.store_id=:store_id AND a.account_id=:account_id
                 ORDER BY a.updated_at DESC"""),
                 context,
             ).mappings()
             return {"items": [dict(row) for row in rows], "maximum_ai_attempts": MAX_AI_ATTEMPTS}
 
-    def upload(self, principal_id: UUID, title: str, content: bytes) -> dict[str, object]:
+    def upload(
+        self, principal_id: UUID, title: str, starts_on: date, ends_on: date, content: bytes
+    ) -> dict[str, object]:
         context = self._context(principal_id)
+        validate_duration(starts_on, ends_on)
         clean_title = title.strip()
         if not clean_title or len(clean_title) > 120:
             raise StoreAdvertisementError(
@@ -137,10 +149,18 @@ class PostgresStoreAdvertisements:
             row = (
                 connection.execute(
                     text("""INSERT INTO store_advertisements
-                (store_id, tenant_id, account_id, title, asset_id, source)
-                VALUES (:store_id, :tenant_id, :account_id, :title, :asset, 'UPLOAD')
-                RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts, created_at, updated_at"""),
-                    {**context, "title": clean_title, "asset": asset.asset_id},
+                (store_id, tenant_id, account_id, title, asset_id, source, starts_on, ends_on)
+                VALUES (:store_id, :tenant_id, :account_id, :title, :asset, 'UPLOAD',
+                        :starts_on, :ends_on)
+                RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts,
+                          starts_on, ends_on, created_at, updated_at"""),
+                    {
+                        **context,
+                        "title": clean_title,
+                        "asset": asset.asset_id,
+                        "starts_on": starts_on,
+                        "ends_on": ends_on,
+                    },
                 )
                 .mappings()
                 .one()
@@ -148,9 +168,16 @@ class PostgresStoreAdvertisements:
         return dict(row)
 
     def generate(
-        self, principal_id: UUID, title: str, prompt: str, advertisement_id: UUID | None = None
+        self,
+        principal_id: UUID,
+        title: str,
+        prompt: str,
+        starts_on: date,
+        ends_on: date,
+        advertisement_id: UUID | None = None,
     ) -> dict[str, object]:
         context = self._context(principal_id)
+        validate_duration(starts_on, ends_on)
         clean_title, clean_prompt = title.strip(), prompt.strip()
         if (
             not clean_title
@@ -184,7 +211,8 @@ class PostgresStoreAdvertisements:
             with self.engine.begin() as connection:
                 reserved = connection.execute(
                     text("""UPDATE store_advertisements SET ai_attempts=ai_attempts+1,
-                    title=:title, prompt=:prompt, updated_at=now()
+                    title=:title, prompt=:prompt, starts_on=:starts_on, ends_on=:ends_on,
+                    updated_at=now()
                     WHERE advertisement_id=:advertisement AND store_id=:store_id AND ai_attempts < 3
                     RETURNING advertisement_id"""),
                     {
@@ -192,6 +220,8 @@ class PostgresStoreAdvertisements:
                         "advertisement": advertisement_id,
                         "title": clean_title,
                         "prompt": clean_prompt,
+                        "starts_on": starts_on,
+                        "ends_on": ends_on,
                     },
                 ).scalar_one_or_none()
             if reserved is None:
@@ -208,14 +238,19 @@ class PostgresStoreAdvertisements:
                 row = (
                     connection.execute(
                         text("""INSERT INTO store_advertisements
-                    (store_id, tenant_id, account_id, title, prompt, asset_id, source, ai_attempts)
-                    VALUES (:store_id, :tenant_id, :account_id, :title, :prompt, :asset, 'AI', 1)
-                    RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts, created_at, updated_at"""),
+                    (store_id, tenant_id, account_id, title, prompt, asset_id, source, ai_attempts,
+                     starts_on, ends_on)
+                    VALUES (:store_id, :tenant_id, :account_id, :title, :prompt, :asset, 'AI', 1,
+                            :starts_on, :ends_on)
+                    RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts,
+                              starts_on, ends_on, created_at, updated_at"""),
                         {
                             **context,
                             "title": clean_title,
                             "prompt": clean_prompt,
                             "asset": asset.asset_id,
+                            "starts_on": starts_on,
+                            "ends_on": ends_on,
                         },
                     )
                     .mappings()
@@ -226,7 +261,8 @@ class PostgresStoreAdvertisements:
                     connection.execute(
                         text("""UPDATE store_advertisements SET asset_id=:asset, source='AI', updated_at=now()
                     WHERE advertisement_id=:advertisement AND store_id=:store_id
-                    RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts, created_at, updated_at"""),
+                    RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts,
+                              starts_on, ends_on, created_at, updated_at"""),
                         {**context, "asset": asset.asset_id, "advertisement": advertisement_id},
                     )
                     .mappings()
@@ -234,8 +270,16 @@ class PostgresStoreAdvertisements:
                 )
         return dict(row)
 
-    def update(self, principal_id: UUID, advertisement_id: UUID, title: str) -> dict[str, object]:
+    def update(
+        self,
+        principal_id: UUID,
+        advertisement_id: UUID,
+        title: str,
+        starts_on: date,
+        ends_on: date,
+    ) -> dict[str, object]:
         context = self._context(principal_id)
+        validate_duration(starts_on, ends_on)
         clean_title = title.strip()
         if not clean_title or len(clean_title) > 120:
             raise StoreAdvertisementError(
@@ -244,10 +288,18 @@ class PostgresStoreAdvertisements:
         with self.engine.begin() as connection:
             row = (
                 connection.execute(
-                    text("""UPDATE store_advertisements SET title=:title, updated_at=now()
+                    text("""UPDATE store_advertisements SET title=:title, starts_on=:starts_on,
+                ends_on=:ends_on, updated_at=now()
                 WHERE advertisement_id=:advertisement AND store_id=:store_id AND account_id=:account_id
-                RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts, created_at, updated_at"""),
-                    {**context, "advertisement": advertisement_id, "title": clean_title},
+                RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts,
+                          starts_on, ends_on, created_at, updated_at"""),
+                    {
+                        **context,
+                        "advertisement": advertisement_id,
+                        "title": clean_title,
+                        "starts_on": starts_on,
+                        "ends_on": ends_on,
+                    },
                 )
                 .mappings()
                 .one_or_none()
@@ -263,12 +315,14 @@ class PostgresStoreAdvertisements:
         with self.engine.begin() as connection:
             exists = connection.execute(
                 text("""SELECT 1 FROM store_advertisements
-                WHERE advertisement_id=:advertisement AND store_id=:store_id AND account_id=:account_id"""),
-                {**context, "advertisement": advertisement_id},
+                WHERE advertisement_id=:advertisement AND store_id=:store_id
+                  AND account_id=:account_id AND :active_date BETWEEN starts_on AND ends_on"""),
+                {**context, "advertisement": advertisement_id, "active_date": active_date},
             ).scalar_one_or_none()
             if exists is None:
                 raise StoreAdvertisementError(
-                    "ADVERTISEMENT_UNAVAILABLE", "Advertisement unavailable."
+                    "ADVERTISEMENT_OUTSIDE_DURATION",
+                    "This advertisement is not available on the selected date.",
                 )
             connection.execute(
                 text("""INSERT INTO store_advertisement_activations
@@ -277,6 +331,34 @@ class PostgresStoreAdvertisements:
                 {**context, "active_date": active_date, "advertisement": advertisement_id},
             )
         return {"advertisement_id": advertisement_id, "active_date": active_date}
+
+    def deactivate(self, principal_id: UUID, active_date: date) -> dict[str, object]:
+        context = self._context(principal_id)
+        with self.engine.begin() as connection:
+            removed = connection.execute(
+                text("""DELETE FROM store_advertisement_activations
+                WHERE store_id=:store_id AND active_date=:active_date
+                RETURNING advertisement_id"""),
+                {**context, "active_date": active_date},
+            ).scalar_one_or_none()
+        return {
+            "advertisement_id": removed,
+            "active_date": active_date,
+            "active": False,
+        }
+
+    def delete(self, principal_id: UUID, advertisement_id: UUID) -> None:
+        context = self._context(principal_id)
+        with self.engine.begin() as connection:
+            removed = connection.execute(
+                text("""DELETE FROM store_advertisements
+                WHERE advertisement_id=:advertisement AND store_id=:store_id
+                  AND account_id=:account_id
+                RETURNING advertisement_id"""),
+                {**context, "advertisement": advertisement_id},
+            ).scalar_one_or_none()
+        if removed is None:
+            raise StoreAdvertisementError("ADVERTISEMENT_UNAVAILABLE", "Advertisement unavailable.")
 
     def image(self, principal_id: UUID, advertisement_id: UUID) -> tuple[bytes, str]:
         context = self._context(principal_id)
@@ -315,6 +397,7 @@ class PostgresStoreAdvertisements:
                   ON advertisement.advertisement_id=activation.advertisement_id
                  AND advertisement.store_id=selected_store.store_id
                  AND advertisement.account_id=session.business_account_id
+                 AND activation.active_date BETWEEN advertisement.starts_on AND advertisement.ends_on
                 JOIN business_tenants tenant
                   ON tenant.tenant_id=session.tenant_id
                  AND tenant.account_id=session.business_account_id

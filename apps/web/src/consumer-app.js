@@ -1,4 +1,5 @@
 import { compactBrandMarkup } from "./brand.js";
+import { wearoConfirm } from "./wearo-dialog.js";
 
 const API_BASE = "/api/v1";
 const AUTH_KEY = "wearo_consumer_auth";
@@ -1606,7 +1607,7 @@ function attachHistoryFlow(auth) {
 
     const deleteButton = target?.closest("[data-delete-look]");
     if (!deleteButton) return;
-    if (!window.confirm("Delete this saved look? It will no longer be available to view or share.")) {
+    if (!await wearoConfirm({ eyebrow: "Saved look", title: "Remove this look?", message: "This look will no longer be available to view or share.", note: "This action permanently removes the generated image from your saved looks.", confirmLabel: "Delete look", cancelLabel: "Keep look" })) {
       return;
     }
     setButtonBusy(deleteButton, true, "Deleting…", "Delete");

@@ -724,6 +724,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .advertisement-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .advertisement-editor { display: grid; align-content: start; gap: 1rem; }
 .advertisement-editor textarea { resize: vertical; }
+.advertisement-date-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .advertisement-upload { display: grid; min-height: 8rem; place-items: center; padding: 1rem; border: 1px dashed #c9bdcb; border-radius: .75rem; color: var(--brand-plum); background: #faf7fb; text-align: center; }
 .advertisement-upload input { max-width: 100%; }
 .advertisement-library { margin-top: 1rem; }
@@ -733,11 +734,52 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .advertisement-card__image { position: relative; aspect-ratio: 3 / 4; overflow: hidden; background: #eee8ef; }
 .advertisement-card__image img { width: 100%; height: 100%; object-fit: cover; }
 .advertisement-card__image > span { position: absolute; top: .65rem; right: .65rem; padding: .3rem .55rem; border-radius: 2rem; color: white; background: #26704d; font-size: .68rem; font-weight: 700; }
-.advertisement-card__body { display: grid; gap: .75rem; padding: .8rem; }
-.advertisement-card__body > div:first-child { display: grid; gap: .2rem; }
+.advertisement-card__body { display: grid; gap: .75rem; padding: .8rem; text-align: center; }
+.advertisement-card__body > div:first-child { display: grid; justify-items: center; gap: .2rem; }
 .advertisement-card__body small { color: var(--ink-mauve); }
-.advertisement-card__actions { display: flex; gap: .5rem; }
-.advertisement-card__actions .button { flex: 1; margin: 0; padding: .55rem; font-size: .72rem; }
+.advertisement-card__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; }
+.advertisement-icon-button { display: grid; width: 2.35rem; height: 2.35rem; place-items: center; margin: 0; padding: 0; border: 1px solid rgb(201 164 107 / 55%); border-radius: .55rem; color: var(--brand-plum); background: #fffaf2; font-size: 1rem; line-height: 1; cursor: pointer; }
+.advertisement-icon-button svg { width: 1.05rem; height: 1.05rem; }
+.advertisement-icon-button:hover, .advertisement-icon-button:focus-visible { border-color: var(--brand-gold); color: var(--brand-aubergine); background: #fbf1e1; box-shadow: 0 0 0 2px rgb(201 164 107 / 16%); }
+.advertisement-icon-button--primary { color: #f7dda8; border-color: var(--brand-plum); background: var(--brand-plum); }
+.advertisement-icon-button--primary:hover, .advertisement-icon-button--primary:focus-visible { color: white; border-color: var(--brand-gold); background: var(--brand-aubergine); }
+.advertisement-icon-button--danger { color: var(--brand-aubergine); border-color: rgb(201 164 107 / 72%); background: #f8e9ef; }
+.advertisement-icon-button--danger:hover, .advertisement-icon-button--danger:focus-visible { color: #fff8e9; border-color: var(--brand-gold); background: #6b274f; }
+.advertisement-confirm-dialog { width: min(calc(100% - 2rem), 29rem); padding: 0; overflow: hidden; border: 1px solid rgb(229 190 119 / 58%); border-radius: 1.65rem; color: var(--ink-charcoal); background: #fffaf4; box-shadow: 0 2.5rem 7rem rgb(22 6 27 / 48%), 0 0 0 .35rem rgb(255 244 218 / 8%); text-align: center; }
+.advertisement-confirm-dialog[open] { animation: advertisement-dialog-in .38s cubic-bezier(.2, .85, .3, 1) both; }
+.advertisement-confirm-dialog::backdrop { background: radial-gradient(circle at 50% 35%, rgb(80 42 87 / 72%), rgb(25 7 29 / 84%)); backdrop-filter: blur(9px) saturate(.8); }
+.advertisement-confirm-dialog__hero { position: relative; height: 7.75rem; border-bottom: 1px solid rgb(232 197 132 / 48%); background: radial-gradient(circle at 50% 115%, rgb(124 63 111 / 72%), transparent 55%), linear-gradient(135deg, #2b0d31, #54234f 58%, #351139); }
+.advertisement-confirm-dialog__hero::after { position: absolute; right: 1.5rem; bottom: .85rem; left: 1.5rem; height: 1px; background: linear-gradient(90deg, transparent, rgb(238 201 130 / 68%), transparent); content: ""; }
+.advertisement-confirm-dialog__spark { position: absolute; color: #eac77f; opacity: .65; text-shadow: 0 0 .8rem rgb(244 210 139 / 70%); }
+.advertisement-confirm-dialog__spark--one { top: 1.45rem; left: 3rem; font-size: .72rem; transform: rotate(12deg); }
+.advertisement-confirm-dialog__spark--two { right: 3.6rem; bottom: 1.75rem; font-size: .5rem; transform: rotate(28deg); }
+.advertisement-confirm-dialog__close { position: absolute; z-index: 2; top: .85rem; right: .85rem; display: grid; width: 2.25rem; height: 2.25rem; place-items: center; padding: 0 0 .12rem; border: 1px solid rgb(244 216 161 / 28%); border-radius: 50%; color: rgb(255 246 229 / 78%); background: rgb(255 255 255 / 6%); font-size: 1.45rem; line-height: 1; transition: background .2s ease, color .2s ease, transform .2s ease; }
+.advertisement-confirm-dialog__close:hover { color: white; background: rgb(255 255 255 / 14%); transform: rotate(6deg); }
+.advertisement-confirm-dialog__mark { position: absolute; z-index: 1; bottom: -2.5rem; left: 50%; display: grid; width: 5rem; height: 5rem; place-items: center; border: 1px solid #e4ba6d; border-radius: 50%; color: #fff5df; background: linear-gradient(145deg, #7b3157, #4b183f); box-shadow: inset 0 1px rgb(255 255 255 / 18%), 0 .8rem 2rem rgb(56 18 49 / 28%), 0 0 0 .45rem #fffaf4; transform: translateX(-50%); }
+.advertisement-confirm-dialog__mark svg { width: 1.9rem; height: 1.9rem; filter: drop-shadow(0 .2rem .25rem rgb(22 6 27 / 35%)); }
+.advertisement-confirm-dialog__content { padding: 3.35rem 2rem 2rem; }
+.advertisement-confirm-dialog__content .eyebrow { margin-bottom: .45rem; color: #9a6a31; font-size: .68rem; letter-spacing: .16em; }
+.advertisement-confirm-dialog h2 { margin: 0 0 .6rem; color: var(--brand-aubergine); font-family: "Iowan Old Style", "Baskerville", Georgia, serif; font-size: 1.85rem; font-weight: 500; letter-spacing: -.025em; }
+.advertisement-confirm-dialog__content > p:not(.eyebrow, .form-status) { max-width: 22rem; margin: 0 auto 1.25rem; color: var(--ink-mauve); font-size: .92rem; line-height: 1.6; }
+.advertisement-confirm-dialog__notice { display: flex; align-items: center; gap: .7rem; margin: 0 0 1.4rem; padding: .75rem .85rem; border: 1px solid rgb(145 71 88 / 14%); border-radius: .8rem; background: rgb(119 44 68 / 5%); text-align: left; }
+.advertisement-confirm-dialog__notice > span { display: grid; width: 1.55rem; height: 1.55rem; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #8b3850; background: #f4dfe4; font-family: Georgia, serif; font-size: .82rem; font-weight: 700; }
+.advertisement-confirm-dialog__notice p { margin: 0; color: #755d69; font-size: .74rem; line-height: 1.45; }
+.advertisement-confirm-dialog__actions { display: grid; grid-template-columns: 1fr 1.15fr; gap: .75rem; }
+.advertisement-confirm-dialog__actions .button { min-height: 3rem; margin: 0; border-radius: .75rem; font-size: .88rem; transition: box-shadow .2s ease, transform .2s ease, background .2s ease; }
+.advertisement-confirm-dialog__actions .button:hover { transform: translateY(-1px); }
+.advertisement-confirm-dialog__keep { border: 1px solid #dfd2dc; color: var(--brand-plum); background: white; box-shadow: 0 .35rem 1rem rgb(59 23 70 / 6%); }
+.advertisement-confirm-dialog__keep:hover { border-color: #b793ae; background: #fffdfb; box-shadow: 0 .5rem 1.2rem rgb(59 23 70 / 10%); }
+.advertisement-confirm-dialog__delete { border: 1px solid #6d294c; color: #fff9ef; background: linear-gradient(135deg, #7c3157, #572044); box-shadow: inset 0 1px rgb(255 255 255 / 14%), 0 .55rem 1.25rem rgb(91 30 68 / 22%); }
+.advertisement-confirm-dialog__delete:hover { background: linear-gradient(135deg, #8a385f, #471536); box-shadow: inset 0 1px rgb(255 255 255 / 18%), 0 .7rem 1.5rem rgb(91 30 68 / 30%); }
+.advertisement-confirm-dialog__delete svg { width: 1rem; height: 1rem; }
+.advertisement-confirm-dialog .form-status { margin: .75rem 0 0; font-size: .78rem; }
+.wearo-confirm-dialog[data-tone="info"] .advertisement-confirm-dialog__mark { color: #fff3cb; background: linear-gradient(145deg, #76532d, #4c2e20); }
+.wearo-confirm-dialog[data-tone="info"] .advertisement-confirm-dialog__delete { border-color: #9e7437; color: #281229; background: linear-gradient(120deg, #c89a52, #f0d28f 52%, #b78340); box-shadow: inset 0 1px rgb(255 255 255 / 42%), 0 .55rem 1.25rem rgb(113 75 29 / 20%); }
+.wearo-confirm-dialog[data-tone="info"] .advertisement-confirm-dialog__delete:hover { background: linear-gradient(120deg, #d0a45f, #f7dda1 52%, #bd8a47); }
+.wearo-confirm-dialog__actions--single { grid-template-columns: 1fr; }
+.wearo-confirm-dialog__actions--single .advertisement-confirm-dialog__delete { width: 100%; }
+@keyframes advertisement-dialog-in { from { opacity: 0; transform: translateY(1rem) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 480px) { .advertisement-confirm-dialog { width: min(calc(100% - 1rem), 29rem); border-radius: 1.35rem; } .advertisement-confirm-dialog__content { padding: 3.25rem 1.15rem 1.25rem; } .advertisement-confirm-dialog__actions { grid-template-columns: 1fr; } .advertisement-confirm-dialog__delete { grid-row: 1; } .advertisement-confirm-dialog__keep { grid-row: 2; } }
 @media (max-width: 760px) { .advertisement-layout { grid-template-columns: 1fr; } }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-bottom: 2rem; }
 .page-heading h1 { margin: .25rem 0; }

@@ -11,6 +11,7 @@ const store = await readFile(new URL("src/store-app.js", root), "utf8");
 const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
 const admin = await readFile(new URL("src/admin-app.js", root), "utf8");
 const consumer = await readFile(new URL("src/consumer-app.js", root), "utf8");
+const wearoDialog = await readFile(new URL("src/wearo-dialog.js", root), "utf8");
 const publicSite = await readFile(new URL("src/public-site.js", root), "utf8");
 const worker = await readFile(new URL("public/sw.js", root), "utf8");
 const manifest = JSON.parse(await readFile(new URL("public/manifest.webmanifest", root), "utf8"));
@@ -612,4 +613,13 @@ test("responsive and accessible interaction states exist for both experiences", 
   assert.match(css, /\.business-app/);
   assert.match(css, /\.consumer-app/);
   assert.match(html, /Skip to main content/);
+});
+
+test("all application confirmations use the accessible Wearo dialog", () => {
+  for (const application of [admin, business, store, agent, consumer]) {
+    assert.doesNotMatch(application, /window\.(?:alert|confirm)\s*\(/);
+  }
+  assert.match(wearoDialog, /showModal\(\)/);
+  assert.match(wearoDialog, /aria-labelledby="wearo-dialog-title"/);
+  assert.match(css, /\.wearo-confirm-dialog\[data-tone="info"\]/);
 });
