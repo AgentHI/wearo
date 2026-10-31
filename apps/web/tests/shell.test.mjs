@@ -317,6 +317,8 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /\/auth\/email-otp\/request/);
   assert.match(consumer, /responseText = await response\.text\(\)/);
   assert.match(consumer, /INVALID_API_RESPONSE/);
+  assert.match(consumer, /attempt < 165/);
+  assert.match(consumer, /did not finish within 5 minutes/);
   assert.match(consumer, /backend is running on 127\.0\.0\.1:8000/);
   assert.match(consumer, /result\.has_person_profile/);
   assert.match(consumer, /sessionStorage\.setItem\(AUTH_KEY/);

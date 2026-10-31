@@ -19,7 +19,7 @@ from .external_runtime import (
     RequestsMultipartTransport,
 )
 from .media_runtime import FilesystemPrivateBlobStore, PostgresMediaRuntime
-from .render_provider import OpenAIImageEditAdapter, VertexTryOnAdapter
+from .render_provider import OpenAIImageEditAdapter, ProviderError, VertexTryOnAdapter
 from .render_quality import QualityAnalyzer, RenderQualityGate
 from .render_runtime import DurableRenderJob, PostgresRenderRuntime
 
@@ -92,8 +92,10 @@ def build_worker() -> DurableRenderWorker:
                 .one_or_none()
             )
         if route is None:
-            raise SystemExit("Quoted model is not configured in AI Models & Cost")
-        credential = _required(str(route["credential_env_name"]))
+            raise ProviderError("PROVIDER_ROUTE_UNAVAILABLE", retryable=False)
+        credential = os.environ.get(str(route["credential_env_name"]), "")
+        if not credential:
+            raise ProviderError("PROVIDER_CREDENTIAL_UNAVAILABLE", retryable=False)
         if route["adapter_type"] == "OPENAI":
             return OpenAIImageEditAdapter(
                 RequestsMultipartTransport(), api_key=credential, model=job.model
@@ -105,7 +107,7 @@ def build_worker() -> DurableRenderWorker:
                 project_id=credential,
                 region=job.region,
             )
-        raise SystemExit("Selected model uses an unsupported provider adapter")
+        raise ProviderError("PROVIDER_ADAPTER_UNSUPPORTED", retryable=False)
 
     return DurableRenderWorker(
         PostgresRenderRuntime(

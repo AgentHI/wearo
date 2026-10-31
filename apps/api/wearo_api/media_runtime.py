@@ -117,6 +117,15 @@ class PostgresMediaRuntime:
             raise MediaRuntimeError("INVALID_IMAGE_SIZE", "Upload a company logo under 2 MB.")
         return self._store(account_id, "BUSINESS_LOGO", content, content_type)
 
+    def store_advertisement(
+        self, account_id: UUID, content: bytes, content_type: str
+    ) -> StoredMedia:
+        if len(content) > 5 * 1024 * 1024:
+            raise MediaRuntimeError(
+                "INVALID_IMAGE_SIZE", "Advertisement images must be under 5 MB."
+            )
+        return self._store(account_id, "ADVERTISEMENT", content, content_type)
+
     def _store(
         self, account_id: UUID, purpose: str, content: bytes, content_type: str
     ) -> StoredMedia:

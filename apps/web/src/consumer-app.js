@@ -1062,6 +1062,7 @@ function attachHomeFlow(auth) {
   let generationActive = false;
   let selectedPersonAssetId = null;
   let sponsoredSession = null;
+  let sponsoredAdvertisementUrl = null;
   let businessTryOnsAllowed = true;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   const completionAudioContext = AudioContextClass ? new AudioContextClass() : null;
@@ -1148,6 +1149,22 @@ function attachHomeFlow(auth) {
     allowanceCopy.textContent = sponsoredSession.try_ons_remaining;
     allowanceNote.textContent = `Sponsored by ${sponsoredSession.business_name} · Valid until ${new Date(sponsoredSession.expires_at).toLocaleString()}.`;
     submit.disabled = unavailable || sponsoredSession.try_ons_remaining <= 0;
+    try {
+      const advertisement = await fetch(
+        `${API_BASE}/sponsored-sessions/${encodeURIComponent(sponsoredSession.session_id)}/advertisement`,
+        { credentials: "same-origin", cache: "no-store" },
+      );
+      if (advertisement.ok && advertisement.status !== 204) {
+        const image = await advertisement.blob();
+        if (image.type.startsWith("image/")) {
+          const previousUrl = sponsoredAdvertisementUrl;
+          sponsoredAdvertisementUrl = URL.createObjectURL(image);
+          if (previousUrl) URL.revokeObjectURL(previousUrl);
+        }
+      }
+    } catch {
+      // A missing advertisement must never block the sponsored try-on.
+    }
     return sponsoredSession;
   };
 
@@ -1223,7 +1240,9 @@ function attachHomeFlow(auth) {
     delete preview.dataset.partial;
     preview.dataset.state = "generating";
     preview.setAttribute("aria-label", "Wearo is creating your try-on preview");
-    preview.innerHTML = `<div class="tryon-generation" role="status"><div class="tryon-generation__sky" aria-hidden="true"><i class="tryon-generation__twinkle tryon-generation__twinkle--one">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--two">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--three">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--four">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--five">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--six">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--seven">✧</i></div><strong>Creating your Wearo look</strong><small>Fitting your selected wearable to your photo…</small><div class="tryon-generation__progress" aria-hidden="true"><i></i></div></div>`;
+    preview.innerHTML = sponsoredAdvertisementUrl
+      ? `<div class="sponsored-advertisement-progress" role="status"><img src="${sponsoredAdvertisementUrl}" alt="Advertisement from ${escapeHtml(sponsoredSession?.business_name || "this store")}" /><div class="sponsored-advertisement-progress__shade"></div><strong>Try-on in progress…</strong></div>`
+      : `<div class="tryon-generation" role="status"><div class="tryon-generation__sky" aria-hidden="true"><i class="tryon-generation__twinkle tryon-generation__twinkle--one">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--two">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--three">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--four">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--five">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--six">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--seven">✧</i></div><strong>Creating your Wearo look</strong><small>Fitting your selected wearable to your photo…</small><div class="tryon-generation__progress" aria-hidden="true"><i></i></div></div>`;
   };
 
   const waitForGeneratingPreviewPaint = () => new Promise((resolve) => {
@@ -1287,7 +1306,9 @@ function attachHomeFlow(auth) {
   });
 
   const waitForRender = async (renderId) => {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    // Image editing plus the quality gate can legitimately approach the five-minute worker lease.
+    // Keep polling slightly beyond that lease so the UI receives the actual success/failure state.
+    for (let attempt = 0; attempt < 165; attempt += 1) {
       const job = await api(`/renders/${renderId}`, {}, auth);
       if (job.status === "SUCCEEDED") return job;
       if (["FAILED", "CANCELLED"].includes(job.status)) {
@@ -1296,7 +1317,7 @@ function attachHomeFlow(auth) {
       setStatus(status, `Creating your preview… ${job.status.toLowerCase()}`);
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
-    throw new Error("Generation is taking longer than expected. Check again shortly.");
+    throw new Error("Generation did not finish within 5 minutes. Please try again.");
   };
 
   const selectItemFile = (file, sourceLabel) => {
@@ -1338,10 +1359,7 @@ function attachHomeFlow(auth) {
       return;
     }
     generationActive = true;
-    showGeneratingPreview();
-    await waitForGeneratingPreviewPaint();
     setButtonBusy(submit, true, "Uploading wearable…", "Generate try-on");
-    setStatus(status, "Uploading your wearable item…");
     try {
       if (readShopContext()) {
         const activeSession = await refreshSponsoredSession();
@@ -1352,6 +1370,9 @@ function attachHomeFlow(auth) {
           throw new Error("No try-ons remain in this 24-hour business session.");
         }
       }
+      showGeneratingPreview();
+      await waitForGeneratingPreviewPaint();
+      setStatus(status, "Uploading your wearable item…");
       const item = await upload("PRODUCT", selectedItemFile, auth);
       setButtonBusy(submit, true, "Checking item…", "Generate try-on");
       setStatus(status, "Understanding the uploaded item…");

@@ -349,6 +349,7 @@ class RequestsMultipartTransport:
         request_files = [
             (file.field_name, (file.filename, file.content, file.mime_type)) for file in files
         ]
+        started_at = time.monotonic()
         try:
             with self.session.post(
                 url,
@@ -363,6 +364,8 @@ class RequestsMultipartTransport:
                     return HttpResponse(response.status_code, {}, response_headers)
                 data_lines: list[str] = []
                 for raw_line in response.iter_lines(decode_unicode=True):
+                    if time.monotonic() - started_at >= timeout_seconds:
+                        raise ProviderError("OPENAI_STREAM_TIMEOUT", retryable=True)
                     line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
                     if not line:
                         self._dispatch_sse_data(data_lines, on_event)

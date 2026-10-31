@@ -134,9 +134,11 @@ class PostgresBusinessStores:
     def context(self, principal_id: UUID) -> dict[str, object]:
         with self.engine.connect() as connection:
             row = connection.execute(text("""SELECT s.store_id, s.tenant_id, s.account_id,
-                    s.name, s.code, p.display_name business_name
+                    s.name, s.code, p.display_name business_name, t.advertisements_enabled
                 FROM business_stores s JOIN business_profiles p
                   ON p.tenant_id=s.tenant_id AND p.account_id=s.account_id
+                JOIN business_tenants t
+                  ON t.tenant_id=s.tenant_id AND t.account_id=s.account_id
                 WHERE s.admin_principal_id=:principal AND s.status='ACTIVE'"""),
                 {"principal": principal_id}).mappings().one_or_none()
             if row is None:

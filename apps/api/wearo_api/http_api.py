@@ -150,6 +150,11 @@ from .sensitive_audit import PostgresSensitiveAudit, SensitiveAuditError
 from .sms_delivery import HttpSmsDeliveryProvider
 from .smtp_email import SmtpEmailDeliveryProvider, SmtpSettings
 from .sponsored_tryons import PostgresSponsoredTryOns, SponsoredTryOnError
+from .store_advertisements import (
+    OpenAIAdvertisementGenerator,
+    PostgresStoreAdvertisements,
+    StoreAdvertisementError,
+)
 from .support_access import PostgresSupportAccess, SupportAccessError
 from .support_cases import CaseType, PostgresSupportCases, SupportCaseError
 from .topups import HttpPaymentGateway, PostgresTopUps, TopUpError, UnavailablePaymentGateway
@@ -200,6 +205,7 @@ class ApiContainer:
     sensitive_audit: PostgresSensitiveAudit | None = None
     business_agents: PostgresBusinessAgents | None = None
     business_stores: PostgresBusinessStores | None = None
+    store_advertisements: PostgresStoreAdvertisements | None = None
     business_shop: PostgresBusinessShop | None = None
     business_tryon_status: PostgresBusinessTryOnStatus | None = None
     business_allowances: PostgresBusinessAllowances | None = None
@@ -285,6 +291,23 @@ class BusinessStoreBody(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     admin_email: str = Field(min_length=3, max_length=320)
     admin_mobile: str = Field(min_length=7, max_length=32)
+
+
+class AdvertisementGenerateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=1000)
+    advertisement_id: UUID | None = None
+
+
+class AdvertisementUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=120)
+
+
+class AdvertisementActivationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    active_date: date
 
 
 class AgentMoveBody(BaseModel):
@@ -876,6 +899,7 @@ def create_app(
     @app.exception_handler(SensitiveAuditError)
     @app.exception_handler(BusinessAgentError)
     @app.exception_handler(BusinessStoreError)
+    @app.exception_handler(StoreAdvertisementError)
     @app.exception_handler(BusinessShopError)
     @app.exception_handler(BusinessTryOnStatusError)
     @app.exception_handler(BusinessAllowanceError)
@@ -1718,6 +1742,77 @@ def create_app(
         )
         return Response(status_code=204)
 
+    @app.get("/api/v1/store/advertisements")
+    def store_advertisement_list(request: Request) -> dict[str, object]:
+        session = _authenticate_store(request, container)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        return container.store_advertisements.list(session.principal_id)
+
+    @app.post("/api/v1/store/advertisements/upload", status_code=201)
+    async def store_advertisement_upload(
+        request: Request,
+        title: Annotated[str, Form()],
+        image: Annotated[UploadFile, File()],
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        content = await image.read(15 * 1024 * 1024 + 1)
+        return container.store_advertisements.upload(session.principal_id, title, content)
+
+    @app.post("/api/v1/store/advertisements/generate", status_code=201)
+    def store_advertisement_generate(
+        body: AdvertisementGenerateBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        return container.store_advertisements.generate(
+            session.principal_id, body.title, body.prompt, body.advertisement_id
+        )
+
+    @app.put("/api/v1/store/advertisements/{advertisement_id}")
+    def store_advertisement_update(
+        advertisement_id: UUID,
+        body: AdvertisementUpdateBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        return container.store_advertisements.update(
+            session.principal_id, advertisement_id, body.title
+        )
+
+    @app.put("/api/v1/store/advertisements/{advertisement_id}/activate")
+    def store_advertisement_activate(
+        advertisement_id: UUID,
+        body: AdvertisementActivationBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_store(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        return container.store_advertisements.activate(
+            session.principal_id, advertisement_id, body.active_date
+        )
+
+    @app.get("/api/v1/store/advertisements/{advertisement_id}/image")
+    def store_advertisement_image(advertisement_id: UUID, request: Request) -> Response:
+        session = _authenticate_store(request, container)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        content, content_type = container.store_advertisements.image(
+            session.principal_id, advertisement_id
+        )
+        return Response(content, media_type=content_type)
+
     @app.get("/api/v1/public/agent-manifest")
     def public_agent_manifest(business: str, key: str) -> JSONResponse:
         if container.business_shop is None:
@@ -2258,6 +2353,19 @@ def create_app(
         return container.sponsored_tryons.status(
             session_id, session.account_id, session.principal_id
         )
+
+    @app.get("/api/v1/sponsored-sessions/{session_id}/advertisement")
+    def sponsored_session_advertisement(session_id: UUID, request: Request) -> Response:
+        session = _authenticate(request, container)
+        if container.store_advertisements is None:
+            raise ApiProblem(503, "ADVERTISEMENT_UNAVAILABLE", "Advertisements are unavailable.")
+        active = container.store_advertisements.active_for_sponsored_session(
+            session_id, session.account_id, session.principal_id
+        )
+        if active is None:
+            return Response(status_code=204)
+        content, content_type = active
+        return Response(content, media_type=content_type)
 
     @app.post("/api/v1/sponsored-sessions/{session_id}/try-ons", status_code=201)
     def consume_sponsored_try_on(
@@ -3404,6 +3512,18 @@ def create_app_from_env() -> FastAPI:
         registration_test_otp=fixed_test_code,
         preflight=preflight,
         secure_cookie=secure_cookie,
+    )
+    object.__setattr__(
+        container,
+        "store_advertisements",
+        PostgresStoreAdvertisements(
+            engine,
+            container.media,
+            OpenAIAdvertisementGenerator(
+                os.environ.get("WEARO_OPENAI_API_KEY", ""),
+                os.environ.get("WEARO_ADVERTISEMENT_AI_MODEL", "gpt-image-2"),
+            ),
+        ),
     )
     embedded_worker = None
     if embedded_worker_enabled:
