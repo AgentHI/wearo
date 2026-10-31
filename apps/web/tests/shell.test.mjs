@@ -273,6 +273,9 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.doesNotMatch(business, /url\.pathname\.replace\(\/\^\\\/shop/);
   assert.doesNotMatch(business, /id="shop-qr-download"/);
   assert.match(store, /Download QR poster/);
+  assert.doesNotMatch(store, /latestAiCard/);
+  assert.match(store, /resetAdvertisementEditor\("✦ Generate new card"\)/);
+  assert.match(store, /Advertisement saved\. You can create a new card below\./);
   assert.match(store, /id="store-shop-url"[^>]*target="_blank"[^>]*rel="noopener"/);
   assert.match(store, /\/store\/shop-link/);
   assert.match(business, /General try-on allowance/);
