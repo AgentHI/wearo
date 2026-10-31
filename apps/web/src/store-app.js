@@ -38,6 +38,7 @@ function dashboardView(context, pathname) {
       <section class="panel store-editor"><div class="panel__heading"><div><h2>Agent details</h2><p>This agent belongs only to ${context.name}. Store transfers are managed by the business administrator.</p></div></div><form id="store-agent-form" data-agent-id="${editingId}"><div class="store-form-grid"><label>Name<input name="name" maxlength="120" autocomplete="name" required /><small class="field-help">The name shown in the Agent workspace.</small></label><label>Mobile number<input name="mobile" type="tel" autocomplete="tel" placeholder="+919876543210" required /><small class="field-help">Include the international country code.</small></label></div><div class="form-actions store-form-actions"><button class="button button--primary" type="submit">${editingId ? "Save changes" : "Add agent"}</button><a class="button button--quiet" href="/store">Cancel</a></div><p id="store-agent-status" class="form-status" role="status" aria-live="polite"></p></form></section>`
     : `<header class="page-heading"><div><p class="eyebrow">Store dashboard</p><h1>${context.name}</h1><p>Manage this store's team and monitor store operations.</p></div></header>
       <section class="metric-grid overview-metrics"><article class="metric-card--activity"><div><p>Store agents</p><span class="metric-icon">A</span></div><strong>${context.agents}</strong><small>Assigned to this store</small></article><article class="metric-card--activity"><div><p>Active agents</p><span class="metric-icon">✓</span></div><strong>${context.active_agents}</strong><small>Currently able to sign in</small></article><article class="metric-card--activity"><div><p>Business try-ons</p><span class="metric-icon">Σ</span></div><strong>${context.successful_try_ons}</strong><small>${context.total_try_ons} requested through the business-level QR</small></article></section>
+      <section class="panel store-shop-link"><div class="panel__heading"><div><h2>Customer QR and URL</h2><p>This QR identifies ${context.name}, so customer sessions are attributed to this store.</p></div></div><p id="store-shop-status" class="form-status" role="status" aria-live="polite">Loading store link…</p><div class="form-actions"><a id="store-shop-url" class="button button--quiet" href="#" target="_blank" rel="noopener">Open customer URL</a><button id="store-copy-url" class="button button--quiet" type="button">Copy URL</button><a id="store-shop-qr" class="button button--primary" href="/api/v1/store/shop-qr.png">Download QR poster</a></div></section>
       <section class="panel store-directory"><div class="panel__heading"><div><h2>Store agents</h2><p>Agents assigned to ${context.name}. Transfers are completed by the business administrator.</p></div><div class="store-list-actions"><span id="store-agent-count" class="status-chip">Loading</span><a class="button button--primary" href="/store/agents/new">Add agent</a></div></div><div id="store-agent-list" class="store-list" aria-live="polite">Loading agents…</div></section>`;
   return `<div class="business-app store-app"><aside class="business-sidebar"><div class="business-sidebar__brand">${brandMarkup("/store")}<span>Store</span></div>
     <div class="workspace-switcher"><span class="workspace-switcher__mark">${context.name.slice(0, 2).toUpperCase()}</span><span><small>${context.business_name}</small><strong>${context.name}</strong></span></div>
@@ -76,10 +77,37 @@ async function loadAgents(context) {
 function attachDashboard(context, pathname) {
   const form = document.querySelector("#store-agent-form");
   document.querySelector("#store-logout").addEventListener("click", async () => { try { await api("/store/logout", { method: "POST" }); } catch {} sessionStorage.removeItem(AUTH_KEY); renderStoreApp(document.querySelector("#app"), "/store"); });
-  if (!form) { loadAgents(context).catch((error) => { document.querySelector("#store-agent-list").textContent = error.message; }); return; }
+  if (!form) {
+    loadStoreShopLink();
+    loadAgents(context).catch((error) => { document.querySelector("#store-agent-list").textContent = error.message; });
+    return;
+  }
   const id = form.dataset.agentId;
   if (id) loadAgents(context).then((agents) => { const agent = agents.find((item) => item.agent_id === id); if (!agent) throw new Error("Agent unavailable."); form.elements.name.value = agent.name; form.elements.mobile.value = agent.normalized_mobile; document.querySelector("#store-agent-title").textContent = `Edit ${agent.name}`; }).catch((error) => { document.querySelector("#store-agent-status").textContent = error.message; });
   form.addEventListener("submit", async (event) => { event.preventDefault(); const status = document.querySelector("#store-agent-status"); status.textContent = id ? "Saving changes…" : "Adding agent…"; try { await api(`/store/agents${id ? `/${id}` : ""}`, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.elements.name.value, mobile: form.elements.mobile.value, store_id: context.store_id }) }); window.history.pushState({}, "", "/store"); renderStoreApp(document.querySelector("#app"), "/store"); } catch (error) { status.textContent = error.message; } });
+}
+
+async function loadStoreShopLink() {
+  const status = document.querySelector("#store-shop-status");
+  const link = document.querySelector("#store-shop-url");
+  const copy = document.querySelector("#store-copy-url");
+  if (!status || !link || !copy) return;
+  try {
+    const result = await api("/store/shop-link");
+    link.href = result.shop_url;
+    status.textContent = `${result.caption} · Store code ${result.store_code}`;
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(result.shop_url);
+        status.textContent = "Customer URL copied.";
+      } catch {
+        status.textContent = "Open the customer URL and copy it from your browser.";
+      }
+    });
+  } catch (error) {
+    status.textContent = error.message;
+    link.hidden = true; copy.hidden = true;
+  }
 }
 
 function attachLogin(root) {

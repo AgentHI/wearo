@@ -64,6 +64,7 @@ class PostgresSponsoredTryOns:
         self,
         *,
         business_reference: str,
+        store_reference: str | None = None,
         public_key: str,
         consumer_account_id: UUID,
         consumer_principal_id: UUID,
@@ -76,7 +77,7 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """SELECT l.tenant_id, l.account_id AS business_account_id,
-                                  p.display_name, t.try_on_status,
+                                  p.display_name, t.try_on_status, s.store_id, s.name AS store_name,
                                   subscription.state AS subscription_state,
                                   COALESCE((SELECT NOT paused FROM platform_tryon_controls
                                     WHERE scope='PLATFORM' AND scope_key='ALL'), true)
@@ -94,11 +95,17 @@ class PostgresSponsoredTryOns:
                         JOIN business_subscriptions subscription
                           ON subscription.tenant_id=t.tenant_id
                          AND subscription.account_id=t.account_id
+                        LEFT JOIN business_stores s
+                          ON s.tenant_id=l.tenant_id AND s.account_id=l.account_id
+                         AND (CAST(:store AS text) IS NOT NULL)
+                         AND (s.code=:store OR CAST(s.store_id AS text)=:store)
+                         AND s.status='ACTIVE'
                         WHERE (t.slug=:reference OR CAST(t.tenant_id AS text)=:reference)
                           AND (l.public_code=:key OR CAST(l.public_token AS text)=:key)
+                          AND (CAST(:store AS text) IS NULL OR s.store_id IS NOT NULL)
                           AND l.enabled AND t.status='ACTIVE'"""
                     ),
-                    {"reference": business_reference, "key": public_key},
+                    {"reference": business_reference, "store": store_reference, "key": public_key},
                 )
                 .mappings()
                 .one_or_none()
@@ -184,11 +191,13 @@ class PostgresSponsoredTryOns:
                         """SELECT session_id, allowance_limit, try_ons_used, status, expires_at
                         FROM business_sponsored_sessions
                         WHERE tenant_id=:tenant AND consumer_principal_id=:principal
+                          AND store_id IS NOT DISTINCT FROM :store
                           AND status IN ('ACTIVE', 'EXHAUSTED') AND expires_at > :now
                         ORDER BY created_at DESC LIMIT 1"""
                     ),
                     {
                         "tenant": context["tenant_id"],
+                        "store": context["store_id"],
                         "principal": consumer_principal_id,
                         "now": current,
                     },
@@ -264,9 +273,10 @@ class PostgresSponsoredTryOns:
                 connection.execute(
                     text(
                         """INSERT INTO business_sponsored_sessions
-                        (participant_id, tenant_id, business_account_id, consumer_account_id,
+                        (participant_id, tenant_id, business_account_id, store_id,
+                         consumer_account_id,
                          consumer_principal_id, allowance_limit, expires_at, created_at, updated_at)
-                        VALUES (:participant, :tenant, :business_account, :consumer_account,
+                        VALUES (:participant, :tenant, :business_account, :store, :consumer_account,
                                 :consumer_principal, :allowance, :expires, :now, :now)
                         RETURNING session_id, allowance_limit, try_ons_used, status, expires_at"""
                     ),
@@ -274,6 +284,7 @@ class PostgresSponsoredTryOns:
                         "participant": participant_id,
                         "tenant": context["tenant_id"],
                         "business_account": context["business_account_id"],
+                        "store": context["store_id"],
                         "consumer_account": consumer_account_id,
                         "consumer_principal": consumer_principal_id,
                         "allowance": max(allowance, 0),

@@ -26,3 +26,12 @@ def test_store_migration_satisfies_policy_and_backfills_agents() -> None:
     assert "'Main Store', 'main'" in source
     assert "UPDATE business_agents a SET store_id=s.store_id" in source
     assert 'op.alter_column("business_agents", "store_id", nullable=False)' in source
+
+
+def test_store_session_query_gives_optional_store_parameter_an_explicit_type() -> None:
+    source = Path("apps/api/wearo_api/sponsored_tryons.py").read_text()
+
+    assert "CAST(:store AS text) IS NOT NULL" in source
+    assert "CAST(:store AS text) IS NULL" in source
+    assert "(:store IS NOT NULL)" not in source
+    assert "(:store IS NULL" not in source

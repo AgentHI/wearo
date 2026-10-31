@@ -5,23 +5,25 @@ const AUTH_KEY = "wearo_consumer_auth";
 const AUTH_IDENTITY_VERSION = 2;
 const SHOP_CONTEXT_KEY = "wearo_shop_context";
 const SHOP_DETAILS_KEY = "wearo_shop_details";
-const SHOP_DETAILS_VERSION = 5;
+const SHOP_DETAILS_VERSION = 6;
 const SPONSORED_SESSION_KEY = "wearo_sponsored_session";
 const TRY_ON_COMPLETE_SOUND = "/wearo-tryon-complete.wav";
 
 function captureShopContext(pathname) {
-  const match = pathname.match(/^\/shop\/([^/]+)\/?$/);
+  const match = pathname.match(/^\/shop\/([^/]+)(?:\/([^/]+))?\/?$/);
   if (!match) return;
   const key = new URLSearchParams(window.location.search).get("key");
   if (!key) return;
   const nextContext = {
     businessReference: decodeURIComponent(match[1]),
+    storeReference: match[2] ? decodeURIComponent(match[2]) : null,
     key,
   };
   const previousContext = readShopContext();
   sessionStorage.setItem(SHOP_CONTEXT_KEY, JSON.stringify(nextContext));
   if (
     previousContext?.businessReference !== nextContext.businessReference
+    || previousContext?.storeReference !== nextContext.storeReference
     || previousContext?.key !== nextContext.key
   ) {
     sessionStorage.removeItem(SHOP_DETAILS_KEY);
@@ -45,7 +47,10 @@ function readShopDetails() {
 async function loadShopDetails() {
   const context = readShopContext();
   if (!context) return null;
-  const details = await api(`/public/shops/${encodeURIComponent(context.businessReference)}?key=${encodeURIComponent(context.key)}`);
+  const shopPath = context.storeReference
+    ? `/public/shops/${encodeURIComponent(context.businessReference)}/stores/${encodeURIComponent(context.storeReference)}`
+    : `/public/shops/${encodeURIComponent(context.businessReference)}`;
+  const details = await api(`${shopPath}?key=${encodeURIComponent(context.key)}`);
   let logoDataUrl = null;
   if (details.logo_url) {
     try {
@@ -102,8 +107,11 @@ async function ensureSponsoredSession(auth) {
       sessionStorage.removeItem(SPONSORED_SESSION_KEY);
     }
   }
+  const sessionPath = context.storeReference
+    ? `/public/shops/${encodeURIComponent(context.businessReference)}/stores/${encodeURIComponent(context.storeReference)}/sessions`
+    : `/public/shops/${encodeURIComponent(context.businessReference)}/sessions`;
   const session = await api(
-    `/public/shops/${encodeURIComponent(context.businessReference)}/sessions`,
+    sessionPath,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

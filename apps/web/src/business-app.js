@@ -742,10 +742,9 @@ function setupBusinessAdminPanels() {
   if (experiencePanel) {
     experiencePanel.innerHTML = `<h2>Customer experience</h2><p>Manage workspace-wide customer experience settings.</p><section class="settings-section"><h3>Customer data</h3><form id="customer-experience-form"><label>Image retention<select name="imageRetentionDays"><option value="1">1 day</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label><p class="field-help">Customer profiles are always deleted within 24 hours.</p><label>Reason for update<input name="reason" required maxlength="500" /></label><button class="button button--primary" type="submit">Update data settings</button><p id="customer-experience-status" class="form-status" role="status" aria-live="polite"></p></form></section><section class="settings-section"><h3>General try-on allowance</h3><p class="field-help">This overall value applies to every customer and resets every 24 hours.</p><form id="allowance-policy-form"><label>Default try-ons<input name="limit" type="number" min="0" max="100000" required /></label><button class="button button--quiet" type="submit">Save default try-ons</button><p id="allowance-admin-status" class="form-status" role="status" aria-live="polite"></p></form></section>`;
   }
-  if (document.querySelector("#shop-link-status")) return;
+  if (document.querySelector("#communications-history")) return;
   grid.insertAdjacentHTML("beforeend", `
-    <article class="panel"><h2>Company logo</h2><p>Shown on your downloadable business QR poster.</p><div id="company-logo-preview" class="company-logo-preview"><span>No logo uploaded</span></div><form id="company-logo-form"><label>Upload logo<input name="image" type="file" accept="image/png,image/jpeg,image/webp" required /></label><button class="button button--primary" type="submit">Save company logo</button><p id="company-logo-status" class="form-status" role="status" aria-live="polite"></p></form></article>
-    <article class="panel"><h2>Shop QR and URL</h2><p id="shop-link-status">Loading shop link…</p><a id="shop-url" class="button button--quiet" href="#" target="_blank" rel="noopener">Open shop URL</a> <a id="shop-qr-download" class="button button--quiet" href="#">Download QR poster</a></article>
+    <article class="panel"><h2>Company logo</h2><p>Shown on the QR posters managed by your stores.</p><div id="company-logo-preview" class="company-logo-preview"><span>No logo uploaded</span></div><form id="company-logo-form"><label>Upload logo<input name="image" type="file" accept="image/png,image/jpeg,image/webp" required /></label><button class="button button--primary" type="submit">Save company logo</button><p id="company-logo-status" class="form-status" role="status" aria-live="polite"></p></form></article>
     <article class="panel"><h2>Communications and legal history</h2><p>Manage email and SMS topics and review versioned notice acceptances.</p><div id="communications-history" class="settings-list">Loading notices…</div></article>
     <article class="panel"><h2>Financial reconciliation</h2><p id="reconciliation-summary">Loading top-ups, usage, and invoices…</p><a id="reconciliation-download" class="button button--quiet" href="#">Download reconciliation CSV</a></article>
     <article class="panel"><h2>Support and billing issues</h2><form id="support-case-form"><label>Issue type<select name="caseType"><option value="SUPPORT">Support</option><option value="PAYMENT">Billing dispute</option><option value="QUALITY">Render quality</option></select></label><label>Details<textarea name="reason" required maxlength="2000"></textarea></label><button class="button button--quiet" type="submit">Submit issue</button></form><p id="support-case-status" class="form-status"></p><div id="support-case-list" class="settings-list">Loading cases…</div></article>
@@ -950,19 +949,6 @@ async function loadAgentAppLink() {
       catch { status.textContent = "Select the URL above and copy it manually."; }
     });
   } catch (error) { currentAgentAppUrl = ""; input.value = ""; status.textContent = error.message; }
-}
-
-async function loadShopLink() {
-  const status = document.querySelector("#shop-link-status");
-  const link = document.querySelector("#shop-url");
-  const qr = document.querySelector("#shop-qr-download");
-  const tenantId = localStorage.getItem("wearo_business_tenant_id");
-  if (!status || !link || !qr || !tenantId) return;
-  try {
-    const result = await businessApi(`/business/tenants/${tenantId}/shop-link`);
-    status.textContent = `${result.caption} · Business ID ${result.business_id}`;
-    link.href = result.shop_url; qr.href = `/api/v1/business/tenants/${tenantId}/shop-qr.png`;
-  } catch (error) { status.textContent = error.message; }
 }
 
 async function loadCompanyLogo() {
@@ -1393,7 +1379,6 @@ function attachBusinessInteractions(section) {
     loadCustomerExperienceSettings();
     loadSensitiveAudit();
     loadOperatingProfile();
-    loadShopLink();
     loadCompanyLogo();
     loadAllowanceAdmin();
     loadCommunications();

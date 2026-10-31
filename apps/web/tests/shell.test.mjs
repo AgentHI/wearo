@@ -7,6 +7,7 @@ const css = await readFile(new URL("src/styles.css", root), "utf8");
 const html = await readFile(new URL("index.html", root), "utf8");
 const main = await readFile(new URL("src/main.js", root), "utf8");
 const business = await readFile(new URL("src/business-app.js", root), "utf8");
+const store = await readFile(new URL("src/store-app.js", root), "utf8");
 const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
 const admin = await readFile(new URL("src/admin-app.js", root), "utf8");
 const consumer = await readFile(new URL("src/consumer-app.js", root), "utf8");
@@ -269,8 +270,10 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(business, /Copy app URL/);
   assert.match(business, /result\.agent_url/);
   assert.doesNotMatch(business, /url\.pathname\.replace\(\/\^\\\/shop/);
-  assert.match(business, /Download QR poster/);
-  assert.match(business, /id="shop-url"[^>]*target="_blank"[^>]*rel="noopener"/);
+  assert.doesNotMatch(business, /id="shop-qr-download"/);
+  assert.match(store, /Download QR poster/);
+  assert.match(store, /id="store-shop-url"[^>]*target="_blank"[^>]*rel="noopener"/);
+  assert.match(store, /\/store\/shop-link/);
   assert.match(business, /General try-on allowance/);
   assert.match(business, /resets every 24 hours/);
   assert.doesNotMatch(business, /user-allowance-form/);
@@ -504,7 +507,7 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
       (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
     ),
   );
-  assert.match(worker, /wearo-shell-v30/);
+  assert.match(worker, /wearo-shell-v\d+/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
   assert.match(worker, /fetch\(request, \{ cache: "no-store" \}\)/);

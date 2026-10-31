@@ -197,6 +197,78 @@ class PostgresBusinessShop:
                 ),
             }
 
+    def store_details(self, principal_id: UUID, origin: str) -> dict[str, object]:
+        """Return the customer link owned by the authenticated store administrator."""
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        """SELECT s.store_id, s.name AS store_name, s.code AS store_code,
+                                  s.account_id, l.public_code, l.public_token, l.caption,
+                                  p.display_name, p.logo_asset_id, t.slug
+                        FROM business_stores s
+                        JOIN business_shop_links l
+                          ON l.tenant_id=s.tenant_id AND l.account_id=s.account_id
+                        JOIN business_profiles p
+                          ON p.tenant_id=s.tenant_id AND p.account_id=s.account_id
+                        JOIN business_tenants t
+                          ON t.tenant_id=s.tenant_id AND t.account_id=s.account_id
+                        WHERE s.admin_principal_id=:principal AND s.status='ACTIVE'
+                          AND l.enabled AND t.status='ACTIVE'"""
+                    ),
+                    {"principal": principal_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise BusinessShopError("SHOP_LINK_UNAVAILABLE", "Store shop link is unavailable.")
+        shop_url = (
+            f"{origin.rstrip('/')}/shop/{row['slug']}/{row['store_code']}?key={row['public_code']}"
+        )
+        return {**dict(row), "shop_url": shop_url}
+
+    def public_store_details(
+        self, business_reference: str, store_reference: str, public_key: str
+    ) -> dict[str, object]:
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        """SELECT l.tenant_id, l.account_id, p.display_name,
+                                  p.operating_profile, l.caption, p.logo_asset_id,
+                                  t.try_on_status, s.store_id, s.name AS store_name,
+                                  s.code AS store_code
+                        FROM business_shop_links l
+                        JOIN business_profiles p
+                          ON p.tenant_id=l.tenant_id AND p.account_id=l.account_id
+                        JOIN business_tenants t
+                          ON t.tenant_id=l.tenant_id AND t.account_id=l.account_id
+                        JOIN business_stores s
+                          ON s.tenant_id=l.tenant_id AND s.account_id=l.account_id
+                        WHERE (t.slug=:business OR CAST(l.tenant_id AS text)=:business)
+                          AND (s.code=:store OR CAST(s.store_id AS text)=:store)
+                          AND (l.public_code=:key OR CAST(l.public_token AS text)=:key)
+                          AND l.enabled AND s.status='ACTIVE' AND t.status='ACTIVE'"""
+                    ),
+                    {"business": business_reference, "store": store_reference, "key": public_key},
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise BusinessShopError("SHOP_LINK_UNAVAILABLE", "Store is unavailable.")
+        return {
+            "business_id": row["tenant_id"],
+            **dict(row),
+            "logo_url": (
+                f"/api/v1/public/shops/{business_reference}/stores/{store_reference}/logo"
+                f"?key={public_key}"
+                if row["logo_asset_id"] is not None
+                else None
+            ),
+        }
+
     def set_logo(self, principal_id: UUID, tenant_id: UUID, asset_id: UUID) -> dict[str, object]:
         with self.engine.begin() as connection:
             try:
