@@ -985,10 +985,11 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .mobile-preview__canvas img { width: 100%; height: 100%; max-height: 32rem; border-radius: .9rem; object-fit: contain; }
 .mobile-preview__canvas[data-partial="true"] img { opacity: .9; filter: saturate(.92); }
 .mobile-preview__canvas[data-state="generating"] { position: relative; overflow: hidden; background: radial-gradient(circle at 50% 42%, #fff8e9 0, #f6ead5 31%, #eee2ed 72%, #e5d7e7 100%); }
+.tryon-workspace .mobile-preview__canvas[data-advertisement="true"] { min-height: 0; aspect-ratio: 3 / 4; background: #251129; }
 .mobile-preview__canvas[data-state="generating"]::before { position: absolute; width: 19rem; height: 19rem; border: 1px solid rgb(201 164 107 / 20%); border-radius: 50%; content: ""; box-shadow: 0 0 0 2.5rem rgb(201 164 107 / 5%), 0 0 0 5rem rgb(59 23 70 / 3%); animation: tryon-halo 2.8s ease-in-out infinite; }
 .mobile-preview__canvas[data-state="generating"]::after { position: absolute; width: 45%; height: 140%; background: linear-gradient(90deg, transparent, rgb(255 255 255 / 45%), transparent); content: ""; transform: rotate(22deg) translateX(-260%); animation: tryon-light-sweep 2.6s ease-in-out infinite; }
 .sponsored-advertisement-progress { position: absolute; inset: 0; z-index: 1; overflow: hidden; border-radius: inherit; background: #251129; }
-.sponsored-advertisement-progress img { width: 100%; height: 100%; max-height: none; border-radius: 0; object-fit: cover; }
+.sponsored-advertisement-progress img { width: 100%; height: 100%; max-height: none; border-radius: 0; object-fit: contain; }
 .sponsored-advertisement-progress__shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(20 8 24 / 8%) 40%, rgb(20 8 24 / 72%) 100%); }
 .sponsored-advertisement-progress::after { position: absolute; top: -30%; left: -70%; width: 38%; height: 165%; background: linear-gradient(90deg, transparent, rgb(255 255 255 / 58%), transparent); content: ""; transform: rotate(18deg); animation: advertisement-light-travel 2.2s ease-in-out infinite; }
 .sponsored-advertisement-progress strong { position: absolute; z-index: 2; right: 1rem; bottom: 1rem; left: 1rem; padding: .75rem 1rem; color: white; background: transparent; font-size: 1rem; letter-spacing: .01em; text-shadow: 0 2px 10px rgb(20 8 24 / 85%); }

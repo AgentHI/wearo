@@ -327,6 +327,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /const isShopEntry = pathname\.startsWith\("\/shop\/"\)/);
   assert.match(consumer, /id="open-cancellation"/);
   assert.match(consumer, /id="cancellation-dialog"/);
+  assert.match(consumer, /preview\.dataset\.advertisement = "true"/);
+  assert.match(css, /mobile-preview__canvas\[data-advertisement="true"\][^{]*\{[^}]*aspect-ratio:\s*3\s*\/\s*4/s);
+  assert.match(css, /\.sponsored-advertisement-progress img[^}]*object-fit:\s*contain/s);
   assert.match(consumer, /open-cancellation"\)\.addEventListener\("click", \(\) => \{/);
   assert.match(consumer, /cancellationDialog\.showModal\(\)/);
   assert.match(consumer, /confirmCancellation\.addEventListener\("click", async \(\) => \{/);

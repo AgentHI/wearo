@@ -1233,6 +1233,7 @@ function attachHomeFlow(auth) {
     if (!assetId) return;
     delete preview.dataset.state;
     delete preview.dataset.partial;
+    delete preview.dataset.advertisement;
     preview.setAttribute("aria-label", "AI-generated try-on preview");
     preview.innerHTML = `<img src="${API_BASE}/assets/${encodeURIComponent(assetId)}" alt="AI-generated try-on preview" />`;
   };
@@ -1240,6 +1241,8 @@ function attachHomeFlow(auth) {
   const showGeneratingPreview = () => {
     delete preview.dataset.partial;
     preview.dataset.state = "generating";
+    if (sponsoredAdvertisementUrl) preview.dataset.advertisement = "true";
+    else delete preview.dataset.advertisement;
     preview.setAttribute("aria-label", "Wearo is creating your try-on preview");
     preview.innerHTML = sponsoredAdvertisementUrl
       ? `<div class="sponsored-advertisement-progress" role="status"><img src="${sponsoredAdvertisementUrl}" alt="Advertisement from ${escapeHtml(sponsoredSession?.business_name || "this store")}" /><div class="sponsored-advertisement-progress__shade"></div><strong>Try-on in progress…</strong></div>`
@@ -1252,6 +1255,7 @@ function attachHomeFlow(auth) {
 
   const showGenerationFailure = () => {
     delete preview.dataset.partial;
+    delete preview.dataset.advertisement;
     preview.dataset.state = "failed";
     preview.setAttribute("aria-label", "Try-on preview could not be created");
     preview.innerHTML = `<span aria-hidden="true">✦</span><strong>Preview not created</strong><small>Review the message below and try again</small>`;
