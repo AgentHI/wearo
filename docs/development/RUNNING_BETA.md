@@ -124,6 +124,24 @@ preflight and post-render quality checks. These checks and generation are paid p
 The retained Google alternative uses `WEARO_RENDER_PROVIDER=GOOGLE_VERTEX`, Google Application
 Default Credentials, `WEARO_VERTEX_PROJECT_ID`, and `WEARO_VERTEX_ENABLED=true`.
 
+For BytePlus ModelArk, activate an image-generation model and set:
+
+```sh
+WEARO_RENDER_PROVIDER=BYTEPLUS
+WEARO_BYTEPLUS_API_KEY=your-modelark-api-key
+WEARO_BYTEPLUS_MODEL=seedream-5-0-260128
+WEARO_BYTEPLUS_REGION=ap-southeast-1
+WEARO_BYTEPLUS_ENABLED=true
+WEARO_ANALYSIS_ENDPOINT=https://your-approved-analysis-service.example
+WEARO_ANALYSIS_TOKEN=your-analysis-service-token
+```
+
+In **Admin → AI Models & Cost**, add a provider with code and adapter type `BYTEPLUS`, credential
+environment variable `WEARO_BYTEPLUS_API_KEY`, then add the activated BytePlus model with region
+`ap-southeast-1` and select it for try-ons. The worker sends the person and wearable as two
+reference images to ModelArk and uses the model ID stored on the quoted job. BytePlus generation
+does not replace the separate preflight and post-render analysis service.
+
 Then run:
 
 ```sh

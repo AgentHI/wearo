@@ -4,6 +4,7 @@ from collections.abc import Callable
 import pytest
 
 from apps.api.wearo_api.render_provider import (
+    BytePlusImageGenerationAdapter,
     HttpResponse,
     MultipartFile,
     OpenAIImageEditAdapter,
@@ -230,3 +231,54 @@ def test_openai_rejects_unknown_models_and_invalid_images() -> None:
         OpenAIImageEditAdapter(MultipartTransport([]), api_key="secret-key").render(
             RenderRequest(b"person", b"item", "image/gif", "image/png", "APPAREL")
         )
+
+
+def byteplus_success() -> HttpResponse:
+    return HttpResponse(
+        200,
+        {
+            "data": [{"b64_json": base64.b64encode(b"byteplus-result").decode()}],
+            "usage": {"generated_images": 1},
+        },
+        {"x-tt-logid": "byteplus-request-1"},
+    )
+
+
+def test_byteplus_request_uses_selected_model_and_two_reference_images() -> None:
+    transport = Transport([byteplus_success()])
+    adapter = BytePlusImageGenerationAdapter(
+        transport, api_key="byteplus-secret", model="seedream-5-0-260128"
+    )
+    result = adapter.render(request())
+
+    url, payload, headers, timeout = transport.calls[0]
+    assert url == "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
+    assert payload["model"] == "seedream-5-0-260128"
+    assert payload["image"] == [
+        "data:image/jpeg;base64,cGVyc29u",
+        "data:image/png;base64,aXRlbQ==",
+    ]
+    assert payload["response_format"] == "b64_json"
+    assert payload["sequential_image_generation"] == "disabled"
+    assert "output_format" not in payload
+    assert headers["Authorization"] == "Bearer byteplus-secret" and timeout == 180
+    assert result.image == b"byteplus-result"
+    assert result.provider == "BYTEPLUS" and result.region == "ap-southeast-1"
+    assert result.request_id == "byteplus-request-1"
+
+
+def test_byteplus_retries_and_fails_closed() -> None:
+    transport = Transport([HttpResponse(429, {}, {}), byteplus_success()])
+    result = BytePlusImageGenerationAdapter(
+        transport, api_key="secret", model="seedream-model"
+    ).render(request())
+    assert result.attempts == 2 and len(transport.calls) == 2
+
+    for response, code in (
+        (HttpResponse(401, {}, {}), "BYTEPLUS_HTTP_401"),
+        (HttpResponse(200, {}, {}), "BYTEPLUS_INVALID_RESPONSE"),
+    ):
+        with pytest.raises(ProviderError, match=code):
+            BytePlusImageGenerationAdapter(
+                Transport([response]), api_key="secret", model="seedream-model"
+            ).render(request())

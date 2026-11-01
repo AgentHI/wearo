@@ -6,6 +6,7 @@ import { renderConsumerApp } from "./consumer-app.js";
 import { renderAgentApp } from "./agent-app.js";
 import { renderStoreApp } from "./store-app.js";
 import { renderAdminApp } from "./admin-app.js";
+import { renderCostLab } from "../../../packages/cost-lab-ui/src/index.js";
 import { renderAboutSite, renderContactSite, renderExperiencesSite, renderForBusinessSite, renderPublicSite } from "./public-site.js";
 import "./styles.css";
 
@@ -15,6 +16,7 @@ function currentExperience(pathname) {
   if (pathname === "/for-business" || pathname === "/for-business/") return "for-business";
   if (pathname === "/about" || pathname === "/about/") return "about";
   if (pathname === "/contact" || pathname === "/contact/") return "contact";
+  if (pathname.startsWith("/admin/cost-lab")) return "cost-lab";
   if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/agent")) return "agent";
   if (pathname.startsWith("/store")) return "store";
@@ -53,6 +55,7 @@ function renderCurrentRoute() {
   else if (experience === "experiences") renderExperiencesSite(root);
   else if (experience === "for-business") renderForBusinessSite(root);
   else if (experience === "contact") renderContactSite(root);
+  else if (experience === "cost-lab") renderCostLab(root, window.location.pathname);
   else if (experience === "admin") renderAdminApp(root, window.location.pathname);
   else if (experience === "agent") renderAgentApp(root);
   else if (experience === "store") renderStoreApp(root, window.location.pathname);

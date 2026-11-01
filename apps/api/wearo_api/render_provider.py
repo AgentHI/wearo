@@ -366,3 +366,97 @@ class OpenAIImageEditAdapter:
             attempts,
             usage,
         )
+
+
+class BytePlusImageGenerationAdapter:
+    """BytePlus ModelArk image generation adapter using two reference images."""
+
+    provider = "BYTEPLUS"
+    region = "ap-southeast-1"
+    endpoint = "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
+    prompt = OpenAIImageEditAdapter.prompt
+
+    def __init__(
+        self,
+        transport: HttpTransport,
+        *,
+        api_key: str,
+        model: str,
+        region: str = "ap-southeast-1",
+        timeout_seconds: int = 180,
+    ) -> None:
+        if not api_key.strip() or not model.strip():
+            raise ValueError("BytePlus API key and image model are required")
+        if region != self.region:
+            raise ValueError("approved BytePlus region is required")
+        self.transport = transport
+        self.api_key = api_key
+        self.model = model.strip()
+        self.timeout_seconds = timeout_seconds
+
+    def render(self, request: RenderRequest) -> RenderResponse:
+        if request.capability != "APPAREL":
+            raise ProviderError("CAPABILITY_UNSUPPORTED", retryable=False)
+        payload: dict[str, object] = {
+            "model": self.model,
+            "prompt": self.prompt,
+            "image": [
+                self._data_url(request.person_image, request.person_mime),
+                self._data_url(request.item_image, request.item_mime),
+            ],
+            "sequential_image_generation": "disabled",
+            "response_format": "b64_json",
+            "size": "2K",
+            "watermark": False,
+        }
+        for attempt in (1, 2):
+            response = self.transport.post_json(
+                self.endpoint,
+                payload,
+                {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                self.timeout_seconds,
+            )
+            if response.status == 200:
+                return self._decode(response, attempt)
+            retryable = response.status in {408, 409, 429, 500, 502, 503, 504}
+            if not retryable or attempt == 2:
+                raise ProviderError(f"BYTEPLUS_HTTP_{response.status}", retryable=retryable)
+        raise AssertionError("unreachable")
+
+    @staticmethod
+    def _data_url(content: bytes, mime_type: str) -> str:
+        if not content or mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise ProviderError("PROVIDER_IMAGE_INVALID", retryable=False)
+        if len(content) > 10 * 1024 * 1024:
+            raise ProviderError("PROVIDER_IMAGE_TOO_LARGE", retryable=False)
+        return f"data:{mime_type};base64,{base64.b64encode(content).decode()}"
+
+    def _decode(self, response: HttpResponse, attempts: int) -> RenderResponse:
+        try:
+            data = response.body["data"]
+            if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+                raise ValueError
+            encoded = data[0]["b64_json"]
+            if not isinstance(encoded, str):
+                raise ValueError
+            image = base64.b64decode(encoded, validate=True)
+            if not image:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise ProviderError("BYTEPLUS_INVALID_RESPONSE", retryable=False) from None
+        raw_usage = response.body.get("usage")
+        usage = dict(raw_usage) if isinstance(raw_usage, dict) else None
+        mime_type = "image/png" if image.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+        return RenderResponse(
+            image,
+            mime_type,
+            self.provider,
+            self.model,
+            self.region,
+            response.headers.get("x-request-id") or response.headers.get("x-tt-logid"),
+            attempts,
+            usage,
+        )

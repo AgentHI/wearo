@@ -5,6 +5,7 @@ description = "Wearo.ai MVP backend and worker"
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "alembic>=1.13,<2",
+  "cryptography>=43,<47",
   "fastapi>=0.115,<1",
   "google-auth>=2.38,<3",
   "psycopg[binary]>=3.2,<4",
@@ -16,6 +17,10 @@ dependencies = [
   "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.34,<1",
 ]
+
+[project.scripts]
+wearo-cost-lab-api = "apps.cost_lab_api.app:run"
+wearo-cost-lab-worker = "workers.cost_lab_worker.main:run"
 
 [project.optional-dependencies]
 dev = [
@@ -44,6 +49,10 @@ select = ["E", "F", "I", "UP", "B", "S"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
+"apps/cost_lab_api/app.py" = ["E501", "S311", "S608"]
+"workers/cost_lab_worker/main.py" = ["E501"]
+"apps/api/migrations/versions/20261101_0059_cost_lab.py" = ["E501"]
+"apps/api/migrations/versions/20261101_0060_cost_lab_dataset_generation.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"

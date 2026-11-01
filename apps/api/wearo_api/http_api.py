@@ -3461,8 +3461,12 @@ def create_app_from_env() -> FastAPI:
         route_enabled = os.environ.get(
             "WEARO_VERTEX_ENABLED", "false"
         ).casefold() == "true" and bool(os.environ.get("WEARO_VERTEX_PROJECT_ID", ""))
+    elif selected_provider == "BYTEPLUS":
+        route_enabled = os.environ.get(
+            "WEARO_BYTEPLUS_ENABLED", "false"
+        ).casefold() == "true" and bool(os.environ.get("WEARO_BYTEPLUS_API_KEY", ""))
     else:
-        raise RuntimeError("WEARO_RENDER_PROVIDER must be OPENAI or GOOGLE_VERTEX")
+        raise RuntimeError("WEARO_RENDER_PROVIDER must be OPENAI, GOOGLE_VERTEX, or BYTEPLUS")
     analyzer: VisionAnalyzer | None = None
     if route_enabled and analysis_endpoint and analysis_token:
         analyzer = HttpAnalysisClient(analysis_endpoint, bearer_token=analysis_token)

@@ -19,7 +19,12 @@ from .external_runtime import (
     RequestsMultipartTransport,
 )
 from .media_runtime import FilesystemPrivateBlobStore, PostgresMediaRuntime
-from .render_provider import OpenAIImageEditAdapter, ProviderError, VertexTryOnAdapter
+from .render_provider import (
+    BytePlusImageGenerationAdapter,
+    OpenAIImageEditAdapter,
+    ProviderError,
+    VertexTryOnAdapter,
+)
 from .render_quality import QualityAnalyzer, RenderQualityGate
 from .render_runtime import DurableRenderJob, PostgresRenderRuntime
 
@@ -61,8 +66,17 @@ def build_worker() -> DurableRenderWorker:
             project_id=_required("WEARO_VERTEX_PROJECT_ID"),
             region=os.environ.get("WEARO_VERTEX_REGION", "asia-southeast1"),
         )
+    elif selected_provider == "BYTEPLUS":
+        if os.environ.get("WEARO_BYTEPLUS_ENABLED", "false").casefold() != "true":
+            raise SystemExit("WEARO_BYTEPLUS_ENABLED=true is required")
+        provider = BytePlusImageGenerationAdapter(
+            RequestsJsonTransport(),
+            api_key=_required("WEARO_BYTEPLUS_API_KEY"),
+            model=_required("WEARO_BYTEPLUS_MODEL"),
+            region=os.environ.get("WEARO_BYTEPLUS_REGION", "ap-southeast-1"),
+        )
     else:
-        raise SystemExit("WEARO_RENDER_PROVIDER must be OPENAI or GOOGLE_VERTEX")
+        raise SystemExit("WEARO_RENDER_PROVIDER must be OPENAI, GOOGLE_VERTEX, or BYTEPLUS")
     analysis_endpoint = os.environ.get("WEARO_ANALYSIS_ENDPOINT", "")
     analysis_token = os.environ.get("WEARO_ANALYSIS_TOKEN", "")
     analyzer: QualityAnalyzer
@@ -75,7 +89,7 @@ def build_worker() -> DurableRenderWorker:
         )
     else:
         raise SystemExit(
-            "WEARO_ANALYSIS_ENDPOINT and WEARO_ANALYSIS_TOKEN are required for Google Vertex"
+            "WEARO_ANALYSIS_ENDPOINT and WEARO_ANALYSIS_TOKEN are required for this provider"
         )
     worker_id = os.environ.get("WEARO_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
 
@@ -106,6 +120,10 @@ def build_worker() -> DurableRenderWorker:
                 GoogleDefaultAccessTokenProvider(),
                 project_id=credential,
                 region=job.region,
+            )
+        if route["adapter_type"] == "BYTEPLUS":
+            return BytePlusImageGenerationAdapter(
+                RequestsJsonTransport(), api_key=credential, model=job.model, region=job.region
             )
         raise ProviderError("PROVIDER_ADAPTER_UNSUPPORTED", retryable=False)
 
