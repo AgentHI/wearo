@@ -210,25 +210,25 @@ function signupView() {
 
 function dashboardView() {
   return `
-    <header class="page-heading"><div><p class="eyebrow">Workspace overview</p><h1 id="dashboard-greeting">Welcome.</h1><p>Monitor your virtual try-on operation and token consumption.</p></div><form id="overview-period" class="period-filter"><label><span>Reporting period</span><select name="period"><option value="today">Today</option><option value="week">Past week</option><option value="month" selected>Past month</option><option value="custom">Custom duration</option></select></label><div id="overview-custom-dates" class="period-filter__dates" hidden><label><span>From</span><input name="dateFrom" type="date" /></label><label><span>To</span><input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply</button></div></form></header>
-    <section class="dashboard-metric-group dashboard-metric-group--tokens" aria-labelledby="token-metrics-heading">
-      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">Wallet</p><h2 id="token-metrics-heading">Token overview</h2></div><small>Balance and consumption</small></div>
+    <header class="page-heading"><div><p class="eyebrow">Workspace overview</p><h1 id="dashboard-greeting">Welcome.</h1><p>Monitor your virtual try-on operation and remaining capacity.</p></div><form id="overview-period" class="period-filter"><label><span>Reporting period</span><select name="period"><option value="today">Today</option><option value="week">Past week</option><option value="month" selected>Past month</option><option value="custom">Custom duration</option></select></label><div id="overview-custom-dates" class="period-filter__dates" hidden><label><span>From</span><input name="dateFrom" type="date" /></label><label><span>To</span><input name="dateTo" type="date" /></label><button class="button button--quiet" type="submit">Apply</button></div></form></header>
+    <section class="dashboard-metric-group dashboard-metric-group--tokens" aria-labelledby="tryon-metrics-heading">
+      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">Usage</p><h2 id="tryon-metrics-heading">Try-on overview</h2></div><small>Capacity and consumption</small></div>
       <div class="metric-grid overview-metrics">
-        <article class="metric-card--tokens"><div><p>Total tokens</p><span class="metric-icon">＋</span></div><strong id="overview-total-tokens">—</strong><small>Tokens purchased or credited</small></article>
-        <article class="metric-card--tokens"><div><p>Tokens consumed</p><span class="metric-icon">−</span></div><strong id="overview-tokens-used">—</strong><small>Used by completed try-ons in the selected period</small></article>
-        <article class="metric-card--tokens"><div><p>Average tokens per try-on</p><span class="metric-icon">÷</span></div><strong id="overview-average-tokens">—</strong><small>Consumed tokens ÷ completed try-ons</small></article>
-        <article class="metric-card--tokens"><div><p>Tokens remaining</p><span class="metric-icon">T</span></div><strong id="overview-token-balance">—</strong><small>Current available token balance</small></article>
-        <article class="metric-card--tokens"><div><p>Estimated try-ons remaining</p><span class="metric-icon">≈</span></div><strong id="overview-estimated-tryons">—</strong><small>Based on average tokens per try-on</small></article>
-        <article class="metric-topup metric-card--tokens"><div><p>Need more Wearo Tokens?</p><small>Choose a token pack and continue through secure payment.</small></div><a class="button button--primary" href="/business/billing#token-topup">Top up tokens</a></article>
+        <article class="metric-card--tokens"><div><p>Total try-ons</p><span class="metric-icon">＋</span></div><strong id="overview-total-tryons">—</strong><small>Consumed try-ons plus your estimated remaining capacity</small></article>
+        <article class="metric-card--tokens"><div><p>Try-ons consumed</p><span class="metric-icon">−</span></div><strong id="overview-tryons-consumed">—</strong><small>Completed try-ons in the selected period</small></article>
+        <article class="metric-card--tokens"><div><p>Average cost per try-on</p><span class="metric-icon">$</span></div><strong id="overview-average-cost">—</strong><small>Based on the models used for completed try-ons</small></article>
+        <article class="metric-card--tokens"><div><p>Try-ons remaining</p><span class="metric-icon">≈</span></div><strong id="overview-tryons-remaining">—</strong><small>Estimated from your current available balance</small></article>
       </div>
+      <div class="hero-actions"><a class="button button--primary" href="/business/billing#token-topup">Add more try-ons</a></div>
     </section>
-    <section class="dashboard-metric-group dashboard-metric-group--tokens" aria-labelledby="provider-metrics-heading">
-      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">AI provider usage</p><h2 id="provider-metrics-heading">Generation tokens and cost</h2></div><small>Selected reporting period · USD</small></div>
+    <section class="dashboard-metric-group dashboard-metric-group--tokens" aria-labelledby="provider-usage-heading">
+      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">AI provider usage</p><h2 id="provider-usage-heading">AI provider usage</h2></div><small>Selected reporting period · USD</small></div>
       <div class="metric-grid overview-metrics">
-        <article class="metric-card--tokens"><div><p>Input tokens</p><span class="metric-icon">I</span></div><strong id="overview-provider-input">—</strong><small>Tokens sent to the generation provider</small></article>
-        <article class="metric-card--tokens"><div><p>Output tokens</p><span class="metric-icon">O</span></div><strong id="overview-provider-output">—</strong><small>Tokens returned by the generation provider</small></article>
-        <article class="metric-card--tokens"><div><p>Total provider tokens</p><span class="metric-icon">Σ</span></div><strong id="overview-provider-total">—</strong><small>Input plus output tokens</small></article>
-        <article class="metric-card--tokens"><div><p>Provider cost</p><span class="metric-icon">$</span></div><strong id="overview-provider-cost">—</strong><small>Calculated from the configured model pricing</small></article>
+        <article class="metric-card--tokens"><div><p>Total input</p><span class="metric-icon">I</span></div><strong id="overview-provider-input">—</strong><small>Input units used for try-ons</small></article>
+        <article class="metric-card--tokens"><div><p>Total output</p><span class="metric-icon">O</span></div><strong id="overview-provider-output">—</strong><small>Output units generated by try-ons</small></article>
+        <article class="metric-card--tokens"><div><p>Total try-ons</p><span class="metric-icon">Σ</span></div><strong id="overview-provider-tryons">—</strong><small>Completed try-ons in the selected period</small></article>
+        <article class="metric-card--tokens"><div><p>Cost for all try-ons</p><span class="metric-icon">$</span></div><strong id="overview-provider-cost">—</strong><small>Total model cost for completed try-ons</small></article>
+        <article class="metric-card--tokens"><div><p>Average cost per try-on</p><span class="metric-icon">÷</span></div><strong id="overview-provider-average-cost">—</strong><small>Total model cost divided by completed try-ons</small></article>
       </div>
     </section>
     <section class="dashboard-metric-group dashboard-metric-group--activity" aria-labelledby="activity-metrics-heading">
@@ -255,11 +255,10 @@ function dashboardGreeting(date = new Date()) {
 
 async function loadOverviewUsage(dateRange = {}) {
   const fields = {
-    tokens_purchased: document.querySelector("#overview-total-tokens"),
-    tokens_used: document.querySelector("#overview-tokens-used"),
-    average_tokens: document.querySelector("#overview-average-tokens"),
-    token_balance: document.querySelector("#overview-token-balance"),
-    estimated_previews: document.querySelector("#overview-estimated-tryons"),
+    total_tryons: document.querySelector("#overview-total-tryons"),
+    tryons_consumed: document.querySelector("#overview-tryons-consumed"),
+    average_cost: document.querySelector("#overview-average-cost"),
+    tryons_remaining: document.querySelector("#overview-tryons-remaining"),
     unique_users: document.querySelector("#overview-unique-users"),
     tryons_today: document.querySelector("#overview-tryons-today"),
     tryons_selected: document.querySelector("#overview-tryons-selected"),
@@ -267,11 +266,12 @@ async function loadOverviewUsage(dateRange = {}) {
     average_hourly: document.querySelector("#overview-average-hourly"),
     provider_input: document.querySelector("#overview-provider-input"),
     provider_output: document.querySelector("#overview-provider-output"),
-    provider_total: document.querySelector("#overview-provider-total"),
+    provider_tryons: document.querySelector("#overview-provider-tryons"),
     provider_cost: document.querySelector("#overview-provider-cost"),
+    provider_average_cost: document.querySelector("#overview-provider-average-cost"),
   };
   const selectedLabel = document.querySelector("#overview-tryons-selected-label");
-  if (!fields.tokens_purchased) return;
+  if (!fields.total_tryons) return;
   const tenantId = localStorage.getItem("wearo_business_tenant_id");
   if (!tenantId) {
     Object.values(fields).forEach((field) => { field.textContent = "Sign in"; });
@@ -282,18 +282,25 @@ async function loadOverviewUsage(dateRange = {}) {
     if (dateRange.dateFrom) query.set("date_from", dateRange.dateFrom);
     if (dateRange.dateTo) query.set("date_to", dateRange.dateTo);
     const usage = await businessApi(`/business/tenants/${tenantId}/usage?${query}`);
-    const formatAverage = (value) => value == null ? "Not available" : Number(value).toFixed(1);
-    fields.tokens_purchased.textContent = String(usage.tokens_purchased);
-    fields.tokens_used.textContent = String(usage.tokens_used);
-    fields.average_tokens.textContent = formatAverage(usage.average_tokens_per_preview);
-    fields.token_balance.textContent = String(usage.token_balance);
-    fields.estimated_previews.textContent = usage.estimated_previews == null
+    const consumedTryons = Number(usage.previews_used || 0);
+    const remainingTryons = usage.estimated_previews == null ? null : Number(usage.estimated_previews);
+    fields.total_tryons.textContent = remainingTryons == null
       ? "Rate unavailable"
-      : String(usage.estimated_previews);
+      : String(consumedTryons + remainingTryons);
+    fields.tryons_consumed.textContent = String(consumedTryons);
+    fields.average_cost.textContent = usage.average_provider_cost_usd_micros == null
+      ? "Not available"
+      : `$${(Number(usage.average_provider_cost_usd_micros) / 1_000_000).toFixed(4)}`;
+    fields.tryons_remaining.textContent = remainingTryons == null
+      ? "Rate unavailable"
+      : String(remainingTryons);
     fields.provider_input.textContent = Number(usage.provider_input_tokens || 0).toLocaleString();
     fields.provider_output.textContent = Number(usage.provider_output_tokens || 0).toLocaleString();
-    fields.provider_total.textContent = Number(usage.provider_total_tokens || 0).toLocaleString();
+    fields.provider_tryons.textContent = String(consumedTryons);
     fields.provider_cost.textContent = `$${(Number(usage.provider_cost_usd_micros || 0) / 1_000_000).toFixed(4)}`;
+    fields.provider_average_cost.textContent = usage.average_provider_cost_usd_micros == null
+      ? "Not available"
+      : `$${(Number(usage.average_provider_cost_usd_micros) / 1_000_000).toFixed(4)}`;
     fields.unique_users.textContent = String(usage.unique_participants ?? 0);
     fields.tryons_today.textContent = String(usage.previews_today ?? 0);
     fields.tryons_selected.textContent = String(usage.previews_used ?? 0);
