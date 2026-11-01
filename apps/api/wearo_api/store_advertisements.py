@@ -275,12 +275,14 @@ class PostgresStoreAdvertisements:
         principal_id: UUID,
         advertisement_id: UUID,
         title: str,
+        prompt: str | None,
         starts_on: date,
         ends_on: date,
     ) -> dict[str, object]:
         context = self._context(principal_id)
         validate_duration(starts_on, ends_on)
         clean_title = title.strip()
+        clean_prompt = prompt.strip() if prompt is not None else None
         if not clean_title or len(clean_title) > 120:
             raise StoreAdvertisementError(
                 "INVALID_ADVERTISEMENT_TITLE", "Enter a title under 120 characters."
@@ -288,7 +290,8 @@ class PostgresStoreAdvertisements:
         with self.engine.begin() as connection:
             row = (
                 connection.execute(
-                    text("""UPDATE store_advertisements SET title=:title, starts_on=:starts_on,
+                    text("""UPDATE store_advertisements SET title=:title,
+                prompt=COALESCE(:prompt, prompt), starts_on=:starts_on,
                 ends_on=:ends_on, updated_at=now()
                 WHERE advertisement_id=:advertisement AND store_id=:store_id AND account_id=:account_id
                 RETURNING advertisement_id, title, prompt, asset_id, source, ai_attempts,
@@ -297,6 +300,7 @@ class PostgresStoreAdvertisements:
                         **context,
                         "advertisement": advertisement_id,
                         "title": clean_title,
+                        "prompt": clean_prompt,
                         "starts_on": starts_on,
                         "ends_on": ends_on,
                     },

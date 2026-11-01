@@ -274,6 +274,9 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.doesNotMatch(business, /id="shop-qr-download"/);
   assert.match(store, /Download QR poster/);
   assert.doesNotMatch(store, /latestAiCard/);
+  assert.match(store, /id="advertisement-save-edit"[^>]*data-action="save"[^>]*hidden>Save changes/);
+  assert.match(store, /Saving without regenerating the card/);
+  assert.match(store, /Changes saved without regenerating the card/);
   assert.match(store, /resetAdvertisementEditor\("✦ Generate new card"\)/);
   assert.match(store, /Advertisement saved\. You can create a new card below\./);
   assert.match(store, /id="store-shop-url"[^>]*target="_blank"[^>]*rel="noopener"/);

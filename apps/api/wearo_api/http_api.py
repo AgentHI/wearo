@@ -305,6 +305,7 @@ class AdvertisementGenerateBody(BaseModel):
 class AdvertisementUpdateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=120)
+    prompt: str | None = Field(default=None, max_length=1000)
     starts_on: date
     ends_on: date
 
@@ -1802,6 +1803,7 @@ def create_app(
             session.principal_id,
             advertisement_id,
             body.title,
+            body.prompt,
             body.starts_on,
             body.ends_on,
         )

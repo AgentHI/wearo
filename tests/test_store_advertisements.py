@@ -74,6 +74,12 @@ def test_store_can_delete_its_advertisement_card() -> None:
     assert "advertisement_id=:advertisement AND store_id=:store_id" in source
 
 
+def test_advertisement_details_can_be_saved_without_regeneration() -> None:
+    source = Path("apps/api/wearo_api/store_advertisements.py").read_text()
+    assert "prompt=COALESCE(:prompt, prompt)" in source
+    assert "self.generator.generate(clean_prompt)" not in source[source.index("    def update(") :]
+
+
 def test_sponsored_quote_allowance_migration_accepts_business_limits() -> None:
     source = Path(
         "apps/api/migrations/versions/20261031_0057_sponsored_quote_allowance.py"
