@@ -273,6 +273,9 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.doesNotMatch(business, /url\.pathname\.replace\(\/\^\\\/shop/);
   assert.doesNotMatch(business, /id="shop-qr-download"/);
   assert.match(store, /Download QR poster/);
+  assert.match(admin, /<th>Input tokens<\/th><th>Output tokens<\/th>/);
+  assert.match(admin, /item\.input_tokens/);
+  assert.match(admin, /item\.output_tokens/);
   assert.doesNotMatch(store, /latestAiCard/);
   assert.match(store, /id="advertisement-save-edit"[^>]*data-action="save"[^>]*hidden>Save changes/);
   assert.match(store, /Saving without regenerating the card/);

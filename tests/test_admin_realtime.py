@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -36,3 +37,10 @@ def test_realtime_snapshot_refreshes_and_rejects_unbounded_windows() -> None:
     assert realtime.loads == 2
     with pytest.raises(AdminRealtimeError):
         realtime.snapshot(window_minutes=10_081)
+
+
+def test_realtime_activity_includes_input_and_output_tokens() -> None:
+    source = Path("apps/api/wearo_api/admin_realtime.py").read_text()
+    assert "result.provider_usage->>'input_tokens'" in source
+    assert "result.provider_usage->>'output_tokens'" in source
+    assert "LEFT JOIN render_results result ON result.job_id=j.job_id" in source

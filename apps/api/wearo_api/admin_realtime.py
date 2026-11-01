@@ -91,6 +91,10 @@ class PostgresAdminRealtime:
                               round(extract(epoch FROM (j.updated_at-j.created_at))*1000)
                                 AS generation_time_ms,
                               q.provider, q.model_version,
+                              COALESCE((result.provider_usage->>'input_tokens')::bigint, 0)
+                                AS input_tokens,
+                              COALESCE((result.provider_usage->>'output_tokens')::bigint, 0)
+                                AS output_tokens,
                               COALESCE(usage.cost_usd_micros, model.fallback_cost_usd_micros, 0)
                                 AS cost_usd_micros,
                               COALESCE(usage.cost_basis, 'ESTIMATED') AS cost_basis
@@ -100,6 +104,7 @@ class PostgresAdminRealtime:
                        LEFT JOIN ai_models model ON model.provider_id=provider.provider_id
                          AND model.api_model_id=q.model_version AND model.region=q.provider_region
                        LEFT JOIN model_usage_costs usage ON usage.job_id=j.job_id
+                       LEFT JOIN render_results result ON result.job_id=j.job_id
                        WHERE j.created_at >= :period_start
                        ORDER BY j.created_at DESC LIMIT 50"""
                 ),
