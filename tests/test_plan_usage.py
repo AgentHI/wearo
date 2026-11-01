@@ -17,6 +17,7 @@ def test_usage_snapshot_explains_before_and_after_billable_action() -> None:
         action_cost=20,
         tokens_purchased=200,
         reporting_hours=48,
+        provider_cost_usd_micros=120_000,
     )
     assert snapshot.previews_remaining == 6
     assert snapshot.balance_after_action == 85
@@ -25,6 +26,8 @@ def test_usage_snapshot_explains_before_and_after_billable_action() -> None:
     assert snapshot.estimated_previews == 10
     assert snapshot.average_previews_per_day == 2
     assert snapshot.average_previews_per_hour == pytest.approx(0.0833, rel=0.01)
+    assert snapshot.provider_cost_usd_micros == 120_000
+    assert snapshot.average_provider_cost_usd_micros == 30_000
 
 
 def test_unlimited_preview_plan_has_no_misleading_remaining_count() -> None:

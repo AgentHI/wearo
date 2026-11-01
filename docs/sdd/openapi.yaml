@@ -4776,6 +4776,8 @@ components:
         average_tokens_per_preview: {type: [number, 'null']}
         average_previews_per_day: {type: [number, 'null']}
         average_previews_per_hour: {type: [number, 'null']}
+        provider_cost_usd_micros: {type: integer, minimum: 0}
+        average_provider_cost_usd_micros: {type: [number, 'null'], minimum: 0}
       required:
       - plan_code
       - tokens_purchased
@@ -4796,6 +4798,8 @@ components:
       - average_tokens_per_preview
       - average_previews_per_day
       - average_previews_per_hour
+      - provider_cost_usd_micros
+      - average_provider_cost_usd_micros
       additionalProperties: false
     Invoice:
       type: object

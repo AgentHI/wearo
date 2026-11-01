@@ -61,9 +61,10 @@ class PostgresAdminDashboard:
             date_to + timedelta(days=1), time.min, BUSINESS_REPORTING_TIMEZONE
         ).astimezone(UTC)
         with self.engine.connect() as connection:
-            row = connection.execute(
-                text(
-                    """
+            row = (
+                connection.execute(
+                    text(
+                        """
                     WITH filtered_organizations AS (
                       SELECT t.tenant_id, t.account_id, t.try_on_status
                       FROM business_tenants t
@@ -74,7 +75,12 @@ class PostgresAdminDashboard:
                              OR p.operating_profile=CAST(:business_type AS varchar))
                     ), usage AS (
                       SELECT sponsored.tenant_id, job.status, usage.token_cost,
-                             session.consumer_account_id
+                             session.consumer_account_id, job.job_id,
+                             COALESCE((result.provider_usage->>'input_tokens')::bigint, 0)
+                               provider_input_tokens,
+                             COALESCE((result.provider_usage->>'output_tokens')::bigint, 0)
+                               provider_output_tokens,
+                             COALESCE(cost.cost_usd_micros, 0) provider_cost_usd_micros
                       FROM filtered_organizations organization
                       JOIN business_sponsored_tryons sponsored
                         ON sponsored.tenant_id=organization.tenant_id
@@ -88,6 +94,8 @@ class PostgresAdminDashboard:
                        AND usage.account_id=sponsored.business_account_id
                        AND usage.tenant_id=sponsored.tenant_id
                       JOIN render_jobs job ON job.job_id=sponsored.render_job_id
+                      LEFT JOIN render_results result ON result.job_id=job.job_id
+                      LEFT JOIN model_usage_costs cost ON cost.job_id=job.job_id
                       WHERE usage.action_code='TRY_ON'
                         AND job.created_at >= :period_start AND job.created_at < :period_end
                         AND job.status IN ('DELIVERED', 'FAILED')
@@ -100,20 +108,35 @@ class PostgresAdminDashboard:
                            count(*) FILTER (WHERE status='DELIVERED') successful_try_ons,
                            count(*) FILTER (WHERE status='FAILED') failed_try_ons,
                            COALESCE(sum(token_cost) FILTER (WHERE status='DELIVERED'), 0)
-                             total_tokens_consumed
+                             total_tokens_consumed,
+                           COALESCE(sum(provider_input_tokens), 0) provider_input_tokens,
+                           COALESCE(sum(provider_output_tokens), 0) provider_output_tokens,
+                           COALESCE(sum(provider_input_tokens + provider_output_tokens), 0)
+                             provider_total_tokens,
+                           COALESCE(sum(provider_cost_usd_micros), 0)
+                             provider_cost_usd_micros
                     FROM usage
                     """
-                ),
-                {
-                    "tenant": tenant_id,
-                    "business_type": normalized_type,
-                    "period_start": period_start,
-                    "period_end": period_end,
-                },
-            ).mappings().one()
+                    ),
+                    {
+                        "tenant": tenant_id,
+                        "business_type": normalized_type,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                    },
+                )
+                .mappings()
+                .one()
+            )
         result: dict[str, int | float] = {str(key): int(value) for key, value in row.items()}
         organizations = int(result["total_organizations"])
         result["average_try_ons_per_organization"] = (
             round(int(result["total_try_ons"]) / organizations, 2) if organizations else 0.0
         )
+        generations = int(result["total_try_ons"])
+        result["average_cost_per_generation_usd_micros"] = (
+            round(int(result["provider_cost_usd_micros"]) / generations, 2) if generations else 0.0
+        )
+        period_seconds = (period_end - period_start).total_seconds()
+        result["try_ons_per_second"] = round(int(result["total_try_ons"]) / period_seconds, 6)
         return result

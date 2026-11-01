@@ -31,6 +31,8 @@ class UsageSnapshot:
     average_tokens_per_preview: float | None
     average_previews_per_day: float | None
     average_previews_per_hour: float | None
+    provider_cost_usd_micros: int = 0
+    average_provider_cost_usd_micros: float | None = None
 
 
 def usage_snapshot(
@@ -49,6 +51,7 @@ def usage_snapshot(
     provider_total_tokens: int = 0,
     tokens_purchased: int = 0,
     reporting_hours: float | None = None,
+    provider_cost_usd_micros: int = 0,
 ) -> UsageSnapshot:
     remaining = None if preview_limit is None else max(preview_limit - previews_used, 0)
     after = None if action_cost is None else max(token_balance - action_cost, 0)
@@ -76,6 +79,10 @@ def usage_snapshot(
         average_tokens_per_preview=average_tokens,
         average_previews_per_day=average_daily,
         average_previews_per_hour=average_hourly,
+        provider_cost_usd_micros=provider_cost_usd_micros,
+        average_provider_cost_usd_micros=(
+            provider_cost_usd_micros / previews_used if previews_used > 0 else None
+        ),
     )
 
 
@@ -277,7 +284,8 @@ class PostgresPlanUsage:
                                 sum((provider_usage->>'output_tokens')::bigint), 0
                               ) AS output,
                               COALESCE(
-                                sum((provider_usage->>'total_tokens')::bigint), 0
+                                sum(COALESCE((provider_usage->>'input_tokens')::bigint, 0)
+                                  + COALESCE((provider_usage->>'output_tokens')::bigint, 0)), 0
                               ) AS total
                             FROM render_results
                             WHERE account_id = :account
@@ -309,7 +317,13 @@ class PostgresPlanUsage:
                                 sum((result.provider_usage->>'output_tokens')::bigint), 0
                               ) AS output,
                               COALESCE(
-                                sum((result.provider_usage->>'total_tokens')::bigint), 0
+                                sum(
+                                  COALESCE(
+                                    (result.provider_usage->>'input_tokens')::bigint, 0
+                                  ) + COALESCE(
+                                    (result.provider_usage->>'output_tokens')::bigint, 0
+                                  )
+                                ), 0
                               ) AS total
                             FROM business_sponsored_tryons sponsored
                             JOIN business_sponsored_sessions session
@@ -337,6 +351,50 @@ class PostgresPlanUsage:
                     .mappings()
                     .one()
                 )
+            provider_cost: int
+            if tenant_id is None:
+                provider_cost = connection.execute(
+                    text(
+                        """
+                        SELECT COALESCE(sum(cost.cost_usd_micros), 0)
+                        FROM model_usage_costs cost
+                        JOIN render_jobs job ON job.job_id = cost.job_id
+                        WHERE job.account_id = :account
+                          AND (CAST(:period_start AS timestamptz) IS NULL
+                               OR job.created_at >= :period_start)
+                          AND (CAST(:period_end AS timestamptz) IS NULL
+                               OR job.created_at < :period_end)
+                        """
+                    ),
+                    {
+                        "account": account_id,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                    },
+                ).scalar_one()
+            else:
+                provider_cost = connection.execute(
+                    text(
+                        """
+                        SELECT COALESCE(sum(cost.cost_usd_micros), 0)
+                        FROM business_sponsored_tryons sponsored
+                        JOIN render_jobs job ON job.job_id = sponsored.render_job_id
+                        JOIN model_usage_costs cost ON cost.job_id = job.job_id
+                        WHERE sponsored.business_account_id = :account
+                          AND sponsored.tenant_id = :tenant
+                          AND (CAST(:period_start AS timestamptz) IS NULL
+                               OR job.created_at >= :period_start)
+                          AND (CAST(:period_end AS timestamptz) IS NULL
+                               OR job.created_at < :period_end)
+                        """
+                    ),
+                    {
+                        "account": account_id,
+                        "tenant": tenant_id,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                    },
+                ).scalar_one()
         default_plan = "FREE_BETA" if tenant_id is None else "BUSINESS_UNASSIGNED"
         return usage_snapshot(
             plan_code=plan["plan_code"] if plan else default_plan,
@@ -357,4 +415,5 @@ class PostgresPlanUsage:
                 if period_start is not None and period_end is not None
                 else None
             ),
+            provider_cost_usd_micros=int(provider_cost),
         )

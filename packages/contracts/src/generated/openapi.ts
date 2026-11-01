@@ -1420,6 +1420,8 @@ export interface components {
             average_tokens_per_preview: number | null;
             average_previews_per_day: number | null;
             average_previews_per_hour: number | null;
+            provider_cost_usd_micros: number;
+            average_provider_cost_usd_micros: number | null;
         };
         Invoice: {
             id: string;

@@ -66,7 +66,7 @@ function organizationsView(pathname) {
 }
 
 function platformDashboardView() {
-  const metricLabels = ["Total businesses", "Active businesses", "Registered consumers", "Total try-ons", "Successful try-ons", "Failed try-ons", "Tokens consumed", "Average per business"];
+  const metricLabels = ["Total businesses", "Active businesses", "Registered consumers", "Total try-ons", "Successful try-ons", "Failed try-ons", "Wearo tokens consumed", "Provider tokens", "Provider cost", "Average cost / generation", "Try-ons / second", "Average try-ons per business"];
   return `<form id="admin-dashboard-filters" class="admin-dashboard-filters">
       <fieldset><legend>Date range</legend><div class="admin-period-options"><label><input type="radio" name="period" value="today" checked /> Today</label><label><input type="radio" name="period" value="week" /> Last 7 Days</label><label><input type="radio" name="period" value="month" /> This Month</label><label><input type="radio" name="period" value="custom" /> Custom</label></div></fieldset>
       <div id="admin-custom-dates" class="admin-custom-dates" hidden><label>From<input name="dateFrom" type="date" /></label><label>To<input name="dateTo" type="date" /></label></div>
@@ -474,7 +474,14 @@ async function loadPlatformDashboard(root) {
     ["Total businesses", values.total_organizations], ["Active businesses", values.active_organizations],
     ["Total registered consumers", values.total_registered_consumers], ["Total try-ons", values.total_try_ons],
     ["Successful try-ons", values.successful_try_ons], ["Failed try-ons", values.failed_try_ons],
-    ["Total tokens consumed", values.total_tokens_consumed], ["Average try-ons per business", values.average_try_ons_per_organization],
+    ["Wearo tokens consumed", values.total_tokens_consumed],
+    ["Provider input tokens", Number(values.provider_input_tokens || 0).toLocaleString()],
+    ["Provider output tokens", Number(values.provider_output_tokens || 0).toLocaleString()],
+    ["Provider total tokens", Number(values.provider_total_tokens || 0).toLocaleString()],
+    ["Provider cost", `$${(Number(values.provider_cost_usd_micros || 0) / 1_000_000).toFixed(4)}`],
+    ["Average cost / generation", `$${(Number(values.average_cost_per_generation_usd_micros || 0) / 1_000_000).toFixed(4)}`],
+    ["Try-ons / second", Number(values.try_ons_per_second || 0).toFixed(6)],
+    ["Average try-ons per business", values.average_try_ons_per_organization],
   ];
   metrics.innerHTML = cards.map(([label, value], index) => `<article class="admin-metric-card"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${index < 2 ? "Current platform state" : "Selected date range"}</small></article>`).join("");
   loadUsageAnalytics(root, parameters);

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from .email_otp import normalize_destination, normalize_email
+from .plan_usage import BUSINESS_REPORTING_TIMEZONE
 from .tenant_scope import TenantScopeError, require_tenant_scope
 
 
@@ -62,8 +63,15 @@ class PostgresBusinessStores:
             return tuple(dict(row) for row in rows)
 
     def save(
-        self, principal_id: UUID, tenant_id: UUID, *, store_id: UUID | None,
-        name: str, code: str, admin_email: str, admin_mobile: str,
+        self,
+        principal_id: UUID,
+        tenant_id: UUID,
+        *,
+        store_id: UUID | None,
+        name: str,
+        code: str,
+        admin_email: str,
+        admin_mobile: str,
     ) -> dict[str, object]:
         clean_name, clean_code = validate_store(name, code)
         email = normalize_email(admin_email)
@@ -87,42 +95,76 @@ class PostgresBusinessStores:
                     ).scalar_one_or_none()
                 admin_id = existing or uuid4()
                 if existing is None:
-                    connection.execute(text("""INSERT INTO principals
+                    connection.execute(
+                        text("""INSERT INTO principals
                         (principal_id, account_id, account_kind, principal_type, status)
                         VALUES (:principal, :account, 'TENANT', 'BUSINESS', 'ACTIVE')"""),
-                        {"principal": admin_id, "account": account_id})
-                    connection.execute(text("""INSERT INTO tenant_memberships
+                        {"principal": admin_id, "account": account_id},
+                    )
+                    connection.execute(
+                        text("""INSERT INTO tenant_memberships
                         (tenant_id, account_id, principal_id, role)
                         VALUES (:tenant, :account, :principal, 'ASSOCIATE')"""),
-                        {"tenant": tenant_id, "account": account_id, "principal": admin_id})
+                        {"tenant": tenant_id, "account": account_id, "principal": admin_id},
+                    )
                 for channel, value in (("EMAIL", email), ("PHONE", mobile)):
-                    connection.execute(text("""INSERT INTO principal_identities
+                    connection.execute(
+                        text("""INSERT INTO principal_identities
                         (account_id, principal_id, channel, normalized_value, verified_at)
                         VALUES (:account, :principal, :channel, :value, :now)
                         ON CONFLICT (principal_id, channel) DO UPDATE SET
                           normalized_value=EXCLUDED.normalized_value,
                           verified_at=EXCLUDED.verified_at, updated_at=:now"""),
-                        {"account": account_id, "principal": admin_id, "channel": channel,
-                         "value": value, "now": now})
+                        {
+                            "account": account_id,
+                            "principal": admin_id,
+                            "channel": channel,
+                            "value": value,
+                            "now": now,
+                        },
+                    )
                 identifier = store_id or uuid4()
                 if store_id:
-                    row = connection.execute(text("""UPDATE business_stores SET
+                    row = (
+                        connection.execute(
+                            text("""UPDATE business_stores SET
                         name=:name, code=:code, admin_principal_id=:admin, updated_at=:now
                         WHERE store_id=:store AND tenant_id=:tenant AND account_id=:account
                         RETURNING store_id, name, code, status, admin_principal_id,
                                   created_at, updated_at"""),
-                        {"name": clean_name, "code": clean_code, "admin": admin_id, "now": now,
-                         "store": identifier, "tenant": tenant_id, "account": account_id}
-                    ).mappings().one_or_none()
+                            {
+                                "name": clean_name,
+                                "code": clean_code,
+                                "admin": admin_id,
+                                "now": now,
+                                "store": identifier,
+                                "tenant": tenant_id,
+                                "account": account_id,
+                            },
+                        )
+                        .mappings()
+                        .one_or_none()
+                    )
                 else:
-                    row = connection.execute(text("""INSERT INTO business_stores
+                    row = (
+                        connection.execute(
+                            text("""INSERT INTO business_stores
                         (store_id, tenant_id, account_id, admin_principal_id, name, code)
                         VALUES (:store, :tenant, :account, :admin, :name, :code)
                         RETURNING store_id, name, code, status, admin_principal_id,
                                   created_at, updated_at"""),
-                        {"store": identifier, "tenant": tenant_id, "account": account_id,
-                         "admin": admin_id, "name": clean_name, "code": clean_code}
-                    ).mappings().one()
+                            {
+                                "store": identifier,
+                                "tenant": tenant_id,
+                                "account": account_id,
+                                "admin": admin_id,
+                                "name": clean_name,
+                                "code": clean_code,
+                            },
+                        )
+                        .mappings()
+                        .one()
+                    )
                 if row is None:
                     raise BusinessStoreError("STORE_UNAVAILABLE", "Resource unavailable.")
                 return {**dict(row), "admin_email": email, "admin_mobile": mobile}
@@ -132,27 +174,70 @@ class PostgresBusinessStores:
             ) from error
 
     def context(self, principal_id: UUID) -> dict[str, object]:
+        today = datetime.now(BUSINESS_REPORTING_TIMEZONE).date()
+        period_start = datetime.combine(today, time.min, BUSINESS_REPORTING_TIMEZONE).astimezone(
+            UTC
+        )
+        period_end = period_start + timedelta(days=1)
         with self.engine.connect() as connection:
-            row = connection.execute(text("""SELECT s.store_id, s.tenant_id, s.account_id,
+            row = (
+                connection.execute(
+                    text("""SELECT s.store_id, s.tenant_id, s.account_id,
                     s.name, s.code, p.display_name business_name, t.advertisements_enabled
                 FROM business_stores s JOIN business_profiles p
                   ON p.tenant_id=s.tenant_id AND p.account_id=s.account_id
                 JOIN business_tenants t
                   ON t.tenant_id=s.tenant_id AND t.account_id=s.account_id
                 WHERE s.admin_principal_id=:principal AND s.status='ACTIVE'"""),
-                {"principal": principal_id}).mappings().one_or_none()
+                    {"principal": principal_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
             if row is None:
                 raise BusinessStoreError("STORE_UNAVAILABLE", "Store access is unavailable.")
-            counts = connection.execute(text("""SELECT
+            counts = (
+                connection.execute(
+                    text("""SELECT
                     count(*) FILTER (WHERE status <> 'DELETED') agents,
                     count(*) FILTER (WHERE status = 'ACTIVE') active_agents
                 FROM business_agents WHERE store_id=:store"""),
-                {"store": row["store_id"]}).mappings().one()
-            usage = connection.execute(text("""SELECT count(*) total_try_ons,
-                    count(*) FILTER (WHERE j.status='DELIVERED') successful_try_ons
+                    {"store": row["store_id"]},
+                )
+                .mappings()
+                .one()
+            )
+            usage = (
+                connection.execute(
+                    text("""SELECT count(*) total_try_ons,
+                    count(*) FILTER (WHERE j.status='DELIVERED') successful_try_ons,
+                    COALESCE(sum((r.provider_usage->>'input_tokens')::bigint), 0)
+                      provider_input_tokens,
+                    COALESCE(sum((r.provider_usage->>'output_tokens')::bigint), 0)
+                      provider_output_tokens,
+                    COALESCE(sum(COALESCE((r.provider_usage->>'input_tokens')::bigint, 0)
+                      + COALESCE((r.provider_usage->>'output_tokens')::bigint, 0)), 0)
+                      provider_total_tokens,
+                    COALESCE(sum(c.cost_usd_micros), 0) provider_cost_usd_micros
                 FROM business_sponsored_tryons t
+                JOIN business_sponsored_sessions ss ON ss.session_id=t.session_id
+                  AND ss.tenant_id=t.tenant_id
+                  AND ss.business_account_id=t.business_account_id
                 LEFT JOIN render_jobs j ON j.job_id=t.render_job_id
-                WHERE t.tenant_id=:tenant AND t.business_account_id=:account"""),
-                {"tenant": row["tenant_id"], "account": row["account_id"]}
-            ).mappings().one()
-        return {**dict(row), **dict(counts), **dict(usage)}
+                LEFT JOIN render_results r ON r.job_id=j.job_id
+                LEFT JOIN model_usage_costs c ON c.job_id=j.job_id
+                WHERE t.tenant_id=:tenant AND t.business_account_id=:account
+                  AND ss.store_id=:store
+                  AND j.created_at >= :period_start AND j.created_at < :period_end"""),
+                    {
+                        "tenant": row["tenant_id"],
+                        "account": row["account_id"],
+                        "store": row["store_id"],
+                        "period_start": period_start,
+                        "period_end": period_end,
+                    },
+                )
+                .mappings()
+                .one()
+            )
+        return {**dict(row), **dict(counts), **dict(usage), "usage_date": today}

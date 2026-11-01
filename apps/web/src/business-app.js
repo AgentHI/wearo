@@ -222,6 +222,15 @@ function dashboardView() {
         <article class="metric-topup metric-card--tokens"><div><p>Need more Wearo Tokens?</p><small>Choose a token pack and continue through secure payment.</small></div><a class="button button--primary" href="/business/billing#token-topup">Top up tokens</a></article>
       </div>
     </section>
+    <section class="dashboard-metric-group dashboard-metric-group--tokens" aria-labelledby="provider-metrics-heading">
+      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">AI provider usage</p><h2 id="provider-metrics-heading">Generation tokens and cost</h2></div><small>Selected reporting period · USD</small></div>
+      <div class="metric-grid overview-metrics">
+        <article class="metric-card--tokens"><div><p>Input tokens</p><span class="metric-icon">I</span></div><strong id="overview-provider-input">—</strong><small>Tokens sent to the generation provider</small></article>
+        <article class="metric-card--tokens"><div><p>Output tokens</p><span class="metric-icon">O</span></div><strong id="overview-provider-output">—</strong><small>Tokens returned by the generation provider</small></article>
+        <article class="metric-card--tokens"><div><p>Total provider tokens</p><span class="metric-icon">Σ</span></div><strong id="overview-provider-total">—</strong><small>Input plus output tokens</small></article>
+        <article class="metric-card--tokens"><div><p>Provider cost</p><span class="metric-icon">$</span></div><strong id="overview-provider-cost">—</strong><small>Calculated from the configured model pricing</small></article>
+      </div>
+    </section>
     <section class="dashboard-metric-group dashboard-metric-group--activity" aria-labelledby="activity-metrics-heading">
       <div class="dashboard-metric-group__heading"><div><p class="eyebrow">Customer activity</p><h2 id="activity-metrics-heading">Try-on performance</h2></div><small>Completed try-ons only</small></div>
       <div class="metric-grid overview-metrics">
@@ -256,6 +265,10 @@ async function loadOverviewUsage(dateRange = {}) {
     tryons_selected: document.querySelector("#overview-tryons-selected"),
     average_tryons: document.querySelector("#overview-average-tryons"),
     average_hourly: document.querySelector("#overview-average-hourly"),
+    provider_input: document.querySelector("#overview-provider-input"),
+    provider_output: document.querySelector("#overview-provider-output"),
+    provider_total: document.querySelector("#overview-provider-total"),
+    provider_cost: document.querySelector("#overview-provider-cost"),
   };
   const selectedLabel = document.querySelector("#overview-tryons-selected-label");
   if (!fields.tokens_purchased) return;
@@ -277,6 +290,10 @@ async function loadOverviewUsage(dateRange = {}) {
     fields.estimated_previews.textContent = usage.estimated_previews == null
       ? "Rate unavailable"
       : String(usage.estimated_previews);
+    fields.provider_input.textContent = Number(usage.provider_input_tokens || 0).toLocaleString();
+    fields.provider_output.textContent = Number(usage.provider_output_tokens || 0).toLocaleString();
+    fields.provider_total.textContent = Number(usage.provider_total_tokens || 0).toLocaleString();
+    fields.provider_cost.textContent = `$${(Number(usage.provider_cost_usd_micros || 0) / 1_000_000).toFixed(4)}`;
     fields.unique_users.textContent = String(usage.unique_participants ?? 0);
     fields.tryons_today.textContent = String(usage.previews_today ?? 0);
     fields.tryons_selected.textContent = String(usage.previews_used ?? 0);
