@@ -80,6 +80,11 @@ def test_advertisement_details_can_be_saved_without_regeneration() -> None:
     assert "self.generator.generate(clean_prompt)" not in source[source.index("    def update(") :]
 
 
+def test_successful_ai_advertisement_generation_is_recorded_durably() -> None:
+    source = Path("apps/api/wearo_api/store_advertisements.py").read_text()
+    assert "INSERT INTO store_advertisement_generations" in source
+
+
 def test_sponsored_quote_allowance_migration_accepts_business_limits() -> None:
     source = Path(
         "apps/api/migrations/versions/20261031_0057_sponsored_quote_allowance.py"

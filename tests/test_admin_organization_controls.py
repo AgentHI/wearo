@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from apps.api.wearo_api.admin_organizations import organization_status_after
@@ -26,3 +28,11 @@ def test_pause_and_resume_require_valid_current_state() -> None:
         organization_status_after("PAUSED", "PAUSE")
     with pytest.raises(ValueError, match="paused organization"):
         organization_status_after("ACTIVE", "RESUME")
+
+
+def test_admin_organization_reports_advertisement_generations_by_store() -> None:
+    source = Path("apps/api/wearo_api/admin_organizations.py").read_text()
+    assert "store_advertisement_generations" in source
+    assert "count(generation.generation_id)" in source
+    assert "AS advertisement_generations" in source
+    assert "GROUP BY store.store_id" in source

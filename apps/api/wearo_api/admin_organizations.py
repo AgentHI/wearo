@@ -58,7 +58,11 @@ class PostgresAdminOrganizations:
                      AS operational_status,
                    t.slug, p.legal_name, p.jurisdiction, p.billing_email,
                    p.billing_phone, p.website_url,
-                   plan.plan_code
+                   plan.plan_code,
+                   COALESCE((SELECT count(*) FROM store_advertisement_generations generation
+                             WHERE generation.tenant_id=t.tenant_id
+                               AND generation.account_id=t.account_id), 0)
+                     AS advertisement_generations
             FROM business_tenants t
             JOIN business_profiles p
               ON p.tenant_id = t.tenant_id AND p.account_id = t.account_id
@@ -161,12 +165,30 @@ class PostgresAdminOrganizations:
                 ),
                 {"account": row["account_id"]},
             ).mappings()
+            stores = connection.execute(
+                text(
+                    """
+                    SELECT store.store_id, store.name AS store_name, store.code, store.status,
+                           count(generation.generation_id) AS advertisement_generations
+                    FROM business_stores store
+                    LEFT JOIN store_advertisement_generations generation
+                      ON generation.store_id=store.store_id
+                     AND generation.tenant_id=store.tenant_id
+                     AND generation.account_id=store.account_id
+                    WHERE store.tenant_id=:tenant AND store.account_id=:account
+                    GROUP BY store.store_id
+                    ORDER BY store.name, store.store_id
+                    """
+                ),
+                {"account": row["account_id"], "tenant": tenant_id},
+            ).mappings()
         result = dict(row)
         result.update(dict(metrics))
         result["billing_status"] = (
             "CURRENT" if result["subscription_status"] == "ACTIVE" else "NO_ACTIVE_PLAN"
         )
         result["payment_history"] = [dict(payment) for payment in payments]
+        result["stores"] = [dict(store) for store in stores]
         result.pop("account_id", None)
         return result
 

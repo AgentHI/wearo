@@ -276,6 +276,8 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(admin, /<th>Input tokens<\/th><th>Output tokens<\/th>/);
   assert.match(admin, /item\.input_tokens/);
   assert.match(admin, /item\.output_tokens/);
+  assert.match(admin, /AI advertisements generated/);
+  assert.match(admin, /Advertisement generations by store/);
   assert.doesNotMatch(store, /latestAiCard/);
   assert.match(store, /id="advertisement-save-edit"[^>]*data-action="save"[^>]*hidden>Save changes/);
   assert.match(store, /Saving without regenerating the card/);

@@ -268,6 +268,12 @@ class PostgresStoreAdvertisements:
                     .mappings()
                     .one()
                 )
+            connection.execute(
+                text("""INSERT INTO store_advertisement_generations
+                (advertisement_id, store_id, tenant_id, account_id)
+                VALUES (:advertisement, :store_id, :tenant_id, :account_id)"""),
+                {**context, "advertisement": row["advertisement_id"]},
+            )
         return dict(row)
 
     def update(
