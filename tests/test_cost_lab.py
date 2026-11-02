@@ -136,6 +136,22 @@ def test_model_and_pricing_are_one_request_unit() -> None:
     assert body.image_output_price_usd_per_million == Decimal("40")
 
 
+def test_provider_accepts_pricing_reference_url_or_text() -> None:
+    from apps.cost_lab_api.app import ProviderBody
+
+    body = ProviderBody.model_validate(
+        {
+            "name": "BytePlus",
+            "provider_type": "BYTEPLUS",
+            "secret_reference": "env:WEARO_BYTEPLUS_API_KEY",
+            "pricing_reference_url": "https://docs.byteplus.com/pricing",
+            "pricing_reference_text": "Image generation prices effective November 2026.",
+        }
+    )
+    assert str(body.pricing_reference_url) == "https://docs.byteplus.com/pricing"
+    assert body.pricing_reference_text == "Image generation prices effective November 2026."
+
+
 def test_llm_knowledge_blocks_render_only_safe_semantic_html() -> None:
     from apps.cost_lab_api.app import _structured_knowledge_html
 

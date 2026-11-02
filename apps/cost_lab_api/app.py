@@ -19,7 +19,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from PIL import Image, ImageOps
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
 from apps.api.wearo_api.admin_auth import verify_password
@@ -44,6 +44,8 @@ class ProviderBody(BaseModel):
     api_base_url: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=4096)
     secret_reference: str | None = Field(default=None, max_length=512)
+    pricing_reference_url: AnyHttpUrl | None = None
+    pricing_reference_text: str | None = Field(default=None, max_length=10_000)
     enabled: bool = True
 
 
@@ -418,7 +420,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             items = _rows(
                 connection.execute(
                     text("""SELECT provider_id,name,provider_type,api_base_url,
-                secret_reference,(secret_ciphertext IS NOT NULL) has_stored_secret,enabled,created_at,updated_at
+                secret_reference,(secret_ciphertext IS NOT NULL) has_stored_secret,
+                pricing_reference_url,pricing_reference_text,enabled,created_at,updated_at
                 FROM cost_lab.model_providers ORDER BY name""")
                 )
             )
@@ -479,8 +482,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         with service.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO cost_lab.model_providers
-                (provider_id,name,provider_type,api_base_url,secret_ciphertext,secret_reference,enabled)
-                VALUES(:id,:name,:type,:url,:secret,:reference,:enabled)"""),
+                (provider_id,name,provider_type,api_base_url,secret_ciphertext,secret_reference,
+                 pricing_reference_url,pricing_reference_text,enabled)
+                VALUES(:id,:name,:type,:url,:secret,:reference,:pricing_url,:pricing_text,:enabled)"""),
                 {
                     "id": provider_id,
                     "name": body.name,
@@ -488,6 +492,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     "url": body.api_base_url,
                     "secret": encrypted,
                     "reference": body.secret_reference,
+                    "pricing_url": (
+                        str(body.pricing_reference_url) if body.pricing_reference_url else None
+                    ),
+                    "pricing_text": body.pricing_reference_text,
                     "enabled": body.enabled,
                 },
             )
@@ -518,6 +526,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             connection.execute(
                 text("""UPDATE cost_lab.model_providers SET name=:name,provider_type=:type,
                 api_base_url=:url,secret_ciphertext=:secret,secret_reference=:reference,
+                pricing_reference_url=:pricing_url,pricing_reference_text=:pricing_text,
                 enabled=:enabled,updated_at=now() WHERE provider_id=:id"""),
                 {
                     "id": provider_id,
@@ -526,6 +535,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     "url": body.api_base_url,
                     "secret": secret_ciphertext,
                     "reference": secret_reference,
+                    "pricing_url": (
+                        str(body.pricing_reference_url) if body.pricing_reference_url else None
+                    ),
+                    "pricing_text": body.pricing_reference_text,
                     "enabled": body.enabled,
                 },
             )
