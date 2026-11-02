@@ -92,11 +92,15 @@ class MappingBody(BaseModel):
 class BenchmarkBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: UUID
+    input_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
+    output_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
 
 
 class DatasetGenerationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: UUID
+    generation_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
+    direction: str | None = Field(default=None, max_length=4000)
 
 
 class KnowledgeTextBody(BaseModel):
@@ -993,14 +997,26 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         return {"asset_id": asset_id, "variants": variants}
 
     @app.get("/api/cost-lab/assets/{asset_id}/content")
-    def asset_content(asset_id: UUID, _: Auth) -> FileResponse:
+    def asset_content(asset_id: UUID, _: Auth, quality: str | None = None) -> FileResponse:
+        normalized_quality = quality.upper() if quality else None
+        if normalized_quality and normalized_quality not in {"LOW", "MEDIUM", "HIGH"}:
+            raise HTTPException(422, "Unsupported dataset quality")
         with service.engine.begin() as connection:
-            path = connection.execute(
-                text("SELECT original_path FROM cost_lab.benchmark_assets WHERE asset_id=:id"),
+            asset = connection.execute(
+                text(
+                    "SELECT original_path,variants FROM cost_lab.benchmark_assets WHERE asset_id=:id"
+                ),
                 {"id": asset_id},
-            ).scalar_one_or_none()
-        if not path:
+            ).mappings().one_or_none()
+        if not asset:
             raise HTTPException(404, "Asset not found")
+        path = (
+            dict(asset["variants"] or {}).get(normalized_quality)
+            if normalized_quality
+            else asset["original_path"]
+        )
+        if not path:
+            raise HTTPException(404, "Dataset quality variant not found")
         resolved = (actual.storage_root / path).resolve()
         if actual.storage_root.resolve() not in resolved.parents:
             raise HTTPException(400, "Invalid asset path")
@@ -1022,13 +1038,18 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
 
     @app.post("/api/cost-lab/dataset-generations", status_code=202)
     def create_dataset_generation(body: DatasetGenerationBody, _: Auth) -> dict[str, Any]:
+        direction = (body.direction or "").strip()
+        direction_suffix = (
+            f" Additional dataset direction from the evaluator: {direction}" if direction else ""
+        )
         prompts: list[tuple[str, str]] = [
             (
                 "PERSON",
                 "Create a photorealistic full-body studio portrait of one adult Indian woman, "
                 "standing naturally, front-facing, neutral fitted base clothing, hands visible, "
                 "plain warm-grey background, even soft lighting, no jewellery, no text or logo. "
-                "This is a synthetic reference person for authorized virtual try-on testing.",
+                "This is a synthetic reference person for authorized virtual try-on testing."
+                + direction_suffix,
             )
         ]
         prompts.extend(
@@ -1036,7 +1057,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 "JEWELLERY",
                 f"Create a photorealistic isolated Indian jewellery product image, design {index + 1} "
                 "of 10, visually distinct in metal, stones and silhouette, centered on a clean neutral "
-                "background, ecommerce studio lighting, no person, no text, no logo.",
+                "background, ecommerce studio lighting, no person, no text, no logo."
+                + direction_suffix,
             )
             for index in range(10)
         )
@@ -1045,7 +1067,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 "SAREE",
                 f"Create a photorealistic isolated Indian saree product image, design {index + 1} of "
                 "10, uniquely varied fabric, colour, weave and border, neatly draped on a neutral "
-                "invisible form, clean ecommerce background, no person, no text, no logo.",
+                "invisible form, clean ecommerce background, no person, no text, no logo."
+                + direction_suffix,
             )
             for index in range(10)
         )
@@ -1066,7 +1089,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 "DRESS",
                 f"Create a photorealistic isolated women's {style} product image, design {index + 1} "
                 "of 10, with a distinct colour and fabric, front view on a neutral invisible form, "
-                "clean ecommerce studio background, no person, no text, no logo.",
+                "clean ecommerce studio background, no person, no text, no logo."
+                + direction_suffix,
             )
             for index, style in enumerate(dress_styles)
         )
@@ -1088,8 +1112,15 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 raise HTTPException(409, "A dataset generation job is already running")
             connection.execute(
                 text("""INSERT INTO cost_lab.dataset_generation_jobs
-                (job_id,model_id,status,total_items) VALUES(:id,:model,'QUEUED',:total)"""),
-                {"id": job_id, "model": body.model_id, "total": len(prompts)},
+                (job_id,model_id,status,total_items,generation_quality,direction)
+                VALUES(:id,:model,'QUEUED',:total,:quality,:direction)"""),
+                {
+                    "id": job_id,
+                    "model": body.model_id,
+                    "total": len(prompts),
+                    "quality": body.generation_quality,
+                    "direction": direction or None,
+                },
             )
             for ordinal, (kind, prompt) in enumerate(prompts):
                 connection.execute(
@@ -1104,11 +1135,18 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                         "prompt": prompt,
                     },
                 )
-        return {"job_id": job_id, "status": "QUEUED", "total_items": len(prompts)}
+        return {
+            "job_id": job_id,
+            "status": "QUEUED",
+            "total_items": len(prompts),
+            "generation_quality": body.generation_quality,
+        }
 
     @app.post("/api/cost-lab/benchmarks", status_code=202)
     def create_benchmark(body: BenchmarkBody, _: Auth) -> dict[str, Any]:
-        qualities = ["LOW", "MEDIUM", "HIGH"]
+        input_quality = body.input_quality
+        output_quality = body.output_quality
+        qualities = [output_quality]
         categories = ["JEWELLERY", "SAREE", "DRESS"]
         tryons_per_quality = 10
         prompt_version = "wearo-mixed-tryon-v2"
@@ -1185,7 +1223,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         fixed_components = [
             item for item in components if item.get("unit") in {"requests", "output_images"}
         ]
-        total_jobs = len(qualities) * tryons_per_quality
+        total_jobs = tryons_per_quality
         estimated = (
             calculate_cost({"requests": 1, "output_images": 1}, fixed_components) * total_jobs
             if fixed_components
@@ -1199,7 +1237,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         combinations = [
             (uuid4(), *item)
             for item in reproducible_combinations(
-                people, products, qualities, tryons_per_quality, seed
+                people, products, [input_quality], tryons_per_quality, seed
             )
         ]
         with service.engine.begin() as connection:
@@ -1228,13 +1266,14 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             for ordinal, (combination_id, quality, person, product) in enumerate(combinations):
                 connection.execute(
                     text(
-                        "INSERT INTO cost_lab.benchmark_combinations(combination_id,run_id,ordinal,quality,person_asset_id,product_asset_id) VALUES(:id,:run,:ordinal,:quality,:person,:product)"
+                        "INSERT INTO cost_lab.benchmark_combinations(combination_id,run_id,ordinal,quality,output_quality,person_asset_id,product_asset_id) VALUES(:id,:run,:ordinal,:quality,:output_quality,:person,:product)"
                     ),
                     {
                         "id": combination_id,
                         "run": run_id,
                         "ordinal": ordinal,
                         "quality": quality,
+                        "output_quality": output_quality,
                         "person": person,
                         "product": product,
                     },
@@ -1259,8 +1298,13 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             return {
                 "runs": _rows(
                     connection.execute(
-                        text("""SELECT r.*,m.name model_name,p.name provider_name FROM cost_lab.benchmark_runs r
-                JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id) ORDER BY r.created_at DESC LIMIT 200""")
+                        text("""SELECT r.*,m.name model_name,p.name provider_name,
+                CASE WHEN count(DISTINCT c.quality)>1 THEN 'MIXED' ELSE min(c.quality) END input_quality,
+                CASE WHEN count(DISTINCT c.output_quality)>1 THEN 'MIXED' ELSE min(c.output_quality) END output_quality
+                FROM cost_lab.benchmark_runs r JOIN cost_lab.ai_models m USING(model_id)
+                JOIN cost_lab.model_providers p USING(provider_id)
+                LEFT JOIN cost_lab.benchmark_combinations c USING(run_id)
+                GROUP BY r.run_id,m.name,p.name ORDER BY r.created_at DESC LIMIT 200""")
                     )
                 )
             }
@@ -1283,6 +1327,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         provider_id: UUID | None = None,
         model_id: UUID | None = None,
         quality: str | None = None,
+        input_quality: str | None = None,
+        output_quality: str | None = None,
     ) -> dict[str, Any]:
         filters = ["1=1"]
         params: dict[str, Any] = {}
@@ -1292,10 +1338,15 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         if model_id:
             filters.append("m.model_id=:model")
             params["model"] = model_id
-        if quality:
-            filters.append("c.quality=:quality")
-            params["quality"] = quality
-        query = f"""SELECT p.name provider_name,m.name model_name,r.run_id,r.status run_status,c.quality,
+        if input_quality:
+            filters.append("c.quality=:input_quality")
+            params["input_quality"] = input_quality
+        selected_output_quality = output_quality or quality
+        if selected_output_quality:
+            filters.append("c.output_quality=:output_quality")
+            params["output_quality"] = selected_output_quality
+        query = f"""SELECT p.name provider_name,m.name model_name,r.run_id,r.status run_status,
+            c.quality input_quality,c.output_quality,c.output_quality quality,
             count(*) total_tryons,count(*) FILTER(WHERE t.status='SUCCEEDED') successful_tryons,
             coalesce(sum(u.text_input_tokens),0)+coalesce(sum(u.image_input_tokens),0)+coalesce(sum(u.cached_input_tokens),0) input_tokens,
             coalesce(sum(u.image_output_tokens),0) output_tokens,coalesce(sum(u.total_reported_tokens),0) total_reported_tokens,
@@ -1305,7 +1356,9 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             count(*) FILTER(WHERE t.status='SUCCEEDED')::numeric/nullif(count(*),0) success_rate
             FROM cost_lab.tryon_runs t JOIN cost_lab.benchmark_runs r USING(run_id) JOIN cost_lab.benchmark_combinations c USING(combination_id)
             JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id) LEFT JOIN cost_lab.tryon_usage u USING(tryon_id)
-            WHERE {" AND ".join(filters)} GROUP BY p.name,m.name,r.run_id,r.status,c.quality ORDER BY r.created_at DESC,c.quality"""
+            WHERE {" AND ".join(filters)}
+            GROUP BY p.name,m.name,r.run_id,r.status,c.quality,c.output_quality
+            ORDER BY r.created_at DESC,c.quality,c.output_quality"""
         with service.engine.begin() as connection:
             summaries = _rows(connection.execute(text(query), params))
             fx = (
@@ -1433,7 +1486,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 raise HTTPException(404, "Benchmark result not found")
             items = _rows(
                 connection.execute(
-                    text("""SELECT t.*,c.ordinal,c.quality,c.person_asset_id,c.product_asset_id,
+                    text("""SELECT t.*,c.ordinal,c.quality input_quality,c.output_quality,
+                c.output_quality quality,c.person_asset_id,c.product_asset_id,
                 person.name person_asset_name,product.name product_asset_name,u.*
                 FROM cost_lab.tryon_runs t JOIN cost_lab.benchmark_combinations c USING(combination_id)
                 JOIN cost_lab.benchmark_assets person ON person.asset_id=c.person_asset_id
@@ -1444,8 +1498,14 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 )
             )
         for item in items:
-            item["person_url"] = f"/api/cost-lab/assets/{item['person_asset_id']}/content"
-            item["product_url"] = f"/api/cost-lab/assets/{item['product_asset_id']}/content"
+            item["person_url"] = (
+                f"/api/cost-lab/assets/{item['person_asset_id']}/content"
+                f"?quality={item['input_quality']}"
+            )
+            item["product_url"] = (
+                f"/api/cost-lab/assets/{item['product_asset_id']}/content"
+                f"?quality={item['input_quality']}"
+            )
             item["image_url"] = None
             item["download_url"] = None
             item["pixel_width"] = None

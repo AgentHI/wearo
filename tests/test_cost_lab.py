@@ -112,11 +112,52 @@ def test_byteplus_adapter_uses_json_generation_contract(monkeypatch: MonkeyPatch
     assert result.usage == {"total_reported_tokens": 12, "output_images": 1}
 
 
-def test_benchmark_request_only_requires_a_model() -> None:
+def test_benchmark_request_defaults_input_and_output_to_high() -> None:
     from apps.cost_lab_api.app import BenchmarkBody
 
     model_id = uuid4()
-    assert BenchmarkBody.model_validate({"model_id": str(model_id)}).model_id == model_id
+    body = BenchmarkBody.model_validate({"model_id": str(model_id)})
+    assert body.model_id == model_id
+    assert body.input_quality == "HIGH"
+    assert body.output_quality == "HIGH"
+
+
+def test_benchmark_request_accepts_separate_image_qualities() -> None:
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    body = BenchmarkBody.model_validate(
+        {
+            "model_id": str(uuid4()),
+            "input_quality": "LOW",
+            "output_quality": "MEDIUM",
+        }
+    )
+    assert body.input_quality == "LOW"
+    assert body.output_quality == "MEDIUM"
+
+
+def test_dataset_generation_accepts_quality_and_direction() -> None:
+    from apps.cost_lab_api.app import DatasetGenerationBody
+
+    model_id = uuid4()
+    body = DatasetGenerationBody.model_validate(
+        {
+            "model_id": str(model_id),
+            "generation_quality": "HIGH",
+            "direction": "Use rich silk fabrics and warm studio lighting.",
+        }
+    )
+
+    assert body.model_id == model_id
+    assert body.generation_quality == "HIGH"
+    assert body.direction == "Use rich silk fabrics and warm studio lighting."
+
+
+def test_dataset_generation_without_quality_defaults_to_high() -> None:
+    from apps.cost_lab_api.app import DatasetGenerationBody
+
+    body = DatasetGenerationBody.model_validate({"model_id": str(uuid4())})
+    assert body.generation_quality == "HIGH"
 
 
 def test_model_and_pricing_are_one_request_unit() -> None:

@@ -49,7 +49,7 @@ class CostLabWorker:
             return dict(
                 connection.execute(
                     text("""SELECT t.*,r.model_id,r.prompt,r.pricing_snapshot,r.quality_snapshot,r.spending_limit_usd,
-                c.quality,c.person_asset_id,c.product_asset_id,m.api_identifier,p.* FROM cost_lab.tryon_runs t
+                c.quality,c.output_quality,c.person_asset_id,c.product_asset_id,m.api_identifier,p.* FROM cost_lab.tryon_runs t
                 JOIN cost_lab.benchmark_runs r USING(run_id) JOIN cost_lab.benchmark_combinations c USING(combination_id)
                 JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id) WHERE t.tryon_id=:id"""),
                     {"id": row},
@@ -99,7 +99,12 @@ class CostLabWorker:
             if job["provider_type"] not in adapters:
                 raise ValueError(f"No worker adapter for {job['provider_type']}")
             settings: dict[str, Any] = next(
-                (item for item in job["quality_snapshot"] if item["code"] == job["quality"]), {}
+                (
+                    item
+                    for item in job["quality_snapshot"]
+                    if item["code"] == job["output_quality"]
+                ),
+                {},
             )
             parameters = dict(settings.get("settings") or {}) | dict(
                 settings.get("request_parameters") or {}
@@ -171,12 +176,16 @@ class CostLabWorker:
             )
             item = dict(
                 connection.execute(
-                    text("""SELECT i.*,m.api_identifier,p.*,
-                coalesce((SELECT components FROM cost_lab.model_pricing x WHERE x.model_id=j.model_id
-                AND x.effective_at <= now() ORDER BY x.effective_at DESC LIMIT 1),'[]'::jsonb) pricing
-                FROM cost_lab.dataset_generation_items i JOIN cost_lab.dataset_generation_jobs j USING(job_id)
-                JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id)
-                WHERE i.item_id=:id"""),
+                    text("""SELECT i.*,j.generation_quality,m.api_identifier,p.*,
+                    q.settings quality_settings,mapping.provider_quality,mapping.request_parameters,
+                    coalesce((SELECT components FROM cost_lab.model_pricing x WHERE x.model_id=j.model_id
+                    AND x.effective_at <= now() ORDER BY x.effective_at DESC LIMIT 1),'[]'::jsonb) pricing
+                    FROM cost_lab.dataset_generation_items i JOIN cost_lab.dataset_generation_jobs j USING(job_id)
+                    JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id)
+                    JOIN cost_lab.quality_profiles q ON q.code=j.generation_quality
+                    LEFT JOIN cost_lab.model_quality_mapping mapping
+                      ON mapping.model_id=j.model_id AND mapping.profile_id=q.profile_id
+                    WHERE i.item_id=:id"""),
                     {"id": item_id},
                 )
                 .mappings()
@@ -194,8 +203,13 @@ class CostLabWorker:
                 self.service.secret_for(item),
                 int(os.getenv("COST_LAB_REQUEST_TIMEOUT_SECONDS", "120")),
             )
+            parameters = dict(item.get("quality_settings") or {}) | dict(
+                item.get("request_parameters") or {}
+            )
+            if item.get("provider_quality"):
+                parameters["quality"] = item["provider_quality"]
             result = adapter.generate_from_prompt(
-                model=item["api_identifier"], prompt=item["prompt"], parameters={}
+                model=item["api_identifier"], prompt=item["prompt"], parameters=parameters
             )
             source = ImageOps.exif_transpose(Image.open(BytesIO(result.image_bytes))).convert("RGB")
             asset_id = uuid4()
