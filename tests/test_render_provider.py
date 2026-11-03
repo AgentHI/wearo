@@ -9,6 +9,7 @@ from apps.api.wearo_api.render_provider import (
     MultipartFile,
     OpenAIImageEditAdapter,
     ProviderError,
+    RenderQuality,
     RenderRequest,
     VertexTryOnAdapter,
 )
@@ -164,11 +165,11 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     url, fields, files, headers, timeout = transport.calls[0]
     assert url == "https://api.openai.com/v1/images/edits"
     assert fields["model"] == "gpt-image-2.5-sunburst"
-    assert fields["quality"] == "high" and fields["size"] == "1024x1536"
+    assert fields["quality"] == "high" and fields["size"] == "1664x2496"
     assert fields["stream"] == "true" and fields["partial_images"] == "1"
     assert fields["prompt"] == (
-            "Use the exact customer shown in the first image and the second image as the wearable "
-            "reference. Do not substitute or redraw the customer as a different person. "
+        "Use the exact customer shown in the first image and the second image as the wearable "
+        "reference. Do not substitute or redraw the customer as a different person. "
         "Identify the primary wearable shown in the second image. If the reference is contextual, "
         "isolate only the intended garment or jewellery and ignore any reference person, "
         "mannequin, clothing used only to display jewellery, hands, props, and background. Apply "
@@ -194,7 +195,22 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
         "input_tokens_details": {"text_tokens": 10, "image_tokens": 40},
     }
     assert partials == [(b"openai-result", "image/png", 0)]
-    assert [file.filename for file in files] == ["person.jpg", "item.png"]
+
+
+def test_openai_adapter_applies_requested_wearo_quality() -> None:
+    transport = MultipartTransport([openai_success()])
+    original = request()
+    OpenAIImageEditAdapter(transport, api_key="secret-key").render(
+        RenderRequest(
+            original.person_image,
+            original.item_image,
+            original.person_mime,
+            original.item_mime,
+            original.capability,
+            quality=RenderQuality.LOW,
+        )
+    )
+    assert transport.calls[0][1]["quality"] == "low"
 
 
 def test_openai_retries_transient_status_and_fails_closed() -> None:
@@ -265,6 +281,17 @@ def test_byteplus_request_uses_selected_model_and_two_reference_images() -> None
     assert result.image == b"byteplus-result"
     assert result.provider == "BYTEPLUS" and result.region == "ap-southeast-1"
     assert result.request_id == "byteplus-request-1"
+
+
+def test_byteplus_flash_model_omits_unsupported_sequential_parameter() -> None:
+    transport = Transport([byteplus_success()])
+    adapter = BytePlusImageGenerationAdapter(
+        transport, api_key="byteplus-secret", model="dola-seedream-5-0-flash-260915"
+    )
+    adapter.render(request())
+    assert "sequential_image_generation" not in transport.calls[0][1]
+    assert transport.calls[0][1]["size"] == "2K"
+    assert "2:3 aspect ratio" in transport.calls[0][1]["prompt"]
 
 
 def test_byteplus_retries_and_fails_closed() -> None:

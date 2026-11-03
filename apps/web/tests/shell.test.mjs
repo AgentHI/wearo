@@ -115,6 +115,11 @@ test("business and consumer route families are separated", () => {
 });
 
 test("platform admin login is isolated and protects dashboard routes", () => {
+  assert.ok(
+    main.indexOf('pathname.startsWith("/admin/cost-lab")') <
+      main.indexOf('pathname.startsWith("/admin")'),
+    "Cost Lab must be routed before the general admin prefix",
+  );
   assert.match(main, /pathname\.startsWith\("\/admin"\)/);
   assert.match(main, /renderAdminApp/);
   assert.match(admin, /Super Admin sign in/);

@@ -16,6 +16,11 @@ def calculate_cost(usage: dict[str, Any], components: list[dict[str, Any]]) -> D
     total = Decimal("0")
     for component in components:
         unit = str(component["unit"])
+        component_quality = component.get("quality")
+        if component_quality is not None and str(component_quality).upper() != str(
+            usage.get("output_quality", "")
+        ).upper():
+            continue
         quantity = Decimal(str(usage.get(unit, 0) or 0))
         price = Decimal(str(component["price_usd"]))
         if unit in PER_MILLION:

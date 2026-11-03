@@ -56,9 +56,16 @@ pnpm --filter @wearo/web check
 
 Implement the `ProviderAdapter` protocol in `apps/cost_lab_api/adapters.py`, including an explicit
 validation and generation request contract. Add a new `provider_type`, dispatch it in the worker,
-and create mocked response tests. Do not route a provider through the OpenAI-compatible adapter
-unless its image edit API is actually compatible. Normalize only usage fields the provider really
-reports; preserve aggregate-only token usage rather than inventing a split.
+and create mocked response tests. OpenAI Images-compatible, BytePlus ModelArk, and Black Forest
+Labs adapters are currently executable. Do not route another provider through the OpenAI-compatible
+adapter unless its image edit API is actually compatible. Normalize only usage fields the provider
+really reports; preserve aggregate-only token usage rather than inventing a split.
+
+BFL diagnostics are emitted as structured `bfl_upstream` log entries. They include the phase,
+upstream status, sanitized response, request ID, generation ID, and elapsed time; credentials and
+image/base64 request data are never logged. Model tests currently wait synchronously while the BFL
+job is polled. Keep the reverse proxy timeout above `COST_LAB_REQUEST_TIMEOUT_SECONDS` until the
+planned browser-facing asynchronous test-job API is introduced.
 
 ## GCP VM deployment
 
@@ -70,6 +77,7 @@ location and retain the existing SPA fallback for `/admin/cost-lab/*`:
 ```nginx
 location /api/cost-lab/ {
     proxy_pass http://127.0.0.1:8011/api/cost-lab/;
+    proxy_read_timeout 150s;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;

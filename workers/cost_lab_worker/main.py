@@ -13,8 +13,8 @@ from uuid import UUID, uuid4
 from PIL import Image, ImageOps
 from sqlalchemy import Engine, create_engine, text
 
-from apps.cost_lab_api.adapters import BytePlusAdapter, OpenAICompatibleAdapter
-from apps.cost_lab_api.app import CostLab
+from apps.cost_lab_api.adapters import BFLAdapter, BytePlusAdapter, OpenAICompatibleAdapter
+from apps.cost_lab_api.app import CostLab, _provider_quality_parameters
 from apps.cost_lab_api.config import Settings
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
 
@@ -25,6 +25,20 @@ class CostLabWorker:
         self.engine: Engine = service.engine
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}"
         self.max_retries = int(os.getenv("COST_LAB_MAX_RETRIES", "1"))
+
+    @staticmethod
+    def _adapter(provider: dict[str, Any]) -> type:
+        provider_type = provider.get("provider_type")
+        base_url = str(provider.get("api_base_url") or "").casefold()
+        if provider_type == "BFL" or (provider_type == "SECRET_REFERENCE" and "bfl.ai" in base_url):
+            return BFLAdapter
+        adapters = {
+            "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
+            "BYTEPLUS": BytePlusAdapter,
+        }
+        if provider_type not in adapters:
+            raise ValueError(f"No worker adapter for {provider_type}")
+        return adapters[provider_type]
 
     def claim(self) -> dict[str, Any] | None:
         with self.engine.begin() as connection:
@@ -92,18 +106,9 @@ class CostLabWorker:
             self._finish(job, "CANCELLED", None)
             return True
         try:
-            adapters = {
-                "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
-                "BYTEPLUS": BytePlusAdapter,
-            }
-            if job["provider_type"] not in adapters:
-                raise ValueError(f"No worker adapter for {job['provider_type']}")
+            adapter_type = self._adapter(job)
             settings: dict[str, Any] = next(
-                (
-                    item
-                    for item in job["quality_snapshot"]
-                    if item["code"] == job["output_quality"]
-                ),
+                (item for item in job["quality_snapshot"] if item["code"] == job["output_quality"]),
                 {},
             )
             parameters = dict(settings.get("settings") or {}) | dict(
@@ -111,7 +116,10 @@ class CostLabWorker:
             )
             if settings.get("provider_quality"):
                 parameters["quality"] = settings["provider_quality"]
-            adapter = adapters[job["provider_type"]](
+            parameters |= _provider_quality_parameters(
+                job, job["api_identifier"], job["output_quality"]
+            )
+            adapter = adapter_type(
                 job["api_base_url"],
                 self.service.secret_for(job),
                 int(os.getenv("COST_LAB_REQUEST_TIMEOUT_SECONDS", "120")),
@@ -137,6 +145,7 @@ class CostLabWorker:
             usage = dict(result.usage)
             usage.setdefault("requests", 1)
             usage.setdefault("output_images", 1)
+            usage["output_quality"] = job["output_quality"]
             cost = calculate_cost(usage, list(job["pricing_snapshot"]))
             self._finish(
                 job,
@@ -192,13 +201,7 @@ class CostLabWorker:
                 .one()
             )
         try:
-            adapters = {
-                "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
-                "BYTEPLUS": BytePlusAdapter,
-            }
-            if item["provider_type"] not in adapters:
-                raise ValueError(f"No dataset adapter for {item['provider_type']}")
-            adapter = adapters[item["provider_type"]](
+            adapter = self._adapter(item)(
                 item["api_base_url"],
                 self.service.secret_for(item),
                 int(os.getenv("COST_LAB_REQUEST_TIMEOUT_SECONDS", "120")),
@@ -208,6 +211,9 @@ class CostLabWorker:
             )
             if item.get("provider_quality"):
                 parameters["quality"] = item["provider_quality"]
+            parameters |= _provider_quality_parameters(
+                item, item["api_identifier"], item["generation_quality"]
+            )
             result = adapter.generate_from_prompt(
                 model=item["api_identifier"], prompt=item["prompt"], parameters=parameters
             )
@@ -237,6 +243,7 @@ class CostLabWorker:
                 )
             usage = dict(result.usage)
             usage.setdefault("output_images", 1)
+            usage["output_quality"] = item["generation_quality"]
             cost = calculate_cost(usage, list(item["pricing"]))
             digest = hashlib.sha256(result.image_bytes).hexdigest()
             with self.engine.begin() as connection:
@@ -284,6 +291,8 @@ class CostLabWorker:
                 WHERE i.job_id=j.job_id AND i.status='SUCCEEDED'),
             failed_items=(SELECT count(*) FROM cost_lab.dataset_generation_items i
                 WHERE i.job_id=j.job_id AND i.status='FAILED'),
+            cancelled_items=(SELECT count(*) FROM cost_lab.dataset_generation_items i
+                WHERE i.job_id=j.job_id AND i.status='CANCELLED'),
             total_cost_usd=(SELECT coalesce(sum(cost_usd),0) FROM cost_lab.dataset_generation_items i
                 WHERE i.job_id=j.job_id)
             WHERE job_id=:job"""),
@@ -291,7 +300,8 @@ class CostLabWorker:
         )
         connection.execute(
             text("""UPDATE cost_lab.dataset_generation_jobs j SET
-            status=CASE WHEN failed_items > 0 THEN 'FAILED' ELSE 'COMPLETED' END,finished_at=now()
+            status=CASE WHEN status='CANCEL_REQUESTED' THEN 'CANCELLED'
+                WHEN failed_items > 0 THEN 'FAILED' ELSE 'COMPLETED' END,finished_at=now()
             WHERE job_id=:job AND NOT EXISTS(SELECT 1 FROM cost_lab.dataset_generation_items i
                 WHERE i.job_id=j.job_id AND i.status IN ('QUEUED','PROCESSING'))"""),
             {"job": job_id},

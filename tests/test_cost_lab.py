@@ -1,11 +1,19 @@
+import base64
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+import pytest
+import requests
 from pytest import MonkeyPatch
 
-from apps.cost_lab_api.adapters import BytePlusAdapter, normalize_openai_usage
+from apps.cost_lab_api.adapters import (
+    BFLAdapter,
+    BFLUpstreamError,
+    BytePlusAdapter,
+    normalize_openai_usage,
+)
 from apps.cost_lab_api.app import reproducible_combinations
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
 
@@ -42,6 +50,16 @@ def test_cost_lab_custom_units_are_extensible() -> None:
     assert calculate_cost(
         {"custom:gpu_seconds": 3}, [{"unit": "custom:gpu_seconds", "price_usd": "0.2"}]
     ) == Decimal("0.60000000")
+
+
+def test_cost_lab_per_image_pricing_is_scoped_to_output_quality() -> None:
+    prices = [
+        {"unit": "output_images", "quality": "LOW", "price_usd": "0.01"},
+        {"unit": "output_images", "quality": "MEDIUM", "price_usd": "0.02"},
+        {"unit": "output_images", "quality": "HIGH", "price_usd": "0.04"},
+    ]
+    usage = {"output_images": 2, "output_quality": "MEDIUM"}
+    assert calculate_cost(usage, prices) == Decimal("0.04000000")
 
 
 def test_openai_image_usage_is_normalized_without_inventing_fields() -> None:
@@ -86,9 +104,7 @@ def test_byteplus_adapter_uses_json_generation_contract(monkeypatch: MonkeyPatch
         return Response()
 
     monkeypatch.setattr(requests, "post", post)
-    result = BytePlusAdapter(
-        "https://ark.ap-southeast.bytepluses.com/api/v3", "secret"
-    ).generate(
+    result = BytePlusAdapter("https://ark.ap-southeast.bytepluses.com/api/v3", "secret").generate(
         model="seedream-5-0-260128",
         prompt="try on",
         images=[b"\x89PNG\r\n\x1a\nperson", b"garment"],
@@ -96,9 +112,7 @@ def test_byteplus_adapter_uses_json_generation_contract(monkeypatch: MonkeyPatch
     )
 
     payload = calls[0]["json"]
-    assert calls[0]["url"] == (
-        "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
-    )
+    assert calls[0]["url"] == ("https://ark.ap-southeast.bytepluses.com/api/v3/images/generations")
     assert isinstance(payload, dict)
     assert payload["model"] == "seedream-5-0-260128"
     assert payload["image"] == [
@@ -112,14 +126,194 @@ def test_byteplus_adapter_uses_json_generation_contract(monkeypatch: MonkeyPatch
     assert result.usage == {"total_reported_tokens": 12, "output_images": 1}
 
 
+def test_byteplus_flash_model_omits_unsupported_sequential_parameter(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class Response:
+        ok = True
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"data": [{"b64_json": base64.b64encode(b"result").decode()}]}
+
+    monkeypatch.setattr(requests, "post", lambda _url, **kwargs: calls.append(kwargs) or Response())
+    BytePlusAdapter("https://example.test", "secret").generate(
+        model="dola-seedream-5-0-flash-260915",
+        prompt="try on",
+        images=[b"person", b"product"],
+        parameters={"sequential_image_generation": "disabled", "size": "1.5K"},
+    )
+    assert "sequential_image_generation" not in calls[0]["json"]
+    assert calls[0]["json"]["size"] == "1.5K"
+    assert "2:3 aspect ratio" in calls[0]["json"]["prompt"]
+
+
+def test_bfl_adapter_submits_polls_and_downloads(monkeypatch: MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+    class Response:
+        ok = True
+
+        def __init__(self, body: dict[str, object] | None = None, content: bytes = b"") -> None:
+            self._body = body or {}
+            self.content = content
+
+        def json(self) -> dict[str, object]:
+            return self._body
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def post(url: str, **kwargs: object) -> Response:
+        calls.append(("POST", url, cast(dict[str, object], kwargs.get("json"))))
+        return Response(
+            {
+                "id": "generation-1",
+                "polling_url": "https://api.bfl.ai/v1/get_result?id=generation-1",
+            }
+        )
+
+    def get(url: str, **_: object) -> Response:
+        calls.append(("GET", url, None))
+        if "get_result" in url:
+            return Response({"status": "Ready", "result": {"sample": "https://signed/image.jpg"}})
+        return Response(content=b"generated-image")
+
+    monkeypatch.setattr("apps.cost_lab_api.adapters.requests.post", post)
+    monkeypatch.setattr("apps.cost_lab_api.adapters.requests.get", get)
+    result = BFLAdapter("https://api.bfl.ai/v1", "secret", timeout=5).generate(
+        model="flux-3-image-klein",
+        prompt="Put the garment on the person",
+        images=[b"person", b"garment"],
+        parameters={},
+    )
+
+    assert calls[0][1] == "https://api.bfl.ai/v1/flux-3-image-klein"
+    assert calls[0][2] == {
+        "prompt": "Put the garment on the person",
+        "images": ["cGVyc29u", "Z2FybWVudA=="],
+    }
+    assert result.image_bytes == b"generated-image"
+    assert result.usage == {"output_images": 1}
+
+
+def test_bfl_submission_preserves_upstream_502_without_resubmitting(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class Response:
+        ok = False
+        status_code = 502
+        headers = {"x-request-id": "bfl-request-502"}
+        text = '{"detail":"temporary gateway failure"}'
+
+        def json(self) -> dict[str, str]:
+            return {"detail": "temporary gateway failure"}
+
+    calls = 0
+
+    def post(*_: object, **__: object) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response()
+
+    monkeypatch.setattr("apps.cost_lab_api.adapters.requests.post", post)
+    with pytest.raises(BFLUpstreamError) as caught:
+        BFLAdapter("https://api.bfl.ai", "secret").generate_from_prompt(
+            model="flux-3-image-klein", prompt="test"
+        )
+
+    assert calls == 1
+    assert caught.value.status_code == 502
+    assert caught.value.response_body == {"detail": "temporary gateway failure"}
+    assert caught.value.request_id == "bfl-request-502"
+
+
+def test_bfl_polling_failure_preserves_job_id(monkeypatch: MonkeyPatch) -> None:
+    class Response:
+        headers: dict[str, str] = {}
+        text = ""
+
+        def __init__(self, status: int, body: dict[str, object]) -> None:
+            self.status_code = status
+            self.ok = status < 400
+            self._body = body
+
+        def json(self) -> dict[str, object]:
+            return self._body
+
+    monkeypatch.setattr(
+        "apps.cost_lab_api.adapters.requests.post",
+        lambda *_args, **_kwargs: Response(
+            200, {"id": "job-failed", "polling_url": "https://poll/job-failed"}
+        ),
+    )
+    monkeypatch.setattr(
+        "apps.cost_lab_api.adapters.requests.get",
+        lambda *_args, **_kwargs: Response(400, {"detail": "invalid job"}),
+    )
+    with pytest.raises(BFLUpstreamError) as caught:
+        BFLAdapter("https://api.bfl.ai", "secret").generate_from_prompt(
+            model="flux-3-image-klein", prompt="test"
+        )
+
+    assert caught.value.phase == "poll"
+    assert caught.value.status_code == 400
+    assert caught.value.job_id == "job-failed"
+
+
+def test_bfl_polling_timeout_is_bounded(monkeypatch: MonkeyPatch) -> None:
+    class Response:
+        ok = True
+        status_code = 200
+        headers: dict[str, str] = {}
+        text = ""
+
+        def __init__(self, body: dict[str, object]) -> None:
+            self._body = body
+
+        def json(self) -> dict[str, object]:
+            return self._body
+
+    polls = 0
+    monkeypatch.setattr(
+        "apps.cost_lab_api.adapters.requests.post",
+        lambda *_args, **_kwargs: Response(
+            {"id": "job-pending", "polling_url": "https://poll/job-pending"}
+        ),
+    )
+
+    def get(*_: object, **__: object) -> Response:
+        nonlocal polls
+        polls += 1
+        return Response({"status": "Pending", "result": None})
+
+    monkeypatch.setattr("apps.cost_lab_api.adapters.requests.get", get)
+    monkeypatch.setattr("apps.cost_lab_api.adapters.time.sleep", lambda _: None)
+    with pytest.raises(BFLUpstreamError) as caught:
+        BFLAdapter(
+            "https://api.bfl.ai", "secret", timeout=30, max_poll_attempts=2
+        ).generate_from_prompt(model="flux-3-image-klein", prompt="test")
+
+    assert polls == 2
+    assert caught.value.phase == "timeout"
+    assert caught.value.status_code == 504
+    assert caught.value.job_id == "job-pending"
+
+
 def test_benchmark_request_defaults_input_and_output_to_high() -> None:
     from apps.cost_lab_api.app import BenchmarkBody
 
     model_id = uuid4()
-    body = BenchmarkBody.model_validate({"model_id": str(model_id)})
+    body = BenchmarkBody.model_validate({"model_id": str(model_id), "category": "SAREE"})
     assert body.model_id == model_id
     assert body.input_quality == "HIGH"
     assert body.output_quality == "HIGH"
+    assert body.image_count == 10
+    assert body.category == "SAREE"
 
 
 def test_benchmark_request_accepts_separate_image_qualities() -> None:
@@ -128,6 +322,7 @@ def test_benchmark_request_accepts_separate_image_qualities() -> None:
     body = BenchmarkBody.model_validate(
         {
             "model_id": str(uuid4()),
+            "category": "JEWELLERY",
             "input_quality": "LOW",
             "output_quality": "MEDIUM",
         }
@@ -136,7 +331,67 @@ def test_benchmark_request_accepts_separate_image_qualities() -> None:
     assert body.output_quality == "MEDIUM"
 
 
-def test_dataset_generation_accepts_quality_and_direction() -> None:
+def test_benchmark_request_accepts_selected_image_count() -> None:
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    body = BenchmarkBody.model_validate(
+        {"model_id": str(uuid4()), "category": "DRESS", "image_count": 25}
+    )
+    assert body.image_count == 25
+
+
+def test_benchmark_request_accepts_optional_person_selection() -> None:
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    person_id = uuid4()
+    body = BenchmarkBody.model_validate(
+        {
+            "model_id": str(uuid4()),
+            "category": "SAREE",
+            "person_asset_id": str(person_id),
+        }
+    )
+    assert body.person_asset_id == person_id
+
+
+def test_benchmark_request_accepts_result_as_person() -> None:
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    tryon_id = uuid4()
+    body = BenchmarkBody.model_validate(
+        {
+            "model_id": str(uuid4()),
+            "category": "DRESS",
+            "person_result_tryon_id": str(tryon_id),
+        }
+    )
+    assert body.person_result_tryon_id == tryon_id
+
+
+@pytest.mark.parametrize("image_count", [0, 101])
+def test_benchmark_request_rejects_unsafe_image_count(image_count: int) -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    with pytest.raises(ValidationError):
+        BenchmarkBody.model_validate(
+            {"model_id": str(uuid4()), "category": "SAREE", "image_count": image_count}
+        )
+
+
+def test_benchmark_request_requires_supported_product_category() -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    with pytest.raises(ValidationError):
+        BenchmarkBody.model_validate(
+            {"model_id": str(uuid4()), "category": "PERSON", "image_count": 1}
+        )
+
+
+def test_dataset_generation_accepts_category_count_prompt_quality_and_direction() -> None:
     from apps.cost_lab_api.app import DatasetGenerationBody
 
     model_id = uuid4()
@@ -144,20 +399,48 @@ def test_dataset_generation_accepts_quality_and_direction() -> None:
         {
             "model_id": str(model_id),
             "generation_quality": "HIGH",
+            "category": "JEWELLERY",
+            "count": 24,
+            "prompt": "Create antique temple jewellery on white.",
             "direction": "Use rich silk fabrics and warm studio lighting.",
         }
     )
 
     assert body.model_id == model_id
     assert body.generation_quality == "HIGH"
+    assert body.category == "JEWELLERY"
+    assert body.count == 24
+    assert body.prompt == "Create antique temple jewellery on white."
     assert body.direction == "Use rich silk fabrics and warm studio lighting."
 
 
 def test_dataset_generation_without_quality_defaults_to_high() -> None:
     from apps.cost_lab_api.app import DatasetGenerationBody
 
-    body = DatasetGenerationBody.model_validate({"model_id": str(uuid4())})
+    body = DatasetGenerationBody.model_validate({"model_id": str(uuid4()), "category": "PERSON"})
     assert body.generation_quality == "HIGH"
+    assert body.category == "PERSON"
+
+
+def test_dataset_generation_requires_category() -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import DatasetGenerationBody
+
+    with pytest.raises(ValidationError):
+        DatasetGenerationBody.model_validate({"model_id": str(uuid4())})
+
+
+@pytest.mark.parametrize("count", [0, 101])
+def test_dataset_generation_rejects_unsafe_count(count: int) -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import DatasetGenerationBody
+
+    with pytest.raises(ValidationError):
+        DatasetGenerationBody.model_validate(
+            {"model_id": str(uuid4()), "category": "SAREE", "count": count}
+        )
 
 
 def test_model_and_pricing_are_one_request_unit() -> None:
@@ -175,6 +458,27 @@ def test_model_and_pricing_are_one_request_unit() -> None:
     )
     assert body.image_input_price_usd_per_million == Decimal("10")
     assert body.image_output_price_usd_per_million == Decimal("40")
+
+
+def test_model_pricing_accepts_quality_based_output_image_prices() -> None:
+    from apps.cost_lab_api.app import ModelWithPricingBody, _model_pricing_components
+
+    body = ModelWithPricingBody.model_validate(
+        {
+            "provider_id": str(uuid4()),
+            "name": "BFL Image model",
+            "api_identifier": "bfl-image-v1",
+            "output_image_price_usd_low": "0.01",
+            "output_image_price_usd_medium": "0.02",
+            "output_image_price_usd_high": "0.04",
+        }
+    )
+
+    assert _model_pricing_components(body) == [
+        {"unit": "output_images", "quality": "LOW", "price_usd": "0.01"},
+        {"unit": "output_images", "quality": "MEDIUM", "price_usd": "0.02"},
+        {"unit": "output_images", "quality": "HIGH", "price_usd": "0.04"},
+    ]
 
 
 def test_provider_accepts_pricing_reference_url_or_text() -> None:

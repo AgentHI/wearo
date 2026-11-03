@@ -10,6 +10,8 @@ from typing import Protocol
 
 from PIL import Image, UnidentifiedImageError
 
+from .render_quality_strategy import RenderQuality, quality_parameters
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +30,7 @@ class RenderRequest:
     item_mime: str
     capability: str
     on_partial: Callable[[bytes, str, int], None] | None = None
+    quality: RenderQuality = RenderQuality.HIGH
 
 
 @dataclass(frozen=True)
@@ -133,7 +136,10 @@ class VertexTryOnAdapter:
                     ],
                 }
             ],
-            "parameters": {"sampleCount": 1},
+            "parameters": {
+                "sampleCount": 1,
+                **quality_parameters(self.provider, self.model, request.quality),
+            },
         }
         url = (
             f"https://{self.region}-aiplatform.googleapis.com/v1/projects/{self.project_id}/"
@@ -263,11 +269,15 @@ class OpenAIImageEditAdapter:
             "model": self.model,
             "prompt": self.prompt,
             "n": "1",
-            "quality": "high",
-            "size": "1024x1536",
             "output_format": "png",
             "stream": "true",
             "partial_images": "1",
+            **{
+                key: str(value)
+                for key, value in quality_parameters(
+                    self.provider, self.model, request.quality
+                ).items()
+            },
         }
         for attempt in (1, 2):
             final_event: dict[str, object] = {}
@@ -404,11 +414,16 @@ class BytePlusImageGenerationAdapter:
                 self._data_url(request.person_image, request.person_mime),
                 self._data_url(request.item_image, request.item_mime),
             ],
-            "sequential_image_generation": "disabled",
             "response_format": "b64_json",
-            "size": "2K",
             "watermark": False,
+            **quality_parameters(self.provider, self.model, request.quality),
         }
+        if self.model.startswith("dola-seedream-5-0-flash-"):
+            payload["prompt"] = (
+                f"{self.prompt.rstrip()} Output a portrait image with a 2:3 aspect ratio."
+            )
+        else:
+            payload["sequential_image_generation"] = "disabled"
         for attempt in (1, 2):
             response = self.transport.post_json(
                 self.endpoint,

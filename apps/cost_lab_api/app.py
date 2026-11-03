@@ -19,12 +19,13 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from PIL import Image, ImageOps
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Engine, create_engine, text
 
 from apps.api.wearo_api.admin_auth import verify_password
+from apps.api.wearo_api.render_quality_strategy import quality_parameters
 
-from .adapters import BytePlusAdapter, OpenAICompatibleAdapter
+from .adapters import BFLAdapter, BFLUpstreamError, BytePlusAdapter, OpenAICompatibleAdapter
 from .config import Settings
 from .pricing import calculate_cost
 
@@ -40,7 +41,7 @@ class LoginBody(BaseModel):
 class ProviderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
-    provider_type: Literal["OPENAI_COMPATIBLE", "BYTEPLUS", "SECRET_REFERENCE"]
+    provider_type: Literal["OPENAI_COMPATIBLE", "BYTEPLUS", "BFL", "SECRET_REFERENCE"]
     api_base_url: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=4096)
     secret_reference: str | None = Field(default=None, max_length=512)
@@ -68,8 +69,46 @@ class PricingBody(BaseModel):
 
 
 class ModelWithPricingBody(ModelBody):
-    image_input_price_usd_per_million: Decimal = Field(ge=0)
-    image_output_price_usd_per_million: Decimal = Field(ge=0)
+    image_input_price_usd_per_million: Decimal | None = Field(default=None, ge=0)
+    image_output_price_usd_per_million: Decimal | None = Field(default=None, ge=0)
+    output_image_price_usd_low: Decimal | None = Field(default=None, ge=0)
+    output_image_price_usd_medium: Decimal | None = Field(default=None, ge=0)
+    output_image_price_usd_high: Decimal | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def has_pricing(self) -> "ModelWithPricingBody":
+        prices = (
+            self.image_input_price_usd_per_million,
+            self.image_output_price_usd_per_million,
+            self.output_image_price_usd_low,
+            self.output_image_price_usd_medium,
+            self.output_image_price_usd_high,
+        )
+        if all(price is None for price in prices):
+            raise ValueError("At least one token or per-image price is required")
+        return self
+
+
+def _model_pricing_components(body: ModelWithPricingBody) -> list[dict[str, str]]:
+    components: list[dict[str, str]] = []
+    token_prices = (
+        ("image_input_tokens", body.image_input_price_usd_per_million),
+        ("image_output_tokens", body.image_output_price_usd_per_million),
+    )
+    components.extend(
+        {"unit": unit, "price_usd": str(price)} for unit, price in token_prices if price is not None
+    )
+    quality_prices = (
+        ("LOW", body.output_image_price_usd_low),
+        ("MEDIUM", body.output_image_price_usd_medium),
+        ("HIGH", body.output_image_price_usd_high),
+    )
+    components.extend(
+        {"unit": "output_images", "quality": quality, "price_usd": str(price)}
+        for quality, price in quality_prices
+        if price is not None
+    )
+    return components
 
 
 class QualityBody(BaseModel):
@@ -92,15 +131,36 @@ class MappingBody(BaseModel):
 class BenchmarkBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: UUID
+    category: Literal["JEWELLERY", "SAREE", "DRESS"]
+    person_asset_id: UUID | None = None
+    person_result_tryon_id: UUID | None = None
+    product_asset_id: UUID | None = None
     input_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
     output_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
+    image_count: int = Field(default=10, ge=1, le=100)
 
 
 class DatasetGenerationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: UUID
     generation_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
+    category: Literal["PERSON", "JEWELLERY", "SAREE", "DRESS"]
+    count: int = Field(default=10, ge=1, le=100)
+    prompt: str | None = Field(default=None, max_length=4000)
     direction: str | None = Field(default=None, max_length=4000)
+
+
+class ModelComparisonBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person_result_tryon_id: UUID
+    product_asset_id: UUID
+    category: Literal["JEWELLERY", "SAREE", "DRESS"]
+    output_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
+
+
+class ModelTestStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tested: bool
 
 
 class KnowledgeTextBody(BaseModel):
@@ -115,6 +175,30 @@ def _json(value: Any) -> str:
 
 def _rows(result: Any) -> list[dict[str, Any]]:
     return [dict(row) for row in result.mappings().all()]
+
+
+def _provider_adapter(provider: dict[str, Any]) -> type:
+    provider_type = provider.get("provider_type")
+    base_url = str(provider.get("api_base_url") or "").casefold()
+    if provider_type == "BFL" or (provider_type == "SECRET_REFERENCE" and "bfl.ai" in base_url):
+        return BFLAdapter
+    if provider_type == "BYTEPLUS":
+        return BytePlusAdapter
+    if provider_type == "OPENAI_COMPATIBLE":
+        return OpenAICompatibleAdapter
+    raise HTTPException(422, "This provider has no generation adapter configured")
+
+
+def _provider_quality_parameters(
+    provider: dict[str, Any], model: str, quality: str
+) -> dict[str, str | int]:
+    adapter = _provider_adapter(provider)
+    strategy_provider = {
+        OpenAICompatibleAdapter: "OPENAI",
+        BytePlusAdapter: "BYTEPLUS",
+        BFLAdapter: "BFL",
+    }[adapter]
+    return quality_parameters(strategy_provider, model, quality)
 
 
 def _knowledge_html(value: str) -> str:
@@ -132,7 +216,9 @@ def _knowledge_html(value: str) -> str:
     def flush_list() -> None:
         nonlocal list_kind
         if list_kind and list_items:
-            blocks.append(f"<{list_kind}>{''.join(f'<li>{item}</li>' for item in list_items)}</{list_kind}>")
+            blocks.append(
+                f"<{list_kind}>{''.join(f'<li>{item}</li>' for item in list_items)}</{list_kind}>"
+            )
         list_kind = None
         list_items.clear()
 
@@ -208,7 +294,11 @@ def _structured_knowledge_html(document: dict[str, Any]) -> str:
         kind = block.get("type")
         text_value = html.escape(str(block.get("text") or "").strip())
         raw_items = block.get("items")
-        items = [html.escape(str(item).strip()) for item in raw_items] if isinstance(raw_items, list) else []
+        items = (
+            [html.escape(str(item).strip()) for item in raw_items]
+            if isinstance(raw_items, list)
+            else []
+        )
         items = [item for item in items if item]
         if kind == "heading" and text_value:
             level = min(max(int(block.get("level") or 2), 2), 4)
@@ -283,7 +373,9 @@ def _format_knowledge_with_llm(content: str) -> tuple[str, str, dict[str, Any]]:
                         raise ValueError
                     return _structured_knowledge_html(document), model, body.get("usage") or {}
                 except (json.JSONDecodeError, TypeError, ValueError) as error:
-                    raise HTTPException(502, "Knowledge formatting returned invalid content") from error
+                    raise HTTPException(
+                        502, "Knowledge formatting returned invalid content"
+                    ) from error
     raise HTTPException(502, "Knowledge formatting returned no content")
 
 
@@ -511,11 +603,15 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             raise HTTPException(422, "secret_reference must use env:NAME")
         encrypted = service.cipher.encrypt(body.api_key.encode()) if body.api_key else None
         with service.engine.begin() as connection:
-            existing = connection.execute(
-                text("""SELECT secret_ciphertext,secret_reference FROM cost_lab.model_providers
+            existing = (
+                connection.execute(
+                    text("""SELECT secret_ciphertext,secret_reference FROM cost_lab.model_providers
                 WHERE provider_id=:id"""),
-                {"id": provider_id},
-            ).mappings().one_or_none()
+                    {"id": provider_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
             if existing is None:
                 raise HTTPException(404, "Provider not found")
             if body.api_key:
@@ -561,16 +657,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             )
         if provider is None:
             raise HTTPException(404, "Provider not found")
-        if provider["provider_type"] not in {"OPENAI_COMPATIBLE", "BYTEPLUS"} or not provider[
-            "api_base_url"
-        ]:
+        if not provider["api_base_url"]:
             raise HTTPException(400, "This provider type has no connection validator")
         try:
-            adapter_type = (
-                BytePlusAdapter
-                if provider["provider_type"] == "BYTEPLUS"
-                else OpenAICompatibleAdapter
-            )
+            adapter_type = _provider_adapter(dict(provider))
             ok, message = adapter_type(
                 provider["api_base_url"], service.secret_for(dict(provider))
             ).validate()
@@ -621,16 +711,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def create_model_with_pricing(body: ModelWithPricingBody, _: Auth) -> dict[str, Any]:
         model_id = uuid4()
         pricing_id = uuid4()
-        components = [
-            {
-                "unit": "image_input_tokens",
-                "price_usd": str(body.image_input_price_usd_per_million),
-            },
-            {
-                "unit": "image_output_tokens",
-                "price_usd": str(body.image_output_price_usd_per_million),
-            },
-        ]
+        components = _model_pricing_components(body)
         with service.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO cost_lab.ai_models(model_id,provider_id,name,api_identifier,version,input_formats,output_formats,quality_levels,enabled)
@@ -665,16 +746,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         model_id: UUID, body: ModelWithPricingBody, _: Auth
     ) -> dict[str, Any]:
         pricing_id = uuid4()
-        components = [
-            {
-                "unit": "image_input_tokens",
-                "price_usd": str(body.image_input_price_usd_per_million),
-            },
-            {
-                "unit": "image_output_tokens",
-                "price_usd": str(body.image_output_price_usd_per_million),
-            },
-        ]
+        components = _model_pricing_components(body)
         with service.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE cost_lab.ai_models SET provider_id=:provider,name=:name,
@@ -734,6 +806,206 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 },
             )
         return {"pricing_id": pricing_id}
+
+    @app.post("/api/cost-lab/models/{model_id}/test")
+    def test_model(
+        model_id: UUID,
+        _: Auth,
+        prompt: Annotated[str, Form(min_length=1, max_length=4000)],
+        quality: Annotated[Literal["LOW", "MEDIUM", "HIGH"], Form()] = "MEDIUM",
+        images: Annotated[list[UploadFile] | None, File()] = None,
+    ) -> dict[str, Any]:
+        uploads = images or []
+        if len(uploads) > 2:
+            raise HTTPException(422, "A model test accepts at most two input images")
+        image_bytes: list[bytes] = []
+        for upload in uploads:
+            if upload.content_type not in {"image/png", "image/jpeg", "image/webp"}:
+                raise HTTPException(415, "Test images must be PNG, JPEG, or WebP")
+            content = upload.file.read(15 * 1024 * 1024 + 1)
+            if len(content) > 15 * 1024 * 1024:
+                raise HTTPException(413, "Each test image must be 15 MB or smaller")
+            try:
+                with Image.open(BytesIO(content)) as candidate:
+                    candidate.verify()
+            except Exception as error:
+                raise HTTPException(422, "One of the test images is invalid") from error
+            image_bytes.append(content)
+
+        with service.engine.begin() as connection:
+            model = (
+                connection.execute(
+                    text("""SELECT m.api_identifier,m.enabled model_enabled,p.*,
+                    q.settings quality_settings,mapping.provider_quality,mapping.request_parameters
+                    FROM cost_lab.ai_models m JOIN cost_lab.model_providers p USING(provider_id)
+                    JOIN cost_lab.quality_profiles q ON q.code=:quality
+                    LEFT JOIN cost_lab.model_quality_mapping mapping
+                      ON mapping.model_id=m.model_id AND mapping.profile_id=q.profile_id
+                    WHERE m.model_id=:id"""),
+                    {"id": model_id, "quality": quality},
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if model is None:
+            raise HTTPException(404, "Model not found")
+        if not model["model_enabled"]:
+            raise HTTPException(422, "Enable this model before generation testing")
+        adapter_type = _provider_adapter(dict(model))
+        parameters = dict(model["quality_settings"] or {}) | dict(model["request_parameters"] or {})
+        if model["provider_quality"]:
+            parameters["quality"] = model["provider_quality"]
+        parameters |= _provider_quality_parameters(dict(model), model["api_identifier"], quality)
+        try:
+            adapter = adapter_type(
+                model["api_base_url"],
+                service.secret_for(dict(model)),
+                int(os.getenv("COST_LAB_REQUEST_TIMEOUT_SECONDS", "120")),
+            )
+            result = (
+                adapter.generate(
+                    model=model["api_identifier"],
+                    prompt=prompt,
+                    images=image_bytes,
+                    parameters=parameters,
+                )
+                if image_bytes
+                else adapter.generate_from_prompt(
+                    model=model["api_identifier"], prompt=prompt, parameters=parameters
+                )
+            )
+        except BFLUpstreamError as error:
+            raise HTTPException(error.status_code, detail=error.public_detail()) from error
+        except (requests.RequestException, RuntimeError, ValueError, KeyError) as error:
+            raise HTTPException(502, f"Model test failed: {str(error)[:1000]}") from error
+
+        folder = service.settings.storage_root / "model-tests" / str(model_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            with Image.open(BytesIO(result.image_bytes)) as generated:
+                extension = ".png" if generated.format == "PNG" else ".jpg"
+                generated.verify()
+        except Exception as error:
+            raise HTTPException(502, "Provider returned an invalid image") from error
+        relative_path = (
+            folder / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}{extension}"
+        ).relative_to(service.settings.storage_root)
+        (service.settings.storage_root / relative_path).write_bytes(result.image_bytes)
+        input_paths: list[str] = []
+        test_stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+        for index, content in enumerate(image_bytes):
+            with Image.open(BytesIO(content)) as source:
+                input_extension = (
+                    ".png"
+                    if source.format == "PNG"
+                    else (".webp" if source.format == "WEBP" else ".jpg")
+                )
+            input_path = (folder / f"{test_stamp}-input-{index + 1}{input_extension}").relative_to(
+                service.settings.storage_root
+            )
+            (service.settings.storage_root / input_path).write_bytes(content)
+            input_paths.append(str(input_path))
+        with service.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE cost_lab.ai_models SET tested_at=now(),tested_method='GENERATED',
+                test_prompt=:prompt,test_output_path=:path,test_input_paths=CAST(:inputs AS jsonb),
+                test_provider_request_id=:request,
+                updated_at=now() WHERE model_id=:id"""),
+                {
+                    "id": model_id,
+                    "prompt": prompt,
+                    "path": str(relative_path),
+                    "inputs": _json(input_paths),
+                    "request": result.request_id,
+                },
+            )
+            connection.execute(
+                text("""INSERT INTO cost_lab.audit_events
+                (event_id,action,target_type,target_id,metadata)
+                VALUES(:event,'MODEL_GENERATION_TEST_SUCCEEDED','AI_MODEL',:id,CAST(:metadata AS jsonb))"""),
+                {
+                    "event": uuid4(),
+                    "id": model_id,
+                    "metadata": _json({"quality": quality, "input_image_count": len(image_bytes)}),
+                },
+            )
+        return {
+            "tested": True,
+            "tested_method": "GENERATED",
+            "image_url": f"/api/cost-lab/models/{model_id}/test-image",
+            "input_urls": [
+                f"/api/cost-lab/models/{model_id}/test-input/{index}"
+                for index in range(len(input_paths))
+            ],
+            "prompt": prompt,
+            "latency_ms": result.latency_ms,
+        }
+
+    @app.put("/api/cost-lab/models/{model_id}/test-status")
+    def update_model_test_status(
+        model_id: UUID, body: ModelTestStatusBody, _: Auth
+    ) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            updated = connection.execute(
+                text("""UPDATE cost_lab.ai_models SET
+                tested_at=CASE WHEN :tested THEN now() ELSE NULL END,
+                tested_method=CASE WHEN :tested THEN 'MANUAL' ELSE NULL END,
+                test_prompt=CASE WHEN :tested THEN test_prompt ELSE NULL END,
+                test_output_path=CASE WHEN :tested THEN test_output_path ELSE NULL END,
+                test_input_paths=CASE WHEN :tested THEN test_input_paths ELSE '[]'::jsonb END,
+                test_provider_request_id=CASE WHEN :tested THEN test_provider_request_id ELSE NULL END,
+                updated_at=now() WHERE model_id=:id RETURNING model_id"""),
+                {"id": model_id, "tested": body.tested},
+            ).scalar_one_or_none()
+            if updated is None:
+                raise HTTPException(404, "Model not found")
+            connection.execute(
+                text("""INSERT INTO cost_lab.audit_events
+                (event_id,action,target_type,target_id,metadata)
+                VALUES(:event,'MODEL_TEST_STATUS_UPDATED','AI_MODEL',:id,CAST(:metadata AS jsonb))"""),
+                {
+                    "event": uuid4(),
+                    "id": model_id,
+                    "metadata": _json({"tested": body.tested, "method": "MANUAL"}),
+                },
+            )
+        return {"model_id": model_id, "tested": body.tested}
+
+    @app.get("/api/cost-lab/models/{model_id}/test-image")
+    def model_test_image(model_id: UUID, _: Auth) -> FileResponse:
+        with service.engine.begin() as connection:
+            path = connection.execute(
+                text("SELECT test_output_path FROM cost_lab.ai_models WHERE model_id=:id"),
+                {"id": model_id},
+            ).scalar_one_or_none()
+        if not path:
+            raise HTTPException(404, "Model test image not found")
+        resolved = (service.settings.storage_root / path).resolve()
+        if (
+            service.settings.storage_root.resolve() not in resolved.parents
+            or not resolved.is_file()
+        ):
+            raise HTTPException(404, "Model test image not found")
+        return FileResponse(resolved)
+
+    @app.get("/api/cost-lab/models/{model_id}/test-input/{input_index}")
+    def model_test_input(model_id: UUID, input_index: int, _: Auth) -> FileResponse:
+        if input_index not in {0, 1}:
+            raise HTTPException(404, "Model test input image not found")
+        with service.engine.begin() as connection:
+            paths = connection.execute(
+                text("SELECT test_input_paths FROM cost_lab.ai_models WHERE model_id=:id"),
+                {"id": model_id},
+            ).scalar_one_or_none()
+        if not paths or input_index >= len(paths):
+            raise HTTPException(404, "Model test input image not found")
+        resolved = (service.settings.storage_root / paths[input_index]).resolve()
+        if (
+            service.settings.storage_root.resolve() not in resolved.parents
+            or not resolved.is_file()
+        ):
+            raise HTTPException(404, "Model test input image not found")
+        return FileResponse(resolved)
 
     @app.get("/api/cost-lab/quality-profiles")
     def profiles(_: Auth) -> dict[str, Any]:
@@ -871,12 +1143,16 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     @app.get("/api/cost-lab/knowledge/{knowledge_id}/content")
     def knowledge_content(knowledge_id: UUID, _: Auth) -> Response:
         with service.engine.begin() as connection:
-            item = connection.execute(
-                text("""SELECT source_type,title,content_text,formatted_html,file_path,
+            item = (
+                connection.execute(
+                    text("""SELECT source_type,title,content_text,formatted_html,file_path,
                 original_filename,created_at
                 FROM cost_lab.knowledge_items WHERE knowledge_id=:id"""),
-                {"id": knowledge_id},
-            ).mappings().one_or_none()
+                    {"id": knowledge_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
         if item is None:
             raise HTTPException(404, "Knowledge item not found")
         if item["source_type"] == "TEXT":
@@ -1002,12 +1278,16 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         if normalized_quality and normalized_quality not in {"LOW", "MEDIUM", "HIGH"}:
             raise HTTPException(422, "Unsupported dataset quality")
         with service.engine.begin() as connection:
-            asset = connection.execute(
-                text(
-                    "SELECT original_path,variants FROM cost_lab.benchmark_assets WHERE asset_id=:id"
-                ),
-                {"id": asset_id},
-            ).mappings().one_or_none()
+            asset = (
+                connection.execute(
+                    text(
+                        "SELECT original_path,variants FROM cost_lab.benchmark_assets WHERE asset_id=:id"
+                    ),
+                    {"id": asset_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
         if not asset:
             raise HTTPException(404, "Asset not found")
         path = (
@@ -1021,6 +1301,20 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         if actual.storage_root.resolve() not in resolved.parents:
             raise HTTPException(400, "Invalid asset path")
         return FileResponse(resolved)
+
+    @app.delete("/api/cost-lab/assets/{asset_id}", status_code=204)
+    def delete_asset(asset_id: UUID, _: Auth) -> Response:
+        # Keep the files and row for historical benchmark reproducibility, but remove the
+        # asset from the active dataset and all future benchmark selections.
+        with service.engine.begin() as connection:
+            removed = connection.execute(
+                text("""UPDATE cost_lab.benchmark_assets SET replaced_at=now()
+                WHERE asset_id=:id AND replaced_at IS NULL RETURNING asset_id"""),
+                {"id": asset_id},
+            ).scalar_one_or_none()
+        if removed is None:
+            raise HTTPException(404, "Active dataset image not found")
+        return Response(status_code=204)
 
     @app.get("/api/cost-lab/dataset-generations")
     def dataset_generations(_: Auth) -> dict[str, Any]:
@@ -1039,38 +1333,9 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
     @app.post("/api/cost-lab/dataset-generations", status_code=202)
     def create_dataset_generation(body: DatasetGenerationBody, _: Auth) -> dict[str, Any]:
         direction = (body.direction or "").strip()
+        custom_prompt = (body.prompt or "").strip()
         direction_suffix = (
             f" Additional dataset direction from the evaluator: {direction}" if direction else ""
-        )
-        prompts: list[tuple[str, str]] = [
-            (
-                "PERSON",
-                "Create a photorealistic full-body studio portrait of one adult Indian woman, "
-                "standing naturally, front-facing, neutral fitted base clothing, hands visible, "
-                "plain warm-grey background, even soft lighting, no jewellery, no text or logo. "
-                "This is a synthetic reference person for authorized virtual try-on testing."
-                + direction_suffix,
-            )
-        ]
-        prompts.extend(
-            (
-                "JEWELLERY",
-                f"Create a photorealistic isolated Indian jewellery product image, design {index + 1} "
-                "of 10, visually distinct in metal, stones and silhouette, centered on a clean neutral "
-                "background, ecommerce studio lighting, no person, no text, no logo."
-                + direction_suffix,
-            )
-            for index in range(10)
-        )
-        prompts.extend(
-            (
-                "SAREE",
-                f"Create a photorealistic isolated Indian saree product image, design {index + 1} of "
-                "10, uniquely varied fabric, colour, weave and border, neatly draped on a neutral "
-                "invisible form, clean ecommerce background, no person, no text, no logo."
-                + direction_suffix,
-            )
-            for index in range(10)
         )
         dress_styles = [
             "evening gown",
@@ -1084,16 +1349,46 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             "minimalist shift dress",
             "flowing resort dress",
         ]
-        prompts.extend(
-            (
-                "DRESS",
-                f"Create a photorealistic isolated women's {style} product image, design {index + 1} "
-                "of 10, with a distinct colour and fabric, front view on a neutral invisible form, "
-                "clean ecommerce studio background, no person, no text, no logo."
-                + direction_suffix,
-            )
-            for index, style in enumerate(dress_styles)
-        )
+        prompts: list[tuple[str, str]] = []
+        kind = body.category
+        count = body.count
+        for index in range(count):
+            if custom_prompt:
+                base = (
+                    f"{custom_prompt} Dataset category: {kind}. Create visually distinct "
+                    f"variation {index + 1} of {count}."
+                )
+            elif kind == "PERSON":
+                base = (
+                    f"Create a photorealistic full-body studio portrait of an adult Indian woman, "
+                    f"person {index + 1} of {count}, standing naturally, front-facing, neutral "
+                    "fitted base clothing, hands visible, plain warm-grey background, even soft "
+                    "lighting, no jewellery, no text or logo. This is a synthetic reference "
+                    "person for authorized virtual try-on testing."
+                )
+            elif kind == "JEWELLERY":
+                base = (
+                    f"Create a photorealistic isolated Indian jewellery product image, design "
+                    f"{index + 1} of {count}, visually distinct in metal, stones and silhouette, "
+                    "centered on a clean neutral background, ecommerce studio lighting, no "
+                    "person, no text, no logo."
+                )
+            elif kind == "SAREE":
+                base = (
+                    f"Create a photorealistic isolated Indian saree product image, design "
+                    f"{index + 1} of {count}, uniquely varied fabric, colour, weave and border, "
+                    "neatly draped on a neutral invisible form, clean ecommerce background, no "
+                    "person, no text, no logo."
+                )
+            else:
+                style = dress_styles[index % len(dress_styles)]
+                base = (
+                    f"Create a photorealistic isolated women's {style} product image, design "
+                    f"{index + 1} of {count}, with a distinct colour and fabric, front view on a "
+                    "neutral invisible form, clean ecommerce studio background, no person, no "
+                    "text, no logo."
+                )
+            prompts.append((kind, base + direction_suffix))
         job_id = uuid4()
         with service.engine.begin() as connection:
             model = connection.execute(
@@ -1112,14 +1407,16 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 raise HTTPException(409, "A dataset generation job is already running")
             connection.execute(
                 text("""INSERT INTO cost_lab.dataset_generation_jobs
-                (job_id,model_id,status,total_items,generation_quality,direction)
-                VALUES(:id,:model,'QUEUED',:total,:quality,:direction)"""),
+                (job_id,model_id,status,total_items,generation_quality,direction,category,custom_prompt)
+                VALUES(:id,:model,'QUEUED',:total,:quality,:direction,:category,:prompt)"""),
                 {
                     "id": job_id,
                     "model": body.model_id,
                     "total": len(prompts),
                     "quality": body.generation_quality,
                     "direction": direction or None,
+                    "category": body.category,
+                    "prompt": custom_prompt or None,
                 },
             )
             for ordinal, (kind, prompt) in enumerate(prompts):
@@ -1140,15 +1437,50 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             "status": "QUEUED",
             "total_items": len(prompts),
             "generation_quality": body.generation_quality,
+            "category": body.category,
         }
+
+    @app.post("/api/cost-lab/dataset-generations/{job_id}/cancel")
+    def cancel_dataset_generation(job_id: UUID, _: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            requested = connection.execute(
+                text("""UPDATE cost_lab.dataset_generation_jobs
+                SET status='CANCEL_REQUESTED'
+                WHERE job_id=:id AND status IN ('QUEUED','RUNNING') RETURNING job_id"""),
+                {"id": job_id},
+            ).scalar_one_or_none()
+            if requested is None:
+                raise HTTPException(409, "Dataset generation cannot be cancelled")
+            connection.execute(
+                text("""UPDATE cost_lab.dataset_generation_items
+                SET status='CANCELLED',finished_at=now()
+                WHERE job_id=:id AND status='QUEUED'"""),
+                {"id": job_id},
+            )
+            status = connection.execute(
+                text("""UPDATE cost_lab.dataset_generation_jobs j SET
+                cancelled_items=(SELECT count(*) FROM cost_lab.dataset_generation_items i
+                    WHERE i.job_id=j.job_id AND i.status='CANCELLED'),
+                status=CASE WHEN EXISTS(
+                    SELECT 1 FROM cost_lab.dataset_generation_items i
+                    WHERE i.job_id=j.job_id AND i.status='PROCESSING'
+                ) THEN 'CANCEL_REQUESTED' ELSE 'CANCELLED' END,
+                finished_at=CASE WHEN EXISTS(
+                    SELECT 1 FROM cost_lab.dataset_generation_items i
+                    WHERE i.job_id=j.job_id AND i.status='PROCESSING'
+                ) THEN NULL ELSE now() END
+                WHERE job_id=:id RETURNING status"""),
+                {"id": job_id},
+            ).scalar_one()
+        return {"job_id": job_id, "status": status}
 
     @app.post("/api/cost-lab/benchmarks", status_code=202)
     def create_benchmark(body: BenchmarkBody, _: Auth) -> dict[str, Any]:
         input_quality = body.input_quality
         output_quality = body.output_quality
         qualities = [output_quality]
-        categories = ["JEWELLERY", "SAREE", "DRESS"]
-        tryons_per_quality = 10
+        categories = [body.category]
+        tryons_per_quality = body.image_count
         prompt_version = "wearo-mixed-tryon-v2"
         prompt = (
             "Create exactly one photorealistic virtual try-on from two supplied reference images. "
@@ -1170,6 +1502,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             "products, black shapes, text, logos not present in the product, or unrelated objects. "
             "Keep all unrelated areas of Image 1 unchanged and return only the final try-on image."
         )
+        selected_result: dict[str, Any] | None = None
         with service.engine.begin() as connection:
             model = (
                 connection.execute(
@@ -1199,33 +1532,105 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             people = _rows(
                 connection.execute(
                     text(
-                        "SELECT asset_id,content_hash FROM cost_lab.benchmark_assets WHERE kind='PERSON' AND replaced_at IS NULL ORDER BY asset_id"
-                    )
+                        """SELECT asset_id,content_hash FROM cost_lab.benchmark_assets
+                        WHERE kind='PERSON' AND replaced_at IS NULL
+                        AND (CAST(:person_id AS uuid) IS NULL OR asset_id=CAST(:person_id AS uuid))
+                        ORDER BY asset_id"""
+                    ),
+                    {"person_id": body.person_asset_id},
                 )
             )
+            if body.person_result_tryon_id is not None:
+                selected_result_row = (
+                    connection.execute(
+                        text("""SELECT t.tryon_id,t.output_path,c.ordinal,r.run_id
+                    FROM cost_lab.tryon_runs t
+                    JOIN cost_lab.benchmark_combinations c
+                      ON c.combination_id=t.combination_id
+                    JOIN cost_lab.benchmark_runs r ON r.run_id=t.run_id
+                    WHERE t.tryon_id=:id AND t.status='SUCCEEDED' AND t.output_path IS NOT NULL"""),
+                        {"id": body.person_result_tryon_id},
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                selected_result = dict(selected_result_row) if selected_result_row else None
             products = _rows(
                 connection.execute(
                     text(
-                        "SELECT asset_id,kind,content_hash FROM cost_lab.benchmark_assets WHERE kind=ANY(:categories) AND replaced_at IS NULL ORDER BY kind,asset_id"
+                        """SELECT asset_id,kind,content_hash FROM cost_lab.benchmark_assets
+                        WHERE kind=ANY(:categories) AND replaced_at IS NULL
+                        AND (CAST(:product_id AS uuid) IS NULL OR asset_id=CAST(:product_id AS uuid))
+                        ORDER BY kind,asset_id"""
                     ),
-                    {"categories": categories},
+                    {"categories": categories, "product_id": body.product_asset_id},
                 )
             )
         if model is None:
             raise HTTPException(404, "Enabled model not found")
+        if body.person_asset_id is not None and body.person_result_tryon_id is not None:
+            raise HTTPException(422, "Select either a dataset person or a result image, not both")
+        if body.person_result_tryon_id is not None and selected_result is None:
+            raise HTTPException(422, "Selected result image is not available")
+        if body.product_asset_id is not None and not products:
+            raise HTTPException(422, "Selected product image is not available in this category")
         if any(item["supported"] is not True for item in mappings) or len(mappings) != len(
             qualities
         ):
             raise HTTPException(422, "One or more model/quality combinations are unsupported")
-        if not people or not products:
+        if body.person_asset_id is not None and not people:
+            raise HTTPException(422, "Selected person image is not available in the active dataset")
+        if not products or (not people and selected_result is None):
             raise HTTPException(422, "Dataset needs person and product assets")
+        derived_person: dict[str, Any] | None = None
+        if selected_result is not None:
+            source_path = (actual.storage_root / selected_result["output_path"]).resolve()
+            if (
+                actual.storage_root.resolve() not in source_path.parents
+                or not source_path.is_file()
+            ):
+                raise HTTPException(422, "Selected result image file is not available")
+            try:
+                source = ImageOps.exif_transpose(Image.open(source_path)).convert("RGB")
+            except Exception as error:
+                raise HTTPException(422, "Selected result image is invalid") from error
+            derived_id = uuid4()
+            folder = actual.storage_root / "assets" / str(derived_id)
+            folder.mkdir(parents=True)
+            original = folder / "original.jpg"
+            source.save(original, "JPEG", quality=96)
+            variants: dict[str, str] = {}
+            for profile in mappings:
+                target = folder / f"{str(profile['code']).lower()}.jpg"
+                image = source.copy()
+                image.thumbnail((profile["width"], profile["height"]), Image.Resampling.LANCZOS)
+                image.save(
+                    target,
+                    "JPEG",
+                    quality=profile["compression_quality"],
+                    optimize=True,
+                )
+                variants[str(profile["code"])] = str(target.relative_to(actual.storage_root))
+            content = source_path.read_bytes()
+            derived_person = {
+                "asset_id": derived_id,
+                "content_hash": hashlib.sha256(content).hexdigest(),
+                "original_path": str(original.relative_to(actual.storage_root)),
+                "variants": variants,
+                "name": f"Result image {selected_result['tryon_id']}",
+            }
+            people = [derived_person]
         components = list(pricing["components"]) if pricing else []
         fixed_components = [
             item for item in components if item.get("unit") in {"requests", "output_images"}
         ]
         total_jobs = tryons_per_quality
         estimated = (
-            calculate_cost({"requests": 1, "output_images": 1}, fixed_components) * total_jobs
+            calculate_cost(
+                {"requests": 1, "output_images": 1, "output_quality": output_quality},
+                fixed_components,
+            )
+            * total_jobs
             if fixed_components
             else None
         )
@@ -1241,6 +1646,19 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             )
         ]
         with service.engine.begin() as connection:
+            if derived_person is not None:
+                connection.execute(
+                    text("""INSERT INTO cost_lab.benchmark_assets
+                    (asset_id,kind,name,original_path,variants,content_hash,authorized,replaced_at)
+                    VALUES(:id,'PERSON',:name,:path,CAST(:variants AS jsonb),:hash,true,now())"""),
+                    {
+                        "id": derived_person["asset_id"],
+                        "name": derived_person["name"],
+                        "path": derived_person["original_path"],
+                        "variants": _json(derived_person["variants"]),
+                        "hash": derived_person["content_hash"],
+                    },
+                )
             connection.execute(
                 text("""INSERT INTO cost_lab.benchmark_runs(run_id,model_id,category,qualities,tryons_per_quality,random_seed,prompt,prompt_version,
                 dataset_fingerprint,pricing_snapshot,quality_snapshot,status,estimated_max_usd,spending_limit_usd,confirmed_at,total_jobs)
@@ -1249,7 +1667,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 {
                     "id": run_id,
                     "model": body.model_id,
-                    "category": "MIXED",
+                    "category": body.category,
                     "qualities": _json(qualities),
                     "count": tryons_per_quality,
                     "seed": seed,
@@ -1404,19 +1822,24 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         skipped = 0
         total_cost = Decimal("0")
         with service.engine.begin() as connection:
-            rows = connection.execute(
-                text("""SELECT u.usage_id,u.text_input_tokens,u.image_input_tokens,
+            rows = (
+                connection.execute(
+                    text("""SELECT u.usage_id,u.text_input_tokens,u.image_input_tokens,
                 u.cached_input_tokens,u.image_output_tokens,u.total_reported_tokens,
-                u.other_units,pricing.components
+                u.other_units,c.output_quality,pricing.components
                 FROM cost_lab.tryon_usage u
                 JOIN cost_lab.tryon_runs t USING(tryon_id)
                 JOIN cost_lab.benchmark_runs r USING(run_id)
+                JOIN cost_lab.benchmark_combinations c USING(combination_id)
                 LEFT JOIN LATERAL (
                   SELECT components FROM cost_lab.model_pricing mp
                   WHERE mp.model_id=r.model_id AND mp.effective_at <= now()
                   ORDER BY mp.effective_at DESC LIMIT 1
                 ) pricing ON true""")
-            ).mappings().all()
+                )
+                .mappings()
+                .all()
+            )
             for row in rows:
                 if row["components"] is None:
                     skipped += 1
@@ -1433,6 +1856,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     if row[key] is not None
                 }
                 usage.update(dict(row["other_units"] or {}))
+                usage["output_quality"] = row["output_quality"]
                 cost = calculate_cost(usage, list(row["components"]))
                 connection.execute(
                     text("""UPDATE cost_lab.tryon_usage SET calculated_cost_usd=:cost
@@ -1472,16 +1896,156 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             content_disposition_type="attachment" if download else "inline",
         )
 
+    @app.get("/api/cost-lab/results/person-candidates")
+    def result_person_candidates(_: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            rows = _rows(
+                connection.execute(
+                    text("""SELECT t.tryon_id,c.ordinal,r.run_id,r.created_at,
+                    m.name model_name,p.name provider_name
+                    FROM cost_lab.tryon_runs t
+                    JOIN cost_lab.benchmark_combinations c
+                      ON c.combination_id=t.combination_id
+                    JOIN cost_lab.benchmark_runs r ON r.run_id=t.run_id
+                    JOIN cost_lab.ai_models m USING(model_id)
+                    JOIN cost_lab.model_providers p USING(provider_id)
+                    WHERE t.status='SUCCEEDED' AND t.output_path IS NOT NULL
+                    ORDER BY t.finished_at DESC NULLS LAST LIMIT 200""")
+                )
+            )
+        for row in rows:
+            row["image_url"] = f"/api/cost-lab/results/tryons/{row['tryon_id']}/image"
+        return {"images": rows}
+
+    @app.post("/api/cost-lab/model-comparisons", status_code=202)
+    def create_model_comparison(body: ModelComparisonBody, auth: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            model_ids = (
+                connection.execute(
+                    text("""SELECT m.model_id FROM cost_lab.ai_models m
+                JOIN cost_lab.model_providers p USING(provider_id)
+                JOIN cost_lab.model_quality_mapping mq USING(model_id)
+                JOIN cost_lab.quality_profiles q USING(profile_id)
+                WHERE m.enabled=true AND p.enabled=true AND mq.supported=true AND q.code=:quality
+                ORDER BY p.name,m.name"""),
+                    {"quality": body.output_quality},
+                )
+                .scalars()
+                .all()
+            )
+        if not model_ids:
+            raise HTTPException(422, "No enabled models support the selected quality")
+        comparison_id = uuid4()
+        runs: list[tuple[UUID, UUID]] = []
+        for model_id in model_ids:
+            result = create_benchmark(
+                BenchmarkBody(
+                    model_id=model_id,
+                    category=body.category,
+                    person_result_tryon_id=body.person_result_tryon_id,
+                    product_asset_id=body.product_asset_id,
+                    input_quality=body.output_quality,
+                    output_quality=body.output_quality,
+                    image_count=1,
+                ),
+                auth,
+            )
+            runs.append((model_id, result["run_id"]))
+        with service.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO cost_lab.model_comparisons
+                (comparison_id,person_result_tryon_id,product_asset_id,category,output_quality)
+                VALUES(:id,:person,:product,:category,:quality)"""),
+                {
+                    "id": comparison_id,
+                    "person": body.person_result_tryon_id,
+                    "product": body.product_asset_id,
+                    "category": body.category,
+                    "quality": body.output_quality,
+                },
+            )
+            for model_id, run_id in runs:
+                connection.execute(
+                    text("""INSERT INTO cost_lab.model_comparison_entries
+                    (comparison_id,run_id,model_id) VALUES(:comparison,:run,:model)"""),
+                    {"comparison": comparison_id, "run": run_id, "model": model_id},
+                )
+        return {"comparison_id": comparison_id, "model_count": len(runs), "status": "QUEUED"}
+
+    @app.get("/api/cost-lab/model-comparisons")
+    def model_comparisons(_: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            rows = _rows(
+                connection.execute(
+                    text("""SELECT c.*,
+            count(e.run_id) model_count,
+            count(e.run_id) FILTER (WHERE r.status IN ('COMPLETED','FAILED','CANCELLED')) finished_count,
+            CASE WHEN bool_and(r.status='COMPLETED') THEN 'COMPLETED'
+              WHEN bool_and(r.status IN ('COMPLETED','FAILED','CANCELLED')) THEN 'FINISHED'
+              WHEN bool_or(r.status='RUNNING') THEN 'RUNNING' ELSE 'QUEUED' END status
+            FROM cost_lab.model_comparisons c
+            JOIN cost_lab.model_comparison_entries e USING(comparison_id)
+            JOIN cost_lab.benchmark_runs r USING(run_id)
+            GROUP BY c.comparison_id ORDER BY c.created_at DESC LIMIT 100""")
+                )
+            )
+        return {"comparisons": rows}
+
+    @app.get("/api/cost-lab/model-comparisons/{comparison_id}")
+    def model_comparison_detail(comparison_id: UUID, _: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            comparison = (
+                connection.execute(
+                    text("SELECT * FROM cost_lab.model_comparisons WHERE comparison_id=:id"),
+                    {"id": comparison_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if comparison is None:
+                raise HTTPException(404, "Model comparison not found")
+            rows = _rows(
+                connection.execute(
+                    text("""SELECT e.run_id,m.name model_name,p.name provider_name,
+            r.status,t.tryon_id,t.status tryon_status,t.error_detail,u.text_input_tokens,u.image_input_tokens,
+            u.cached_input_tokens,u.image_output_tokens,u.total_reported_tokens,u.calculated_cost_usd
+            FROM cost_lab.model_comparison_entries e
+            JOIN cost_lab.benchmark_runs r USING(run_id)
+            JOIN cost_lab.ai_models m ON m.model_id=e.model_id
+            JOIN cost_lab.model_providers p USING(provider_id)
+            JOIN cost_lab.tryon_runs t USING(run_id)
+            LEFT JOIN cost_lab.tryon_usage u USING(tryon_id)
+            WHERE e.comparison_id=:id ORDER BY p.name,m.name"""),
+                    {"id": comparison_id},
+                )
+            )
+        person_url = f"/api/cost-lab/results/tryons/{comparison['person_result_tryon_id']}/image"
+        product_url = f"/api/cost-lab/assets/{comparison['product_asset_id']}/content?quality={comparison['output_quality']}"
+        for row in rows:
+            row["image_url"] = (
+                f"/api/cost-lab/results/tryons/{row['tryon_id']}/image"
+                if row["tryon_status"] == "SUCCEEDED"
+                else None
+            )
+        return {
+            "comparison": dict(comparison) | {"person_url": person_url, "product_url": product_url},
+            "results": rows,
+        }
+
     @app.get("/api/cost-lab/results/{run_id}")
     def result_detail(run_id: UUID, _: Auth) -> dict[str, Any]:
         with service.engine.begin() as connection:
-            run = connection.execute(
-                text("""SELECT r.run_id,r.status,r.created_at,r.finished_at,m.name model_name,
+            run = (
+                connection.execute(
+                    text("""SELECT r.run_id,r.status,r.created_at,r.finished_at,m.name model_name,
                 p.name provider_name FROM cost_lab.benchmark_runs r
                 JOIN cost_lab.ai_models m USING(model_id)
                 JOIN cost_lab.model_providers p USING(provider_id) WHERE r.run_id=:id"""),
-                {"id": run_id},
-            ).mappings().one_or_none()
+                    {"id": run_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
             if run is None:
                 raise HTTPException(404, "Benchmark result not found")
             items = _rows(
