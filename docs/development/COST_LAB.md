@@ -66,8 +66,8 @@ threshold. The administrator decides whether to promote and which qualities to a
 adds the candidate to the auditable `cost_lab.production_model_releases` history with its selected
 quality levels (Low, Medium, and/or High). Promoted models are managed from the separate
 **Promoted models** menu. Multiple
-models can remain active, with unique consecutive priorities where priority 1 is the first routing
-choice. Promoting a newer release of the same model retires its earlier active release while
+models can remain active, with unique priorities from 1–20 where priority 1 is the first routing
+choice and priority 20 is the last. Promoting a newer release of the same model retires its earlier active release while
 preserving the history and priority position.
 
 ## Adding an adapter

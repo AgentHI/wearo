@@ -46,7 +46,7 @@ def test_cost_lab_combinations_are_reproducible_and_quality_scoped() -> None:
     assert [quality for quality, _, _ in first].count("LOW") == 10
 
 
-def test_production_model_priorities_must_be_unique_and_consecutive() -> None:
+def test_production_model_priorities_must_be_unique_and_between_one_and_twenty() -> None:
     from pydantic import ValidationError
 
     from apps.cost_lab_api.app import ProductionModelPrioritiesBody
@@ -58,10 +58,14 @@ def test_production_model_priorities_must_be_unique_and_consecutive() -> None:
     ]})
     assert [item.priority for item in body.priorities] == [2, 1]
 
-    with pytest.raises(ValidationError, match="consecutive"):
+    with pytest.raises(ValidationError, match="unique"):
         ProductionModelPrioritiesBody.model_validate({"priorities": [
             {"release_id": str(releases[0]), "priority": 1},
             {"release_id": str(releases[1]), "priority": 1},
+        ]})
+    with pytest.raises(ValidationError, match="less than or equal to 20"):
+        ProductionModelPrioritiesBody.model_validate({"priorities": [
+            {"release_id": str(releases[0]), "priority": 21},
         ]})
 
 

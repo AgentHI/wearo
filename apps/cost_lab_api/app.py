@@ -197,7 +197,7 @@ class PromoteFinalCheckBody(BaseModel):
 class ProductionModelPriorityItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     release_id: UUID
-    priority: int = Field(ge=1)
+    priority: int = Field(ge=1, le=20)
 
 
 class ProductionModelPrioritiesBody(BaseModel):
@@ -210,8 +210,8 @@ class ProductionModelPrioritiesBody(BaseModel):
         priorities = [item.priority for item in self.priorities]
         if len(release_ids) != len(set(release_ids)):
             raise ValueError("Release IDs must be unique")
-        if sorted(priorities) != list(range(1, len(priorities) + 1)):
-            raise ValueError("Priorities must be consecutive, starting at 1")
+        if len(priorities) != len(set(priorities)):
+            raise ValueError("Priorities must be unique")
         return self
 
 
@@ -2376,6 +2376,49 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 "quality_prices_usd": quality_prices,
                 "pricing_effective_at": pricing["effective_at"] if pricing else None}
 
+    @app.delete("/api/cost-lab/final-checks/{check_id}")
+    def delete_final_check(check_id: UUID, _: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            check = connection.execute(text("""SELECT status FROM cost_lab.final_model_checks
+            WHERE check_id=:id FOR UPDATE"""), {"id": check_id}).scalar_one_or_none()
+            if check is None:
+                raise HTTPException(404, "Final check not found")
+            promoted = connection.execute(text("""SELECT 1
+            FROM cost_lab.production_model_releases WHERE final_check_id=:id"""),
+                {"id": check_id}).scalar_one_or_none()
+            if promoted is not None:
+                raise HTTPException(
+                    409, "Promoted final checks cannot be deleted from production history"
+                )
+            run_ids = list(connection.execute(text("""SELECT run_id
+            FROM cost_lab.final_model_check_runs WHERE check_id=:id"""),
+                {"id": check_id}).scalars().all())
+            if run_ids:
+                connection.execute(text("""UPDATE cost_lab.benchmark_runs
+                SET status='CANCEL_REQUESTED' WHERE run_id=ANY(:runs)
+                  AND status IN ('QUEUED','RUNNING')"""), {"runs": run_ids})
+            connection.execute(
+                text("DELETE FROM cost_lab.final_model_checks WHERE check_id=:id"),
+                {"id": check_id},
+            )
+            if run_ids:
+                connection.execute(
+                    text("DELETE FROM cost_lab.benchmark_runs WHERE run_id=ANY(:runs)"),
+                    {"runs": run_ids},
+                )
+            connection.execute(text("""INSERT INTO cost_lab.audit_events
+            (event_id,action,target_type,target_id,metadata)
+            VALUES(:event,'FINAL_CHECK_DELETED','FINAL_MODEL_CHECK',:id,
+              CAST(:metadata AS jsonb))"""),
+                {"event": uuid4(), "id": check_id,
+                 "metadata": _json({"status": check})})
+        outputs_root = (actual.storage_root / "outputs").resolve()
+        for run_id in run_ids:
+            output_directory = (outputs_root / str(run_id)).resolve()
+            if output_directory.parent == outputs_root and output_directory.is_dir():
+                shutil.rmtree(output_directory)
+        return {"check_id": check_id, "deleted": True, "deleted_runs": len(run_ids)}
+
     @app.put("/api/cost-lab/final-checks/{check_id}/reviews")
     def save_final_reviews(check_id: UUID, body: FinalReviewsBody, username: Auth) -> dict[str, Any]:
         ids = [item.tryon_id for item in body.reviews]
@@ -2429,9 +2472,15 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             SET retired_at=:now,priority=NULL
             WHERE model_id=:model AND retired_at IS NULL"""),
                 {"now": now, "model": candidate["model_id"]})
-            priority = existing_priority or connection.execute(text("""SELECT
-            COALESCE(max(priority),0)+1 FROM cost_lab.production_model_releases
-            WHERE retired_at IS NULL""")).scalar_one()
+            used_priorities = set(connection.execute(text("""SELECT priority
+            FROM cost_lab.production_model_releases
+            WHERE retired_at IS NULL AND priority IS NOT NULL FOR UPDATE""")).scalars().all())
+            available_priority = next(
+                (value for value in range(1, 21) if value not in used_priorities), None
+            )
+            priority = existing_priority or available_priority
+            if priority is None:
+                raise HTTPException(409, "All 20 production model priorities are in use")
             release_id = uuid4()
             connection.execute(text("""INSERT INTO cost_lab.production_model_releases
             (release_id,model_id,final_check_id,promoted_by,promoted_at,
