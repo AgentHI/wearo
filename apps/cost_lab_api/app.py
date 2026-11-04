@@ -163,6 +163,58 @@ class ModelTestStatusBody(BaseModel):
     tested: bool
 
 
+class FinalCheckBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_id: UUID
+    person_asset_id: UUID
+
+
+class FinalReviewItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tryon_id: UUID
+    score: int = Field(ge=1, le=10)
+    comment: str = Field(default="", max_length=4000)
+
+
+class FinalReviewsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reviews: list[FinalReviewItem] = Field(min_length=1, max_length=12)
+
+
+class PromoteFinalCheckBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quality_levels: list[Literal["LOW", "MEDIUM", "HIGH"]] = Field(
+        min_length=1, max_length=3
+    )
+
+    @model_validator(mode="after")
+    def qualities_are_unique(self) -> "PromoteFinalCheckBody":
+        if len(self.quality_levels) != len(set(self.quality_levels)):
+            raise ValueError("Quality levels must be unique")
+        return self
+
+
+class ProductionModelPriorityItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    release_id: UUID
+    priority: int = Field(ge=1)
+
+
+class ProductionModelPrioritiesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    priorities: list[ProductionModelPriorityItem] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def priorities_are_unique(self) -> "ProductionModelPrioritiesBody":
+        release_ids = [item.release_id for item in self.priorities]
+        priorities = [item.priority for item in self.priorities]
+        if len(release_ids) != len(set(release_ids)):
+            raise ValueError("Release IDs must be unique")
+        if sorted(priorities) != list(range(1, len(priorities) + 1)):
+            raise ValueError("Priorities must be consecutive, starting at 1")
+        return self
+
+
 class KnowledgeTextBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=240)
@@ -392,6 +444,26 @@ def reproducible_combinations(
         for quality in qualities
         for _ in range(count)
     ]
+
+
+def final_check_score_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Build the category/quality-aware final-check score summary."""
+    if not rows:
+        raise ValueError("Final check has no reviews")
+    groups: dict[str, list[int]] = {}
+    for row in rows:
+        groups.setdefault(f"{row['category']}:{row['quality']}", []).append(int(row["score"]))
+    scores = [int(row["score"]) for row in rows]
+    return {
+        "review_count": len(scores),
+        "average_score": round(sum(scores) / len(scores), 2),
+        "minimum_score": min(scores),
+        "maximum_score": max(scores),
+        "by_category_quality": {
+            key: {"count": len(values), "average": round(sum(values) / len(values), 2)}
+            for key, values in sorted(groups.items())
+        },
+    }
 
 
 class CostLab:
@@ -1481,7 +1553,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         qualities = [output_quality]
         categories = [body.category]
         tryons_per_quality = body.image_count
-        prompt_version = "wearo-mixed-tryon-v2"
+        prompt_version = "wearo-mixed-tryon-v4"
         prompt = (
             "Create exactly one photorealistic virtual try-on from two supplied reference images. "
             "Image 1 is the target person and must remain the output canvas. Image 2 is the product "
@@ -1490,7 +1562,36 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             "For jewellery: extract only the jewellery product from Image 2 and place exactly one of "
             "it naturally on the anatomically correct location of the person in Image 1. Ignore and "
             "never copy any reference person, face, skin, hair, hands, arms, legs, feet, mannequin, "
-            "display stand, support, clothing, or background from Image 2. For a saree: dress the "
+            "display stand, support, clothing, or background from Image 2. "
+            "First classify the exact jewellery type and intended wearing configuration from Image "
+            "2, including whether it is a single item, matching pair, or coordinated set. Place "
+            "every component only on its anatomically correct location at a realistic scale and "
+            "orientation: earrings on the corresponding earlobes, nose jewellery on the correct "
+            "nostril or septum, maang tikka and head jewellery at the hairline and forehead, "
+            "necklaces around the neck and collarbone, brooches on the intended garment area, "
+            "armlets on the upper arm, bangles and bracelets around the wrists, rings on the "
+            "appropriate fingers, waist belts or chains around the waist, and anklets around the "
+            "ankles. Preserve the exact item count and wearing arrangement; do not turn a single "
+            "item into a pair, merge a pair into one item, or split, combine, or relocate set "
+            "components. Respect occlusion and perspective so jewellery sits on the body rather "
+            "than floating, embedding into skin, or hanging from the wrong body part. "
+            "For a necklace, first infer its exact necklace type, original length, silhouette, "
+            "width, curvature, chain-to-ornament ratio, pendant position, and intended wearing "
+            "height from Image 2. Fit that same necklace closely and naturally around the neck in "
+            "Image 1, following the neck and collarbone perspective. A short necklace, choker, "
+            "collar necklace, or collarbone necklace must remain short and must not become a long "
+            "chain or hang down onto the mid-chest. For earrings, preserve whether they are studs, "
+            "hoops, drops, jhumkas, chandbalis, ear cuffs, or another design and retain their "
+            "original drop length and orientation. For bangles, bracelets, rings, armlets, waist "
+            "jewellery, and anklets, preserve the original circumference, width, stacking order, "
+            "and body placement. Preserve the exact number, order, spacing, shape, and relative "
+            "size of every link, motif, stone, bead, drop, clasp, chain, and pendant across all "
+            "jewellery types. "
+            "Preserve the exact metal color, stone colors, enamel colors, color placement, "
+            "symmetry, proportions, and construction. Do not redesign, simplify, embellish, "
+            "extend, duplicate, remove, recolor, or invent any jewellery component. Scale and "
+            "curve only as required for anatomically realistic contact with the neck. "
+            "For a saree: dress the "
             "person in the referenced saree with realistic pleats, pallu, drape, scale, and fabric "
             "behaviour while preserving the person's anatomy. For a dress: replace only the relevant "
             "clothing with the referenced dress, fitted naturally to the person's existing pose and "
@@ -2122,6 +2223,266 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             if cached:
                 return {**dict(cached), "cached": True}
             raise HTTPException(503, "FX rate unavailable and no cached rate exists") from error
+
+    @app.post("/api/cost-lab/final-checks", status_code=202)
+    def create_final_check(body: FinalCheckBody, username: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            person = connection.execute(
+                text("""SELECT 1 FROM cost_lab.benchmark_assets
+                WHERE asset_id=:id AND kind='PERSON' AND replaced_at IS NULL"""),
+                {"id": body.person_asset_id},
+            ).scalar_one_or_none()
+            previous = connection.execute(
+                text("""SELECT 1 FROM cost_lab.benchmark_runs
+                WHERE model_id=:model AND status='COMPLETED' LIMIT 1"""),
+                {"model": body.model_id},
+            ).scalar_one_or_none()
+        if person is None:
+            raise HTTPException(422, "Select an active person image")
+        if previous is None:
+            raise HTTPException(409, "Complete a benchmark for this model before final check")
+
+        check_id = uuid4()
+        created_runs: list[dict[str, Any]] = []
+        plan = [(category, quality, 2 if category == "JEWELLERY" else 1)
+                for category in ("JEWELLERY", "SAREE", "DRESS")
+                for quality in ("LOW", "MEDIUM", "HIGH")]
+        try:
+            for category, quality, count in plan:
+                result = create_benchmark(
+                    BenchmarkBody(
+                        model_id=body.model_id,
+                        category=category,
+                        person_asset_id=body.person_asset_id,
+                        input_quality=quality,
+                        output_quality=quality,
+                        image_count=count,
+                    ),
+                    username,
+                )
+                created_runs.append(
+                    {"run_id": result["run_id"], "category": category,
+                     "quality": quality, "expected_outputs": count}
+                )
+        except Exception:
+            if created_runs:
+                with service.engine.begin() as connection:
+                    connection.execute(
+                        text("""UPDATE cost_lab.benchmark_runs SET status='CANCEL_REQUESTED'
+                        WHERE run_id=ANY(:runs) AND status IN ('QUEUED','RUNNING')"""),
+                        {"runs": [item["run_id"] for item in created_runs]},
+                    )
+            raise
+        with service.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO cost_lab.final_model_checks
+                (check_id,model_id,person_asset_id,status,created_by)
+                VALUES(:id,:model,:person,'GENERATING',:username)"""),
+                {"id": check_id, "model": body.model_id, "person": body.person_asset_id,
+                 "username": username},
+            )
+            for item in created_runs:
+                connection.execute(
+                    text("""INSERT INTO cost_lab.final_model_check_runs
+                    (check_id,run_id,category,quality,expected_outputs)
+                    VALUES(:check,:run,:category,:quality,:count)"""),
+                    {"check": check_id, "run": item["run_id"], "category": item["category"],
+                     "quality": item["quality"], "count": item["expected_outputs"]},
+                )
+        return {"check_id": check_id, "status": "GENERATING", "total_outputs": 12}
+
+    @app.get("/api/cost-lab/final-checks")
+    def final_checks(_: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            connection.execute(text("""UPDATE cost_lab.final_model_checks f SET status='FAILED'
+            WHERE f.status='GENERATING'
+              AND EXISTS (SELECT 1 FROM cost_lab.final_model_check_runs x
+                JOIN cost_lab.benchmark_runs r USING(run_id)
+                WHERE x.check_id=f.check_id AND r.status IN ('FAILED','CANCELLED'))"""))
+            connection.execute(text("""UPDATE cost_lab.final_model_checks f SET status='REVIEW_PENDING'
+            WHERE f.status='GENERATING'
+              AND NOT EXISTS (SELECT 1 FROM cost_lab.final_model_check_runs x
+                JOIN cost_lab.benchmark_runs r USING(run_id)
+                WHERE x.check_id=f.check_id AND r.status <> 'COMPLETED')"""))
+            checks = _rows(connection.execute(text("""SELECT f.*,m.name model_name,p.name provider_name,
+            count(DISTINCT rv.review_id) review_count,
+            count(DISTINCT t.tryon_id) FILTER (WHERE t.status IN ('SUCCEEDED','FAILED','CANCELLED')) completed_outputs,
+            count(DISTINCT t.tryon_id) FILTER (WHERE t.status='SUCCEEDED') successful_outputs
+            FROM cost_lab.final_model_checks f JOIN cost_lab.ai_models m USING(model_id)
+            JOIN cost_lab.model_providers p USING(provider_id)
+            LEFT JOIN cost_lab.final_model_check_runs x USING(check_id)
+            LEFT JOIN cost_lab.tryon_runs t USING(run_id)
+            LEFT JOIN cost_lab.final_model_reviews rv USING(check_id)
+            GROUP BY f.check_id,m.name,p.name
+            ORDER BY f.created_at DESC""")))
+        return {"checks": checks}
+
+    @app.get("/api/cost-lab/final-checks/{check_id}")
+    def final_check_detail(check_id: UUID, _: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            check = connection.execute(text("""SELECT f.*,m.name model_name,p.name provider_name
+            FROM cost_lab.final_model_checks f JOIN cost_lab.ai_models m USING(model_id)
+            JOIN cost_lab.model_providers p USING(provider_id) WHERE check_id=:id"""),
+                {"id": check_id}).mappings().one_or_none()
+            if check is None:
+                raise HTTPException(404, "Final check not found")
+            outputs = _rows(connection.execute(text("""SELECT t.tryon_id,t.status,x.category,x.quality,
+            t.output_path,c.product_asset_id,product.name product_asset_name,
+            rv.score,rv.comment,rv.reviewed_by,rv.reviewed_at
+            FROM cost_lab.final_model_check_runs x JOIN cost_lab.tryon_runs t USING(run_id)
+            JOIN cost_lab.benchmark_combinations c USING(combination_id)
+            JOIN cost_lab.benchmark_assets product ON product.asset_id=c.product_asset_id
+            LEFT JOIN cost_lab.final_model_reviews rv USING(tryon_id)
+            WHERE x.check_id=:id ORDER BY x.category,x.quality,t.created_at"""), {"id": check_id}))
+            pricing = connection.execute(text("""SELECT components,effective_at
+            FROM cost_lab.model_pricing WHERE model_id=:model AND effective_at <= now()
+            ORDER BY effective_at DESC LIMIT 1"""),
+                {"model": check["model_id"]}).mappings().one_or_none()
+        for output in outputs:
+            output["image_url"] = (f"/api/cost-lab/results/tryons/{output['tryon_id']}/image"
+                                   if output.get("output_path") else None)
+            output["source_image_url"] = (
+                f"/api/cost-lab/assets/{output['product_asset_id']}/content?quality={output['quality']}"
+            )
+        progress = {
+            "total": 12,
+            "completed": sum(item["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}
+                             for item in outputs),
+            "successful": sum(item["status"] == "SUCCEEDED" for item in outputs),
+            "reviewed": sum(item.get("score") is not None for item in outputs),
+        }
+        quality_scores = {
+            quality: round(
+                sum(int(item["score"]) for item in outputs
+                    if item["quality"] == quality and item.get("score") is not None)
+                / len([item for item in outputs
+                       if item["quality"] == quality and item.get("score") is not None])
+                * 10,
+                2,
+            )
+            for quality in ("LOW", "MEDIUM", "HIGH")
+            if any(item["quality"] == quality and item.get("score") is not None
+                   for item in outputs)
+        }
+        components = list(pricing["components"]) if pricing else []
+        quality_prices = {
+            quality: next((item.get("price_usd") for item in components
+                           if item.get("unit") == "output_images"
+                           and item.get("quality") == quality), None)
+            for quality in ("LOW", "MEDIUM", "HIGH")
+        }
+        return {"check": dict(check), "outputs": outputs, "progress": progress,
+                "quality_scores": quality_scores,
+                "quality_prices_usd": quality_prices,
+                "pricing_effective_at": pricing["effective_at"] if pricing else None}
+
+    @app.put("/api/cost-lab/final-checks/{check_id}/reviews")
+    def save_final_reviews(check_id: UUID, body: FinalReviewsBody, username: Auth) -> dict[str, Any]:
+        ids = [item.tryon_id for item in body.reviews]
+        if len(ids) != len(set(ids)):
+            raise HTTPException(422, "Each output may be reviewed only once per request")
+        with service.engine.begin() as connection:
+            allowed: set[UUID] = set(connection.execute(text("""SELECT t.tryon_id
+            FROM cost_lab.final_model_check_runs x JOIN cost_lab.tryon_runs t USING(run_id)
+            WHERE x.check_id=:id AND t.status='SUCCEEDED' AND t.tryon_id=ANY(:tryons)"""),
+                {"id": check_id, "tryons": ids}).scalars().all())
+            if allowed != set(ids):
+                raise HTTPException(422, "Scores must reference successful outputs in this check")
+            for item in body.reviews:
+                connection.execute(text("""INSERT INTO cost_lab.final_model_reviews
+                (review_id,check_id,tryon_id,score,comment,reviewed_by)
+                VALUES(:review,:check,:tryon,:score,:comment,:username)
+                ON CONFLICT(tryon_id) DO UPDATE SET score=excluded.score,comment=excluded.comment,
+                reviewed_by=excluded.reviewed_by,reviewed_at=now()"""),
+                    {"review": uuid4(), "check": check_id, "tryon": item.tryon_id,
+                     "score": item.score, "comment": item.comment.strip(), "username": username})
+            count: int = connection.execute(text("SELECT count(*) FROM cost_lab.final_model_reviews WHERE check_id=:id"),
+                {"id": check_id}).scalar_one()
+            if count == 12:
+                connection.execute(text("""UPDATE cost_lab.final_model_checks
+                SET status='SCORED',judged_at=now() WHERE check_id=:id
+                  AND status <> 'PROMOTED'"""), {"id": check_id})
+        return {"check_id": check_id, "review_count": count, "complete": count == 12}
+
+    @app.post("/api/cost-lab/final-checks/{check_id}/promote")
+    def promote_final_check(
+        check_id: UUID, body: PromoteFinalCheckBody, username: Auth
+    ) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            candidate = connection.execute(text("""SELECT f.model_id,p.components pricing_snapshot,
+            p.effective_at pricing_effective_at FROM cost_lab.final_model_checks f
+            LEFT JOIN LATERAL (SELECT components,effective_at FROM cost_lab.model_pricing
+              WHERE model_id=f.model_id AND effective_at <= now()
+              ORDER BY effective_at DESC LIMIT 1) p ON true
+            WHERE f.check_id=:id AND f.status='SCORED'
+            FOR UPDATE OF f"""), {"id": check_id}).mappings().one_or_none()
+            if candidate is None:
+                raise HTTPException(
+                    409, "Promotion requires a completed final-check score summary"
+                )
+            now = datetime.now(UTC)
+            existing_priority = connection.execute(text("""SELECT priority
+            FROM cost_lab.production_model_releases
+            WHERE model_id=:model AND retired_at IS NULL FOR UPDATE"""),
+                {"model": candidate["model_id"]}).scalar_one_or_none()
+            connection.execute(text("""UPDATE cost_lab.production_model_releases
+            SET retired_at=:now,priority=NULL
+            WHERE model_id=:model AND retired_at IS NULL"""),
+                {"now": now, "model": candidate["model_id"]})
+            priority = existing_priority or connection.execute(text("""SELECT
+            COALESCE(max(priority),0)+1 FROM cost_lab.production_model_releases
+            WHERE retired_at IS NULL""")).scalar_one()
+            release_id = uuid4()
+            connection.execute(text("""INSERT INTO cost_lab.production_model_releases
+            (release_id,model_id,final_check_id,promoted_by,promoted_at,
+             pricing_snapshot,pricing_effective_at,priority)
+            VALUES(:release,:model,:check,:username,:now,CAST(:pricing AS jsonb),:effective,
+             :priority)"""),
+                {"release": release_id, "model": candidate["model_id"], "check": check_id,
+                 "pricing": _json(candidate["pricing_snapshot"] or []),
+                 "effective": candidate["pricing_effective_at"],
+                 "username": username, "now": now, "priority": priority})
+            connection.execute(text("""UPDATE cost_lab.production_model_releases
+            SET approved_quality_levels=CAST(:qualities AS jsonb) WHERE release_id=:id"""),
+                {"qualities": _json(body.quality_levels), "id": release_id})
+            connection.execute(text("""UPDATE cost_lab.final_model_checks
+            SET status='PROMOTED',promoted_at=:now WHERE check_id=:id"""),
+                {"id": check_id, "now": now})
+        return {"release_id": release_id, "model_id": candidate["model_id"],
+                "approved_quality_levels": body.quality_levels, "priority": priority,
+                "status": "PRODUCTION"}
+
+    @app.get("/api/cost-lab/production-models")
+    def production_models(_: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            releases = _rows(connection.execute(text("""SELECT r.*,m.name model_name,m.api_identifier,
+            m.version model_version,p.name provider_name,p.provider_type,p.api_base_url
+            FROM cost_lab.production_model_releases r
+            JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id)
+            ORDER BY (r.retired_at IS NOT NULL),r.priority NULLS LAST,r.promoted_at DESC""")))
+        active = [row for row in releases if row["retired_at"] is None]
+        return {"active": active[0] if active else None, "active_models": active,
+                "history": releases}
+
+    @app.put("/api/cost-lab/production-models/priorities")
+    def update_production_model_priorities(
+        body: ProductionModelPrioritiesBody, _: Auth
+    ) -> dict[str, Any]:
+        requested = {item.release_id: item.priority for item in body.priorities}
+        with service.engine.begin() as connection:
+            active_ids = set(connection.execute(text("""SELECT release_id
+            FROM cost_lab.production_model_releases WHERE retired_at IS NULL
+            FOR UPDATE""")).scalars().all())
+            if set(requested) != active_ids:
+                raise HTTPException(409, "Priorities must include every active production model")
+            # Clear first so the partial unique index permits priority swaps.
+            connection.execute(text("""UPDATE cost_lab.production_model_releases
+            SET priority=NULL WHERE retired_at IS NULL"""))
+            for release_id, priority in requested.items():
+                connection.execute(text("""UPDATE cost_lab.production_model_releases
+                SET priority=:priority WHERE release_id=:release"""),
+                    {"release": release_id, "priority": priority})
+        return {"priorities": [item.model_dump() for item in body.priorities]}
 
     return app
 

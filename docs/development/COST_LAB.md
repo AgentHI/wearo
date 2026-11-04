@@ -52,6 +52,24 @@ UV_CACHE_DIR=.uv-cache uv run pytest tests/test_cost_lab.py
 pnpm --filter @wearo/web check
 ```
 
+## Final model check and production promotion
+
+After a candidate has at least one completed benchmark, open **Final checks**, select the model
+and a person image, and start the fixed production-readiness suite. It creates 12 outputs: two
+jewellery images and one saree and dress image at each of Low, Medium, and High quality. The normal
+Cost Lab worker processes these linked runs.
+
+Score every output from 1–10. Comments are currently hidden in the UI. After all 12 scores are
+stored, Cost Lab calculates separate Low, Medium, and High percentages and shows the configured
+per-image price for each quality. These summaries are advisory: there is no automatic promotion
+threshold. The administrator decides whether to promote and which qualities to approve. Promotion
+adds the candidate to the auditable `cost_lab.production_model_releases` history with its selected
+quality levels (Low, Medium, and/or High). Promoted models are managed from the separate
+**Promoted models** menu. Multiple
+models can remain active, with unique consecutive priorities where priority 1 is the first routing
+choice. Promoting a newer release of the same model retires its earlier active release while
+preserving the history and priority position.
+
 ## Adding an adapter
 
 Implement the `ProviderAdapter` protocol in `apps/cost_lab_api/adapters.py`, including an explicit

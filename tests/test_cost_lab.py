@@ -46,6 +46,25 @@ def test_cost_lab_combinations_are_reproducible_and_quality_scoped() -> None:
     assert [quality for quality, _, _ in first].count("LOW") == 10
 
 
+def test_production_model_priorities_must_be_unique_and_consecutive() -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import ProductionModelPrioritiesBody
+
+    releases = [uuid4(), uuid4()]
+    body = ProductionModelPrioritiesBody.model_validate({"priorities": [
+        {"release_id": str(releases[0]), "priority": 2},
+        {"release_id": str(releases[1]), "priority": 1},
+    ]})
+    assert [item.priority for item in body.priorities] == [2, 1]
+
+    with pytest.raises(ValidationError, match="consecutive"):
+        ProductionModelPrioritiesBody.model_validate({"priorities": [
+            {"release_id": str(releases[0]), "priority": 1},
+            {"release_id": str(releases[1]), "priority": 1},
+        ]})
+
+
 def test_cost_lab_custom_units_are_extensible() -> None:
     assert calculate_cost(
         {"custom:gpu_seconds": 3}, [{"unit": "custom:gpu_seconds", "price_usd": "0.2"}]
@@ -389,6 +408,68 @@ def test_benchmark_request_requires_supported_product_category() -> None:
         BenchmarkBody.model_validate(
             {"model_id": str(uuid4()), "category": "PERSON", "image_count": 1}
         )
+
+
+def test_final_check_requires_model_and_person() -> None:
+    from apps.cost_lab_api.app import FinalCheckBody
+
+    model_id, person_id = uuid4(), uuid4()
+    body = FinalCheckBody.model_validate(
+        {"model_id": str(model_id), "person_asset_id": str(person_id)}
+    )
+    assert body.model_id == model_id
+    assert body.person_asset_id == person_id
+
+
+def test_final_review_scores_are_bounded() -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import FinalReviewsBody
+
+    with pytest.raises(ValidationError):
+        FinalReviewsBody.model_validate(
+            {"reviews": [{"tryon_id": str(uuid4()), "score": 11, "comment": "Good"}]}
+        )
+
+
+def test_final_review_comment_is_optional() -> None:
+    from apps.cost_lab_api.app import FinalReviewsBody
+
+    body = FinalReviewsBody.model_validate(
+        {"reviews": [{"tryon_id": str(uuid4()), "score": 9}]}
+    )
+    assert body.reviews[0].comment == ""
+
+
+def test_final_check_score_summary_is_quality_aware() -> None:
+    from apps.cost_lab_api.app import final_check_score_summary
+
+    rows = [
+        {"category": "JEWELLERY", "quality": "LOW", "score": 6},
+        {"category": "JEWELLERY", "quality": "LOW", "score": 8},
+        {"category": "SAREE", "quality": "HIGH", "score": 10},
+    ]
+    assert final_check_score_summary(rows) == {
+        "review_count": 3,
+        "average_score": 8.0,
+        "minimum_score": 6,
+        "maximum_score": 10,
+        "by_category_quality": {
+            "JEWELLERY:LOW": {"count": 2, "average": 7.0},
+            "SAREE:HIGH": {"count": 1, "average": 10.0},
+        },
+    }
+
+
+def test_production_promotion_requires_unique_quality_levels() -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import PromoteFinalCheckBody
+
+    body = PromoteFinalCheckBody.model_validate({"quality_levels": ["LOW", "HIGH"]})
+    assert body.quality_levels == ["LOW", "HIGH"]
+    with pytest.raises(ValidationError):
+        PromoteFinalCheckBody.model_validate({"quality_levels": ["HIGH", "HIGH"]})
 
 
 def test_dataset_generation_accepts_category_count_prompt_quality_and_direction() -> None:

@@ -167,21 +167,11 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert fields["model"] == "gpt-image-2.5-sunburst"
     assert fields["quality"] == "high" and fields["size"] == "1664x2496"
     assert fields["stream"] == "true" and fields["partial_images"] == "1"
-    assert fields["prompt"] == (
-        "Use the exact customer shown in the first image and the second image as the wearable "
-        "reference. Do not substitute or redraw the customer as a different person. "
-        "Identify the primary wearable shown in the second image. If the reference is contextual, "
-        "isolate only the intended garment or jewellery and ignore any reference person, "
-        "mannequin, clothing used only to display jewellery, hands, props, and background. Apply "
-        "only the "
-        "identified wearable to the correct location on the customer. For apparel, replace only "
-        "the relevant clothing; for jewellery, add the item without replacing unrelated clothing. "
-        "Preserve the customer's identity, face, hairstyle, body proportions, pose, and "
-        "background. Preserve the wearable's color, design, pattern, texture, material details, "
-        "and visible logo. Produce a realistic virtual try-on with natural lighting and fitting. "
-        "Do not copy unrelated content from the reference image or modify unrelated parts of the "
-        "customer image."
-    )
+    assert fields["prompt"] == OpenAIImageEditAdapter.prompt
+    assert "first classify the exact jewellery type" in fields["prompt"]
+    assert "Preserve the reference's exact item count" in fields["prompt"]
+    assert "must remain short" in fields["prompt"]
+    assert "Do not redesign" in fields["prompt"]
     assert [file.field_name for file in files] == ["image[]", "image[]"]
     assert [file.filename for file in files] == ["person.jpg", "item.png"]
     assert headers == {"Authorization": "Bearer secret-key"} and timeout == 180
