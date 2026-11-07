@@ -32,9 +32,11 @@ results without the post-generation quality-analysis call. This can expose inacc
 outputs, so leave the gate enabled outside controlled testing.
 
 For a single-process local test setup, set `WEARO_LOCAL_EMBEDDED_WORKER=true`. The API then starts
-a background render consumer, expires stale five-minute leases, and claims new queue items without
-a separate worker terminal. This option is rejected unless fixed local test authentication is also
-enabled; leave it disabled outside local development.
+a bounded pool of background render consumers, expires stale five-minute leases, and claims new
+queue items without a separate worker terminal. This option is rejected unless fixed local test
+authentication is also enabled; leave it disabled outside local development. Set
+`WEARO_WORKER_CONCURRENCY` from 1 to 32 (default 4) to control parallel renders. Start
+conservatively and respect provider rate limits.
 
 ## Database and API
 
@@ -147,6 +149,10 @@ Then run:
 ```sh
 UV_CACHE_DIR=.uv-cache uv run python -m apps.api.wearo_api.worker_process
 ```
+
+The standalone worker runs `WEARO_WORKER_CONCURRENCY` parallel slots against the shared durable
+queue. Multiple worker processes or containers can still provide horizontal scaling; database row
+locking prevents duplicate claims. Use `--concurrency` to override the environment per process.
 
 Use `--once` for a scheduler or smoke test. The worker enforces the product's 7 MB upload limit,
 applies the quality gate before publication, records provider/model/request provenance, and

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import socket
+import threading
 import time
 from pathlib import Path
 
@@ -36,7 +37,18 @@ def _required(name: str) -> str:
     return value
 
 
-def build_worker() -> DurableRenderWorker:
+def worker_concurrency(value: str | int | None = None) -> int:
+    raw = value if value is not None else os.environ.get("WEARO_WORKER_CONCURRENCY", "4")
+    try:
+        concurrency = int(raw)
+    except (TypeError, ValueError) as error:
+        raise SystemExit("WEARO_WORKER_CONCURRENCY must be an integer from 1 to 32") from error
+    if not 1 <= concurrency <= 32:
+        raise SystemExit("WEARO_WORKER_CONCURRENCY must be between 1 and 32")
+    return concurrency
+
+
+def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
     load_wearo_environment()
     database_url = _required("WEARO_DATABASE_URL")
     engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
@@ -92,6 +104,8 @@ def build_worker() -> DurableRenderWorker:
             "WEARO_ANALYSIS_ENDPOINT and WEARO_ANALYSIS_TOKEN are required for this provider"
         )
     worker_id = os.environ.get("WEARO_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+    if worker_slot is not None:
+        worker_id = f"{worker_id}-{worker_slot}"
 
     def resolve_provider(job: DurableRenderJob) -> WorkerProvider:
         with engine.connect() as connection:
@@ -146,21 +160,44 @@ def build_worker() -> DurableRenderWorker:
 
 
 def main() -> None:
+    load_wearo_environment()
     parser = argparse.ArgumentParser(description="Wearo durable render worker")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument("--concurrency", type=int)
     args = parser.parse_args()
     if not 0.1 <= args.poll_seconds <= 30:
         raise SystemExit("--poll-seconds must be between 0.1 and 30")
-    worker = build_worker()
-    while True:
-        recovery = worker.recover_stale()
-        outcome = worker.run_once()
-        if args.once:
-            print(f"timed_out={recovery.failed} claimed={str(outcome.claimed).lower()}")
-            return
-        if not outcome.claimed:
-            time.sleep(args.poll_seconds)
+    concurrency = worker_concurrency(args.concurrency)
+    stop = threading.Event()
+
+    def run_slot(slot: int) -> None:
+        worker = build_worker(worker_slot=slot)
+        while not stop.is_set():
+            recovery = worker.recover_stale()
+            outcome = worker.run_once()
+            if args.once:
+                print(
+                    f"slot={slot} timed_out={recovery.failed} "
+                    f"claimed={str(outcome.claimed).lower()}"
+                )
+                return
+            if not outcome.claimed:
+                stop.wait(args.poll_seconds)
+
+    threads = [
+        threading.Thread(target=run_slot, args=(slot,), name=f"wearo-render-worker-{slot}")
+        for slot in range(1, concurrency + 1)
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        for thread in threads:
+            thread.join()
+    except KeyboardInterrupt:
+        stop.set()
+        for thread in threads:
+            thread.join()
 
 
 if __name__ == "__main__":

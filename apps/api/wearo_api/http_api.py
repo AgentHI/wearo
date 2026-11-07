@@ -844,7 +844,7 @@ def create_app(
     if platform_admin_auth is None and admin_email and admin_password:
         platform_admin_auth = PlatformAdminAuth(admin_email, admin_password)
     stop_worker = threading.Event()
-    worker_thread: threading.Thread | None = None
+    worker_threads: list[threading.Thread] = []
 
     def run_embedded_worker() -> None:
         worker = embedded_worker
@@ -863,20 +863,29 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        nonlocal worker_thread
         if embedded_worker is not None:
-            worker_thread = threading.Thread(
-                target=run_embedded_worker,
-                name="wearo-local-render-worker",
-                daemon=True,
-            )
-            worker_thread.start()
+            try:
+                concurrency = int(os.environ.get("WEARO_WORKER_CONCURRENCY", "4"))
+            except ValueError as error:
+                raise RuntimeError(
+                    "WEARO_WORKER_CONCURRENCY must be an integer from 1 to 32"
+                ) from error
+            if not 1 <= concurrency <= 32:
+                raise RuntimeError("WEARO_WORKER_CONCURRENCY must be between 1 and 32")
+            for slot in range(1, concurrency + 1):
+                thread = threading.Thread(
+                    target=run_embedded_worker,
+                    name=f"wearo-local-render-worker-{slot}",
+                    daemon=True,
+                )
+                worker_threads.append(thread)
+                thread.start()
         try:
             yield
         finally:
             stop_worker.set()
-            if worker_thread is not None:
-                worker_thread.join(timeout=1)
+            for thread in worker_threads:
+                thread.join(timeout=1)
 
     app = FastAPI(title="Wearo beta API", version="1.0.0-beta", lifespan=lifespan)
 

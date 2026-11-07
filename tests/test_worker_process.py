@@ -6,7 +6,7 @@ import pytest
 from apps.api.wearo_api.external_runtime import OpenAIAnalysisClient
 from apps.api.wearo_api.render_provider import OpenAIImageEditAdapter
 from apps.api.wearo_api.render_quality import RenderQualityGate
-from apps.api.wearo_api.worker_process import build_worker
+from apps.api.wearo_api.worker_process import build_worker, worker_concurrency
 
 
 def configure_common(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -52,3 +52,15 @@ def test_worker_openai_configuration_fails_closed(
     monkeypatch.setenv("WEARO_OPENAI_API_KEY", "")
     with pytest.raises(SystemExit, match="WEARO_OPENAI_API_KEY is required"):
         build_worker()
+
+
+def test_worker_concurrency_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WEARO_WORKER_CONCURRENCY", "6")
+    assert worker_concurrency() == 6
+    assert worker_concurrency(2) == 2
+    with pytest.raises(SystemExit, match="between 1 and 32"):
+        worker_concurrency(0)
+    with pytest.raises(SystemExit, match="between 1 and 32"):
+        worker_concurrency(33)
+    with pytest.raises(SystemExit, match="integer"):
+        worker_concurrency("many")
