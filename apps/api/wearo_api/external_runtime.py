@@ -314,11 +314,12 @@ class RequestsMultipartTransport:
         fields: dict[str, str],
         files: list[MultipartFile],
         headers: dict[str, str],
-        timeout_seconds: int,
+        timeout_seconds: int | tuple[int, int],
     ) -> HttpResponse:
         request_files = [
             (file.field_name, (file.filename, file.content, file.mime_type)) for file in files
         ]
+        started_at = time.monotonic()
         try:
             response = self.session.post(
                 url,
@@ -326,16 +327,34 @@ class RequestsMultipartTransport:
                 files=request_files,
                 headers=headers,
                 timeout=timeout_seconds,
+                stream=True,
             )
+            headers_ms = round((time.monotonic() - started_at) * 1000)
+        except requests.ConnectTimeout:
+            raise ProviderError("OPENAI_CONNECT_TIMEOUT", retryable=True) from None
+        except requests.ReadTimeout:
+            raise ProviderError("OPENAI_READ_TIMEOUT", retryable=False) from None
+        except requests.ConnectionError:
+            raise ProviderError("OPENAI_CONNECTION_INTERRUPTED", retryable=False) from None
         except requests.RequestException:
-            raise ProviderError("OPENAI_TRANSPORT_ERROR", retryable=True) from None
+            raise ProviderError("OPENAI_TRANSPORT_ERROR", retryable=False) from None
         try:
             body = response.json()
+        except requests.ReadTimeout:
+            raise ProviderError("OPENAI_READ_TIMEOUT", retryable=False) from None
+        except requests.ConnectionError:
+            raise ProviderError("OPENAI_CONNECTION_INTERRUPTED", retryable=False) from None
         except requests.JSONDecodeError:
             body = {}
         if not isinstance(body, dict):
             body = {}
-        return HttpResponse(response.status_code, body, dict(response.headers))
+        return HttpResponse(
+            response.status_code,
+            body,
+            dict(response.headers),
+            headers_ms,
+            round((time.monotonic() - started_at) * 1000),
+        )
 
     def post_multipart_stream(
         self,
@@ -343,7 +362,7 @@ class RequestsMultipartTransport:
         fields: dict[str, str],
         files: list[MultipartFile],
         headers: dict[str, str],
-        timeout_seconds: int,
+        timeout_seconds: int | tuple[int, int],
         on_event: Callable[[dict[str, object]], None],
     ) -> HttpResponse:
         request_files = [
@@ -362,10 +381,9 @@ class RequestsMultipartTransport:
                 response_headers = dict(response.headers)
                 if response.status_code != 200:
                     return HttpResponse(response.status_code, {}, response_headers)
+                headers_ms = round((time.monotonic() - started_at) * 1000)
                 data_lines: list[str] = []
                 for raw_line in response.iter_lines(decode_unicode=True):
-                    if time.monotonic() - started_at >= timeout_seconds:
-                        raise ProviderError("OPENAI_STREAM_TIMEOUT", retryable=True)
                     line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
                     if not line:
                         self._dispatch_sse_data(data_lines, on_event)
@@ -373,7 +391,13 @@ class RequestsMultipartTransport:
                     elif line.startswith("data:"):
                         data_lines.append(line[5:].lstrip())
                 self._dispatch_sse_data(data_lines, on_event)
-                return HttpResponse(response.status_code, {}, response_headers)
+                return HttpResponse(
+                    response.status_code,
+                    {},
+                    response_headers,
+                    headers_ms,
+                    round((time.monotonic() - started_at) * 1000),
+                )
         except (requests.RequestException, UnicodeDecodeError):
             raise ProviderError("OPENAI_STREAM_INTERRUPTED", retryable=False) from None
 

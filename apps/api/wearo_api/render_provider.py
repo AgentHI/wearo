@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ class RenderRequest:
     capability: str
     on_partial: Callable[[bytes, str, int], None] | None = None
     quality: RenderQuality = RenderQuality.HIGH
+    job_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ class HttpResponse:
     status: int
     body: dict[str, object]
     headers: dict[str, str]
+    response_headers_ms: int | None = None
+    total_ms: int | None = None
 
 
 class HttpTransport(Protocol):
@@ -73,7 +77,7 @@ class MultipartHttpTransport(Protocol):
         fields: dict[str, str],
         files: list[MultipartFile],
         headers: dict[str, str],
-        timeout_seconds: int,
+        timeout_seconds: int | tuple[int, int],
     ) -> HttpResponse: ...
 
     def post_multipart_stream(
@@ -82,7 +86,7 @@ class MultipartHttpTransport(Protocol):
         fields: dict[str, str],
         files: list[MultipartFile],
         headers: dict[str, str],
-        timeout_seconds: int,
+        timeout_seconds: int | tuple[int, int],
         on_event: Callable[[dict[str, object]], None],
     ) -> HttpResponse: ...
 
@@ -321,7 +325,10 @@ class OpenAIImageEditAdapter:
         *,
         api_key: str,
         model: str = "gpt-image-2.5-sunburst",
-        timeout_seconds: int = 180,
+        streaming: bool = False,
+        connect_timeout_seconds: int = 15,
+        read_timeout_seconds: int = 180,
+        max_attempts: int = 3,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenAI API key is required")
@@ -330,7 +337,14 @@ class OpenAIImageEditAdapter:
         self.transport = transport
         self.api_key = api_key
         self.model = model
-        self.timeout_seconds = timeout_seconds
+        if connect_timeout_seconds <= 0 or read_timeout_seconds <= 0:
+            raise ValueError("OpenAI image timeouts must be positive")
+        if not 1 <= max_attempts <= 3:
+            raise ValueError("OpenAI image max attempts must be between 1 and 3")
+        self.streaming = streaming
+        self.connect_timeout_seconds = connect_timeout_seconds
+        self.read_timeout_seconds = read_timeout_seconds
+        self.max_attempts = max_attempts
 
     def render(self, request: RenderRequest) -> RenderResponse:
         if request.capability != "APPAREL":
@@ -342,8 +356,6 @@ class OpenAIImageEditAdapter:
             "prompt": self.prompt,
             "n": "1",
             "output_format": "png",
-            "stream": "true",
-            "partial_images": "1",
             **{
                 key: str(value)
                 for key, value in quality_parameters(
@@ -351,7 +363,10 @@ class OpenAIImageEditAdapter:
                 ).items()
             },
         }
-        for attempt in (1, 2):
+        if self.streaming:
+            fields.update({"stream": "true", "partial_images": "1"})
+        timeout = (self.connect_timeout_seconds, self.read_timeout_seconds)
+        for attempt in range(1, self.max_attempts + 1):
             final_event: dict[str, object] = {}
             started_at = time.monotonic()
 
@@ -366,32 +381,80 @@ class OpenAIImageEditAdapter:
                 elif event_type == "image_edit.completed":
                     final_event = event
 
-            response = self.transport.post_multipart_stream(
-                self.endpoint,
-                fields,
-                [person, item],
-                {"Authorization": f"Bearer {self.api_key}"},
-                self.timeout_seconds,
-                on_event,
+            logger.info(
+                "OpenAI image edit started job_id=%s provider=%s model=%s streaming=%s "
+                "attempt=%d started_at=%s",
+                request.job_id,
+                self.provider,
+                self.model,
+                self.streaming,
+                attempt,
+                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
+            try:
+                if self.streaming:
+                    response = self.transport.post_multipart_stream(
+                        self.endpoint,
+                        fields,
+                        [person, item],
+                        {"Authorization": f"Bearer {self.api_key}"},
+                        timeout,
+                        on_event,
+                    )
+                else:
+                    response = self.transport.post_multipart(
+                        self.endpoint,
+                        fields,
+                        [person, item],
+                        {"Authorization": f"Bearer {self.api_key}"},
+                        timeout,
+                    )
+            except ProviderError as error:
+                elapsed_ms = round((time.monotonic() - started_at) * 1000)
+                logger.warning(
+                    "OpenAI image edit transport failed job_id=%s provider=%s model=%s "
+                    "streaming=%s attempt=%d timeout_category=%s exception=%s "
+                    "final_status=%s total_ms=%d",
+                    request.job_id,
+                    self.provider,
+                    self.model,
+                    self.streaming,
+                    attempt,
+                    error.code,
+                    type(error).__name__,
+                    "retrying" if error.retryable and attempt < self.max_attempts else "failed",
+                    elapsed_ms,
+                )
+                if not error.retryable or attempt == self.max_attempts:
+                    raise
+                self._backoff(attempt)
+                continue
             if response.status == 200:
                 logger.info(
                     "OpenAI image edit completed model=%s status=%d request_id=%s "
-                    "attempt=%d elapsed_ms=%d",
+                    "streaming=%s attempt=%d response_headers_ms=%s total_ms=%d "
+                    "final_status=completed",
                     self.model,
                     response.status,
                     response.headers.get("x-request-id"),
+                    self.streaming,
                     attempt,
+                    response.response_headers_ms,
                     round((time.monotonic() - started_at) * 1000),
                 )
-                return self._decode_stream(response, final_event, attempt)
+                return (
+                    self._decode_stream(response, final_event, attempt)
+                    if self.streaming
+                    else self._decode_response(response, attempt)
+                )
             retryable = response.status in {408, 409, 429, 500, 502, 503, 504}
             raw_error = response.body.get("error")
             error_type = raw_error.get("type") if isinstance(raw_error, dict) else None
             error_code = raw_error.get("code") if isinstance(raw_error, dict) else None
             logger.warning(
                 "OpenAI image edit failed model=%s status=%d request_id=%s "
-                "error_type=%s error_code=%s retryable=%s attempt=%d elapsed_ms=%d",
+                "error_type=%s error_code=%s retryable=%s attempt=%d streaming=%s "
+                "response_headers_ms=%s total_ms=%d final_status=%s",
                 self.model,
                 response.status,
                 response.headers.get("x-request-id"),
@@ -399,11 +462,19 @@ class OpenAIImageEditAdapter:
                 error_code,
                 retryable,
                 attempt,
+                self.streaming,
+                response.response_headers_ms,
                 round((time.monotonic() - started_at) * 1000),
+                "retrying" if retryable and attempt < self.max_attempts else "failed",
             )
-            if not retryable or attempt == 2:
+            if not retryable or attempt == self.max_attempts:
                 raise ProviderError(f"OPENAI_HTTP_{response.status}", retryable=retryable)
+            self._backoff(attempt)
         raise AssertionError("unreachable")
+
+    @staticmethod
+    def _backoff(attempt: int) -> None:
+        time.sleep((0.5 * (2 ** (attempt - 1))) + (secrets.randbelow(251) / 1000))
 
     @staticmethod
     def _provider_file(label: str, content: bytes, mime_type: str) -> MultipartFile:
@@ -437,6 +508,24 @@ class OpenAIImageEditAdapter:
     ) -> RenderResponse:
         image = self._event_image(final_event)
         raw_usage = final_event.get("usage")
+        usage = dict(raw_usage) if isinstance(raw_usage, dict) else None
+        return RenderResponse(
+            image,
+            "image/png",
+            self.provider,
+            self.model,
+            self.region,
+            response.headers.get("x-request-id"),
+            attempts,
+            usage,
+        )
+
+    def _decode_response(self, response: HttpResponse, attempts: int) -> RenderResponse:
+        data = response.body.get("data")
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            raise ProviderError("OPENAI_INVALID_RESPONSE", retryable=False)
+        image = self._event_image(data[0])
+        raw_usage = response.body.get("usage")
         usage = dict(raw_usage) if isinstance(raw_usage, dict) else None
         return RenderResponse(
             image,

@@ -166,7 +166,7 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert url == "https://api.openai.com/v1/images/edits"
     assert fields["model"] == "gpt-image-2.5-sunburst"
     assert fields["quality"] == "high" and fields["size"] == "1664x2496"
-    assert fields["stream"] == "true" and fields["partial_images"] == "1"
+    assert "stream" not in fields and "partial_images" not in fields
     assert fields["prompt"] == OpenAIImageEditAdapter.prompt
     assert "first classify the exact jewellery type" in fields["prompt"]
     assert "Preserve the reference's exact item count" in fields["prompt"]
@@ -184,7 +184,7 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert "modify only pixels necessary for the wearable" in fields["prompt"]
     assert [file.field_name for file in files] == ["image[]", "image[]"]
     assert [file.filename for file in files] == ["person.jpg", "item.png"]
-    assert headers == {"Authorization": "Bearer secret-key"} and timeout == 180
+    assert headers == {"Authorization": "Bearer secret-key"} and timeout == (15, 180)
     assert result.image == b"openai-result"
     assert result.provider == "OPENAI" and result.region == "global"
     assert result.request_id == "openai-request-1" and result.attempts == 1
@@ -194,6 +194,26 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
         "output_tokens": 50,
         "input_tokens_details": {"text_tokens": 10, "image_tokens": 40},
     }
+    assert partials == []
+
+
+def test_openai_streaming_mode_remains_compatible() -> None:
+    transport = MultipartTransport([openai_success()])
+    partials: list[tuple[bytes, str, int]] = []
+    original = request()
+    result = OpenAIImageEditAdapter(transport, api_key="secret-key", streaming=True).render(
+        RenderRequest(
+            original.person_image,
+            original.item_image,
+            original.person_mime,
+            original.item_mime,
+            original.capability,
+            on_partial=lambda image, mime, index: partials.append((image, mime, index)),
+        )
+    )
+    assert transport.calls[0][1]["stream"] == "true"
+    assert transport.calls[0][1]["partial_images"] == "1"
+    assert result.image == b"openai-result"
     assert partials == [(b"openai-result", "image/png", 0)]
 
 
@@ -213,7 +233,10 @@ def test_openai_adapter_applies_requested_wearo_quality() -> None:
     assert transport.calls[0][1]["quality"] == "low"
 
 
-def test_openai_retries_transient_status_and_fails_closed() -> None:
+def test_openai_retries_transient_status_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("apps.api.wearo_api.render_provider.time.sleep", lambda _: None)
     transport = MultipartTransport([HttpResponse(429, {}, {}), openai_success()])
     result = OpenAIImageEditAdapter(
         transport,
@@ -221,6 +244,16 @@ def test_openai_retries_transient_status_and_fails_closed() -> None:
         model="gpt-image-2",
     ).render(request())
     assert result.attempts == 2 and len(transport.calls) == 2
+
+    exhausted = MultipartTransport([HttpResponse(503, {}, {}) for _ in range(3)])
+    with pytest.raises(ProviderError, match="OPENAI_HTTP_503"):
+        OpenAIImageEditAdapter(exhausted, api_key="secret-key").render(request())
+    assert len(exhausted.calls) == 3
+    assert [files[0].content for _, _, files, _, _ in exhausted.calls] == [
+        b"person",
+        b"person",
+        b"person",
+    ]
 
     for response, code in (
         (HttpResponse(401, {}, {}), "OPENAI_HTTP_401"),

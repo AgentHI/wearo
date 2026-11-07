@@ -4,8 +4,8 @@ import argparse
 import os
 import socket
 import threading
-import time
 from pathlib import Path
+from typing import TypedDict
 
 from sqlalchemy import create_engine, text
 
@@ -48,6 +48,30 @@ def worker_concurrency(value: str | int | None = None) -> int:
     return concurrency
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as error:
+        raise SystemExit(f"{name} must be a positive integer") from error
+    if value <= 0:
+        raise SystemExit(f"{name} must be a positive integer")
+    return value
+
+
+class OpenAIImageOptions(TypedDict):
+    streaming: bool
+    connect_timeout_seconds: int
+    read_timeout_seconds: int
+
+
+def _openai_image_options() -> OpenAIImageOptions:
+    return {
+        "streaming": os.environ.get("OPENAI_IMAGE_STREAMING", "false").casefold() == "true",
+        "connect_timeout_seconds": _positive_int_env("OPENAI_IMAGE_CONNECT_TIMEOUT", 15),
+        "read_timeout_seconds": _positive_int_env("OPENAI_IMAGE_READ_TIMEOUT", 180),
+    }
+
+
 def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
     load_wearo_environment()
     database_url = _required("WEARO_DATABASE_URL")
@@ -68,6 +92,7 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
             RequestsMultipartTransport(),
             api_key=openai_api_key,
             model=os.environ.get("WEARO_OPENAI_MODEL", "gpt-image-2.5-sunburst"),
+            **_openai_image_options(),
         )
     elif selected_provider == "GOOGLE_VERTEX":
         if os.environ.get("WEARO_VERTEX_ENABLED", "false").casefold() != "true":
@@ -126,7 +151,10 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
             raise ProviderError("PROVIDER_CREDENTIAL_UNAVAILABLE", retryable=False)
         if route["adapter_type"] == "OPENAI":
             return OpenAIImageEditAdapter(
-                RequestsMultipartTransport(), api_key=credential, model=job.model
+                RequestsMultipartTransport(),
+                api_key=credential,
+                model=job.model,
+                **_openai_image_options(),
             )
         if route["adapter_type"] == "GOOGLE_VERTEX":
             return VertexTryOnAdapter(

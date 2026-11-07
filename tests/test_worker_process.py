@@ -34,6 +34,9 @@ def test_worker_builds_openai_provider_without_google_credentials(
 
     assert isinstance(worker.provider, OpenAIImageEditAdapter)
     assert worker.provider.model == "gpt-image-2.5-flare"
+    assert worker.provider.streaming is False
+    assert worker.provider.connect_timeout_seconds == 15
+    assert worker.provider.read_timeout_seconds == 180
     quality = cast(RenderQualityGate, worker.quality)
     assert isinstance(quality.analyzer, OpenAIAnalysisClient)
     assert quality.analyzer.model == "gpt-6-luna"
@@ -64,3 +67,20 @@ def test_worker_concurrency_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
         worker_concurrency(33)
     with pytest.raises(SystemExit, match="integer"):
         worker_concurrency("many")
+
+
+def test_worker_applies_openai_image_transport_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    configure_common(monkeypatch, tmp_path)
+    monkeypatch.setenv("WEARO_RENDER_PROVIDER", "OPENAI")
+    monkeypatch.setenv("WEARO_OPENAI_ENABLED", "true")
+    monkeypatch.setenv("WEARO_OPENAI_API_KEY", "openai-secret")
+    monkeypatch.setenv("OPENAI_IMAGE_STREAMING", "true")
+    monkeypatch.setenv("OPENAI_IMAGE_CONNECT_TIMEOUT", "12")
+    monkeypatch.setenv("OPENAI_IMAGE_READ_TIMEOUT", "240")
+    worker = build_worker()
+    provider = cast(OpenAIImageEditAdapter, worker.provider)
+    assert provider.streaming is True
+    assert provider.connect_timeout_seconds == 12
+    assert provider.read_timeout_seconds == 240

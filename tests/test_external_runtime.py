@@ -216,9 +216,30 @@ def test_openai_multipart_transport_maps_request_and_network_failure() -> None:
             raise requests.ConnectionError
 
     broken = RequestsMultipartTransport(BrokenSession())  # type: ignore[arg-type]
-    with pytest.raises(ProviderError, match="OPENAI_TRANSPORT_ERROR") as error:
+    with pytest.raises(ProviderError, match="OPENAI_CONNECTION_INTERRUPTED") as error:
         broken.post_multipart("https://api.openai.com/v1/images/edits", {}, [], {}, 180)
-    assert error.value.retryable
+    assert error.value.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("exception", "code", "retryable"),
+    [
+        (requests.ConnectTimeout(), "OPENAI_CONNECT_TIMEOUT", True),
+        (requests.ReadTimeout(), "OPENAI_READ_TIMEOUT", False),
+    ],
+)
+def test_openai_multipart_transport_classifies_timeouts(
+    exception: requests.RequestException, code: str, retryable: bool
+) -> None:
+    class TimeoutSession:
+        def post(self, *_: object, **__: object) -> requests.Response:
+            raise exception
+
+    with pytest.raises(ProviderError, match=code) as error:
+        RequestsMultipartTransport(TimeoutSession()).post_multipart(  # type: ignore[arg-type]
+            "https://api.openai.com/v1/images/edits", {}, [], {}, (15, 180)
+        )
+    assert error.value.retryable is retryable
 
 
 def test_openai_multipart_transport_dispatches_real_sse_events() -> None:

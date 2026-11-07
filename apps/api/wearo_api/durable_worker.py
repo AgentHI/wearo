@@ -123,6 +123,7 @@ class DurableRenderWorker:
                             0
                         ],
                     ),
+                    job_id=str(job.job_id),
                 )
             )
             quality_bypassed = not self.enforce_quality_gate
