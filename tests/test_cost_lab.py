@@ -46,6 +46,24 @@ def test_cost_lab_combinations_are_reproducible_and_quality_scoped() -> None:
     assert [quality for quality, _, _ in first].count("LOW") == 10
 
 
+def test_benchmark_accepts_multiple_unique_product_sources() -> None:
+    from pydantic import ValidationError
+
+    from apps.cost_lab_api.app import BenchmarkBody
+
+    products = [uuid4(), uuid4()]
+    body = BenchmarkBody.model_validate({
+        "model_id": str(uuid4()), "category": "DRESS",
+        "product_asset_ids": [str(item) for item in products],
+    })
+    assert body.product_asset_ids == products
+    with pytest.raises(ValidationError, match="unique"):
+        BenchmarkBody.model_validate({
+            "model_id": str(uuid4()), "category": "DRESS",
+            "product_asset_ids": [str(products[0]), str(products[0])],
+        })
+
+
 def test_production_model_priorities_must_be_unique_and_between_one_and_twenty() -> None:
     from pydantic import ValidationError
 
@@ -425,6 +443,23 @@ def test_final_check_requires_model_and_person() -> None:
     assert body.person_asset_id == person_id
 
 
+def test_benchmark_and_final_check_accept_input_complexity() -> None:
+    from apps.cost_lab_api.app import BenchmarkBody, FinalCheckBody
+
+    benchmark = BenchmarkBody.model_validate({
+        "model_id": str(uuid4()), "category": "JEWELLERY",
+        "input_complexity": "COMPLEX",
+    })
+    assert benchmark.input_complexity == "COMPLEX"
+    final = FinalCheckBody.model_validate({
+        "model_id": str(uuid4()), "person_asset_id": str(uuid4()),
+        "jewellery_complexity": "COMPLEX", "saree_complexity": "SIMPLE",
+        "dress_complexity": "MEDIUM",
+    })
+    assert final.jewellery_complexity == "COMPLEX"
+    assert final.saree_complexity == "SIMPLE"
+
+
 def test_final_review_scores_are_bounded() -> None:
     from pydantic import ValidationError
 
@@ -497,6 +532,17 @@ def test_dataset_generation_accepts_category_count_prompt_quality_and_direction(
     assert body.count == 24
     assert body.prompt == "Create antique temple jewellery on white."
     assert body.direction == "Use rich silk fabrics and warm studio lighting."
+
+
+def test_dataset_generation_instruction_requires_one_product_per_image() -> None:
+    from apps.cost_lab_api.app import _single_item_dataset_instruction
+
+    instruction = _single_item_dataset_instruction("DRESS", 2, 5)
+
+    assert "exactly ONE standalone wearable product" in instruction
+    assert "distribution across the whole batch" in instruction
+    assert "dataset image 3 of 5" in instruction
+    assert "collage" in instruction
 
 
 def test_dataset_generation_without_quality_defaults_to_high() -> None:

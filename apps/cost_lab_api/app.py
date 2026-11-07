@@ -135,9 +135,19 @@ class BenchmarkBody(BaseModel):
     person_asset_id: UUID | None = None
     person_result_tryon_id: UUID | None = None
     product_asset_id: UUID | None = None
+    product_asset_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    input_complexity: Literal["SIMPLE", "MEDIUM", "COMPLEX"] = "MEDIUM"
     input_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
     output_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
     image_count: int = Field(default=10, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def product_sources_are_valid(self) -> "BenchmarkBody":
+        if self.product_asset_id is not None and self.product_asset_ids:
+            raise ValueError("Select either one legacy product or multiple product sources")
+        if len(self.product_asset_ids) != len(set(self.product_asset_ids)):
+            raise ValueError("Product source IDs must be unique")
+        return self
 
 
 class DatasetGenerationBody(BaseModel):
@@ -145,6 +155,7 @@ class DatasetGenerationBody(BaseModel):
     model_id: UUID
     generation_quality: Literal["LOW", "MEDIUM", "HIGH"] = "HIGH"
     category: Literal["PERSON", "JEWELLERY", "SAREE", "DRESS"]
+    complexity: Literal["SIMPLE", "MEDIUM", "COMPLEX"] = "MEDIUM"
     count: int = Field(default=10, ge=1, le=100)
     prompt: str | None = Field(default=None, max_length=4000)
     direction: str | None = Field(default=None, max_length=4000)
@@ -167,6 +178,14 @@ class FinalCheckBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: UUID
     person_asset_id: UUID
+    jewellery_complexity: Literal["SIMPLE", "MEDIUM", "COMPLEX"] = "MEDIUM"
+    saree_complexity: Literal["SIMPLE", "MEDIUM", "COMPLEX"] = "MEDIUM"
+    dress_complexity: Literal["SIMPLE", "MEDIUM", "COMPLEX"] = "MEDIUM"
+
+
+class AssetComplexityBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    complexity: Literal["SIMPLE", "MEDIUM", "COMPLEX"]
 
 
 class FinalReviewItem(BaseModel):
@@ -219,6 +238,26 @@ class KnowledgeTextBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=240)
     content: str = Field(min_length=1, max_length=1_000_000)
+
+
+def _single_item_dataset_instruction(kind: str, index: int, count: int) -> str:
+    if kind == "PERSON":
+        return (
+            " Generate exactly one person in this image. Do not create a group, collage, grid, "
+            "contact sheet, or multiple alternatives."
+        )
+    return (
+        " This is one image in a multi-image dataset batch. Generate exactly ONE standalone "
+        "wearable product in this image. Do not place multiple products, an assortment, a "
+        "collection, a collage, a grid, a contact sheet, or alternative designs in the same "
+        "image. Treat quantities and product lists in the evaluator prompt as the requested "
+        "distribution across the whole batch, not as contents for one image. For dataset image "
+        f"{index + 1} of {count}, select only one of the requested product types while preserving "
+        "the requested distribution across the batch. Allocate requested quantities in the order "
+        "they are listed: the first quantity fills the first output positions, the next quantity "
+        "fills the following positions, and so on. A matching pair or coordinated set is "
+        "allowed only when the evaluator explicitly requests that set as one try-on product."
+    )
 
 
 def _json(value: Any) -> str:
@@ -1293,6 +1332,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
     async def upload_asset(
         kind: Annotated[Literal["PERSON", "JEWELLERY", "BLOUSE", "SAREE", "DRESS"], Form()],
         name: Annotated[str, Form()],
+        complexity: Annotated[Literal["SIMPLE", "MEDIUM", "COMPLEX"], Form()],
         authorized: Annotated[bool, Form()],
         file: Annotated[UploadFile, File()],
         _: Auth,
@@ -1331,8 +1371,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         digest = hashlib.sha256(content).hexdigest()
         with service.engine.begin() as connection:
             connection.execute(
-                text("""INSERT INTO cost_lab.benchmark_assets(asset_id,kind,name,original_path,variants,content_hash,authorized)
-                VALUES(:id,:kind,:name,:path,CAST(:variants AS jsonb),:hash,true)"""),
+                text("""INSERT INTO cost_lab.benchmark_assets(asset_id,kind,name,original_path,variants,content_hash,authorized,complexity)
+                VALUES(:id,:kind,:name,:path,CAST(:variants AS jsonb),:hash,true,:complexity)"""),
                 {
                     "id": asset_id,
                     "kind": kind,
@@ -1340,9 +1380,23 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     "path": str(original.relative_to(actual.storage_root)),
                     "variants": _json(variants),
                     "hash": digest,
+                    "complexity": complexity,
                 },
             )
         return {"asset_id": asset_id, "variants": variants}
+
+    @app.patch("/api/cost-lab/assets/{asset_id}/complexity")
+    def update_asset_complexity(
+        asset_id: UUID, body: AssetComplexityBody, _: Auth
+    ) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            updated = connection.execute(text("""UPDATE cost_lab.benchmark_assets
+            SET complexity=:complexity WHERE asset_id=:id AND replaced_at IS NULL
+            RETURNING asset_id,complexity"""),
+                {"id": asset_id, "complexity": body.complexity}).mappings().one_or_none()
+        if updated is None:
+            raise HTTPException(404, "Active dataset image not found")
+        return dict(updated)
 
     @app.get("/api/cost-lab/assets/{asset_id}/content")
     def asset_content(asset_id: UUID, _: Auth, quality: str | None = None) -> FileResponse:
@@ -1409,6 +1463,11 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         direction_suffix = (
             f" Additional dataset direction from the evaluator: {direction}" if direction else ""
         )
+        complexity_suffix = (
+            f" Input complexity must be {body.complexity.lower()}. "
+            "Simple means minimal details and plain construction; medium means moderate detail; "
+            "complex means intricate patterns, layered construction, embroidery, stones, or fine detail."
+        )
         dress_styles = [
             "evening gown",
             "summer midi dress",
@@ -1460,7 +1519,15 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     "neutral invisible form, clean ecommerce studio background, no person, no "
                     "text, no logo."
                 )
-            prompts.append((kind, base + direction_suffix))
+            prompts.append(
+                (
+                    kind,
+                    base
+                    + _single_item_dataset_instruction(kind, index, count)
+                    + complexity_suffix
+                    + direction_suffix,
+                )
+            )
         job_id = uuid4()
         with service.engine.begin() as connection:
             model = connection.execute(
@@ -1479,8 +1546,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 raise HTTPException(409, "A dataset generation job is already running")
             connection.execute(
                 text("""INSERT INTO cost_lab.dataset_generation_jobs
-                (job_id,model_id,status,total_items,generation_quality,direction,category,custom_prompt)
-                VALUES(:id,:model,'QUEUED',:total,:quality,:direction,:category,:prompt)"""),
+                (job_id,model_id,status,total_items,generation_quality,direction,category,custom_prompt,complexity)
+                VALUES(:id,:model,'QUEUED',:total,:quality,:direction,:category,:prompt,:complexity)"""),
                 {
                     "id": job_id,
                     "model": body.model_id,
@@ -1489,6 +1556,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     "direction": direction or None,
                     "category": body.category,
                     "prompt": custom_prompt or None,
+                    "complexity": body.complexity,
                 },
             )
             for ordinal, (kind, prompt) in enumerate(prompts):
@@ -1510,6 +1578,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             "total_items": len(prompts),
             "generation_quality": body.generation_quality,
             "category": body.category,
+            "complexity": body.complexity,
         }
 
     @app.post("/api/cost-lab/dataset-generations/{job_id}/cancel")
@@ -1553,10 +1622,42 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         qualities = [output_quality]
         categories = [body.category]
         tryons_per_quality = body.image_count
-        prompt_version = "wearo-mixed-tryon-v4"
+        prompt_version = "wearo-preservation-priority-v7"
         prompt = (
-            "Create exactly one photorealistic virtual try-on from two supplied reference images. "
-            "Image 1 is the target person and must remain the output canvas. Image 2 is the product "
+            "Perform a photorealistic virtual try-on using exactly two images. IMAGE 1 (PERSON) is "
+            "the original person photo and fixed output canvas. IMAGE 2 (PRODUCT) is the exact "
+            "wearable to apply. Replace or add ONLY the target wearable in IMAGE 1 using the "
+            "product from IMAGE 2. STRICT PRESERVATION — PERSON: keep the exact original face, "
+            "identity, hair, skin tone, expression, glasses, facial hair, body shape, pose, hands, "
+            "accessories, background, lighting, framing, composition, and aspect ratio. Never "
+            "regenerate, beautify, or retouch the face. PRODUCT: preserve the exact colour, fabric "
+            "texture, material, prints, patterns, embroidery, logos, stitching, neckline, sleeves, "
+            "construction, and design. Never recolour, redesign, simplify, or invent details. EDIT "
+            "REGION: modify only pixels necessary for the wearable and preserve every unaffected "
+            "area of IMAGE 1. FIT AND REALISM: fit the wearable naturally to the existing body and "
+            "pose with realistic folds, draping, shadows, and occlusion while keeping product "
+            "colours and details faithful to IMAGE 2. OUTPUT: return one photorealistic image with "
+            "IMAGE 1's original composition and aspect ratio, with no additional people, text, or "
+            "watermarks. PRIORITY ORDER: exact person identity first, exact product appearance "
+            "second, realistic wearable fit third. Never regenerate the entire person or scene. "
+            "EDIT IMAGE 1; DO NOT RECREATE IT. Image 1 is the immutable base photograph and the "
+            "only source for the person, face, body, pose, framing, lighting, and background. "
+            "Perform a localized image edit by adding or replacing only the wearable region on "
+            "Image 1. Do not generate a new portrait, compose the person into another image, "
+            "redraw the person, reinterpret the photograph, or use Image 2 as the output canvas. "
+            "The output must be the same photograph as Image 1 with the selected wearable applied. "
+            "Preserve the face exactly and pixel-faithfully: identical identity, facial geometry, "
+            "head shape, eyes, eyebrows, glasses, nose, mouth, moustache or beard, ears, skin "
+            "texture, skin tone, expression, gaze, age, and all distinguishing features. Never "
+            "synthesize, retouch, beautify, sharpen, restyle, or replace the face. Preserve the "
+            "exact hair, hairline, neck, shoulder position, body structure, body proportions, "
+            "silhouette outside the wearable, pose, hand and finger positions, leg and foot "
+            "positions, camera angle, perspective, crop, resolution, background, floor, lighting, "
+            "shadows, and every unrelated pixel from Image 1. Do not straighten, enlarge, slim, "
+            "repose, recrop, recenter, or otherwise improve the person. Pixels outside the minimum "
+            "anatomically necessary wearable and occlusion mask must remain unchanged. "
+            "Create exactly one photorealistic virtual try-on from the two supplied reference "
+            "images. Image 2 is the product "
             "reference. Determine from Image 2 whether the primary product is jewellery, a saree, "
             "or a dress, then follow only the matching instruction below within this same generation. "
             "For jewellery: extract only the jewellery product from Image 2 and place exactly one of "
@@ -1591,17 +1692,33 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             "symmetry, proportions, and construction. Do not redesign, simplify, embellish, "
             "extend, duplicate, remove, recolor, or invent any jewellery component. Scale and "
             "curve only as required for anatomically realistic contact with the neck. "
-            "For a saree: dress the "
-            "person in the referenced saree with realistic pleats, pallu, drape, scale, and fabric "
-            "behaviour while preserving the person's anatomy. For a dress: replace only the relevant "
-            "clothing with the referenced dress, fitted naturally to the person's existing pose and "
-            "body proportions. In every case preserve the exact product colour, stones, pendant, "
-            "chain, design, pattern, texture, material, construction, and visible branding as "
-            "applicable. Preserve the target person's identity, face, expression, hairstyle, skin "
+            "For a saree: modify only the existing clothing area and the minimum adjacent occlusion "
+            "boundary needed to apply the referenced saree with realistic pleats, pallu, drape, "
+            "scale, and fabric behaviour. Do not regenerate the person underneath it. For a dress, "
+            "shirt, T-shirt, blouse, trousers, jeans, or other apparel: replace only the existing "
+            "garment pixels and the minimum edge pixels required for natural fit. Retain the exact "
+            "person, face, body structure, pose, and visible non-garment areas from Image 1. For "
+            "jewellery, overlay only the jewellery at the correct anatomical location; do not alter "
+            "the face, hair, body, clothing, or background except for essential local occlusion. "
+            "Treat Image 2 as the authoritative product appearance. Lock the product's exact "
+            "colour and colour placement, including hue, saturation, brightness, contrast, "
+            "undertone, gradients, panels, borders, prints, and embroidery colours. Do not "
+            "recolour, colour-match to the person, apply a colour grade, brighten, darken, fade, "
+            "wash out, or replace any product colour. Preserve the exact fabric and material "
+            "identity, weave, knit, grain, texture, thickness, opacity, sheen, finish, drape, "
+            "pattern scale, print, embroidery, stitching, seams, hems, buttons, pockets, neckline, "
+            "sleeves, distressing, wash, stones, pendant, chain, construction, branding, and "
+            "visible logo. Do not substitute a similar fabric or simplify product details. Only "
+            "geometrically warp, fold, scale, and occlude the product as strictly necessary to fit "
+            "the unchanged person. Lighting adaptation may add physically plausible local "
+            "highlights and shadows, but the perceived base colour and material must remain the "
+            "same as Image 2. Preserve the target person's identity, face, expression, hairstyle, skin "
             "tone, body, pose, hands, feet, camera framing, lighting, and background. Do not create "
             "another person, miniature person, mannequin, extra or missing body parts, duplicate "
             "products, black shapes, text, logos not present in the product, or unrelated objects. "
-            "Keep all unrelated areas of Image 1 unchanged and return only the final try-on image."
+            "Keep all unrelated areas of Image 1 unchanged. Before returning, compare the result "
+            "against Image 1 and verify that the face, head, body structure, pose, hands, legs, "
+            "background, crop, and lighting are unchanged. Return only the locally edited Image 1."
         )
         selected_result: dict[str, Any] | None = None
         with service.engine.begin() as connection:
@@ -1656,25 +1773,25 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     .one_or_none()
                 )
                 selected_result = dict(selected_result_row) if selected_result_row else None
-            products = _rows(
-                connection.execute(
-                    text(
-                        """SELECT asset_id,kind,content_hash FROM cost_lab.benchmark_assets
-                        WHERE kind=ANY(:categories) AND replaced_at IS NULL
-                        AND (CAST(:product_id AS uuid) IS NULL OR asset_id=CAST(:product_id AS uuid))
-                        ORDER BY kind,asset_id"""
-                    ),
-                    {"categories": categories, "product_id": body.product_asset_id},
-                )
+            selected_product_ids = body.product_asset_ids or (
+                [body.product_asset_id] if body.product_asset_id is not None else []
             )
+            product_filter = " AND asset_id=ANY(:product_ids)" if selected_product_ids else ""
+            products = _rows(connection.execute(text(
+                """SELECT asset_id,kind,content_hash FROM cost_lab.benchmark_assets
+                WHERE kind=ANY(:categories) AND replaced_at IS NULL
+                AND complexity=:complexity"""
+                + product_filter + " ORDER BY kind,asset_id"
+            ), {"categories": categories, "product_ids": selected_product_ids,
+                "complexity": body.input_complexity}))
         if model is None:
             raise HTTPException(404, "Enabled model not found")
         if body.person_asset_id is not None and body.person_result_tryon_id is not None:
             raise HTTPException(422, "Select either a dataset person or a result image, not both")
         if body.person_result_tryon_id is not None and selected_result is None:
             raise HTTPException(422, "Selected result image is not available")
-        if body.product_asset_id is not None and not products:
-            raise HTTPException(422, "Selected product image is not available in this category")
+        if selected_product_ids and len(products) != len(selected_product_ids):
+            raise HTTPException(422, "One or more selected product images are unavailable in this category")
         if any(item["supported"] is not True for item in mappings) or len(mappings) != len(
             qualities
         ):
@@ -1762,9 +1879,9 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 )
             connection.execute(
                 text("""INSERT INTO cost_lab.benchmark_runs(run_id,model_id,category,qualities,tryons_per_quality,random_seed,prompt,prompt_version,
-                dataset_fingerprint,pricing_snapshot,quality_snapshot,status,estimated_max_usd,spending_limit_usd,confirmed_at,total_jobs)
+                dataset_fingerprint,pricing_snapshot,quality_snapshot,status,estimated_max_usd,spending_limit_usd,confirmed_at,total_jobs,input_complexity)
                 VALUES(:id,:model,:category,CAST(:qualities AS jsonb),:count,:seed,:prompt,:version,:fingerprint,CAST(:pricing AS jsonb),CAST(:quality AS jsonb),
-                'QUEUED',:estimated,:limit,now(),:total)"""),
+                'QUEUED',:estimated,:limit,now(),:total,:complexity)"""),
                 {
                     "id": run_id,
                     "model": body.model_id,
@@ -1780,6 +1897,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     "estimated": estimated,
                     "limit": None,
                     "total": total_jobs,
+                    "complexity": body.input_complexity,
                 },
             )
             for ordinal, (combination_id, quality, person, product) in enumerate(combinations):
@@ -1892,7 +2010,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         return {"summaries": summaries, "fx_rate": dict(fx) if fx else None}
 
     @app.delete("/api/cost-lab/results/{run_id}")
-    def delete_failed_result(run_id: UUID, _: Auth) -> dict[str, Any]:
+    def delete_benchmark_result(run_id: UUID, _: Auth) -> dict[str, Any]:
         with service.engine.begin() as connection:
             status = connection.execute(
                 text("SELECT status FROM cost_lab.benchmark_runs WHERE run_id=:id FOR UPDATE"),
@@ -1900,16 +2018,24 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             ).scalar_one_or_none()
             if status is None:
                 raise HTTPException(404, "Benchmark result not found")
-            if status != "FAILED":
-                raise HTTPException(409, "Only failed benchmark results can be deleted")
+            if status not in {"COMPLETED", "FAILED", "CANCEL_REQUESTED", "CANCELLED"}:
+                raise HTTPException(409, "Cancel or finish the benchmark before deleting it")
+            final_check = connection.execute(text("""SELECT 1
+            FROM cost_lab.final_model_check_runs WHERE run_id=:id"""),
+                {"id": run_id}).scalar_one_or_none()
+            if final_check is not None:
+                raise HTTPException(
+                    409, "This benchmark belongs to a final model check and cannot be deleted"
+                )
             connection.execute(
                 text("DELETE FROM cost_lab.benchmark_runs WHERE run_id=:id"), {"id": run_id}
             )
             connection.execute(
                 text("""INSERT INTO cost_lab.audit_events
                 (event_id,action,target_type,target_id,metadata)
-                VALUES(:event,'FAILED_RESULT_DELETED','BENCHMARK_RUN',:run,'{}'::jsonb)"""),
-                {"event": uuid4(), "run": run_id},
+                VALUES(:event,'BENCHMARK_RESULT_DELETED','BENCHMARK_RUN',:run,
+                  jsonb_build_object('status',CAST(:status AS text)))"""),
+                {"event": uuid4(), "run": run_id, "status": status},
             )
         output_directory = (actual.storage_root / "outputs" / str(run_id)).resolve()
         outputs_root = (actual.storage_root / "outputs").resolve()
@@ -2226,6 +2352,11 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
 
     @app.post("/api/cost-lab/final-checks", status_code=202)
     def create_final_check(body: FinalCheckBody, username: Auth) -> dict[str, Any]:
+        complexities = {
+            "JEWELLERY": body.jewellery_complexity,
+            "SAREE": body.saree_complexity,
+            "DRESS": body.dress_complexity,
+        }
         with service.engine.begin() as connection:
             person = connection.execute(
                 text("""SELECT 1 FROM cost_lab.benchmark_assets
@@ -2237,10 +2368,28 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 WHERE model_id=:model AND status='COMPLETED' LIMIT 1"""),
                 {"model": body.model_id},
             ).scalar_one_or_none()
+            available_inputs = {
+                (row["kind"], row["complexity"]): row["item_count"]
+                for row in connection.execute(text("""SELECT kind,complexity,count(*) item_count
+                FROM cost_lab.benchmark_assets
+                WHERE kind IN ('JEWELLERY','SAREE','DRESS') AND replaced_at IS NULL
+                GROUP BY kind,complexity""")).mappings()
+            }
         if person is None:
             raise HTTPException(422, "Select an active person image")
         if previous is None:
             raise HTTPException(409, "Complete a benchmark for this model before final check")
+        missing = [
+            f"{complexity.lower()} {category.lower()}"
+            for category, complexity in complexities.items()
+            if not available_inputs.get((category, complexity), 0)
+        ]
+        if missing:
+            raise HTTPException(
+                422,
+                "No active dataset item is available for: " + ", ".join(missing)
+                + ". Reclassify or add matching dataset images before starting the final check.",
+            )
 
         check_id = uuid4()
         created_runs: list[dict[str, Any]] = []
@@ -2253,6 +2402,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     BenchmarkBody(
                         model_id=body.model_id,
                         category=category,
+                        input_complexity=complexities[category],
                         person_asset_id=body.person_asset_id,
                         input_quality=quality,
                         output_quality=quality,
@@ -2276,10 +2426,10 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         with service.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO cost_lab.final_model_checks
-                (check_id,model_id,person_asset_id,status,created_by)
-                VALUES(:id,:model,:person,'GENERATING',:username)"""),
+                (check_id,model_id,person_asset_id,status,created_by,input_complexities)
+                VALUES(:id,:model,:person,'GENERATING',:username,CAST(:complexities AS jsonb))"""),
                 {"id": check_id, "model": body.model_id, "person": body.person_asset_id,
-                 "username": username},
+                 "username": username, "complexities": _json(complexities)},
             )
             for item in created_runs:
                 connection.execute(
@@ -2394,9 +2544,13 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             FROM cost_lab.final_model_check_runs WHERE check_id=:id"""),
                 {"id": check_id}).scalars().all())
             if run_ids:
+                connection.execute(text("""UPDATE cost_lab.tryon_runs
+                SET status='CANCELLED',finished_at=now(),leased_by=NULL,lease_expires_at=NULL
+                WHERE run_id=ANY(:runs) AND status IN ('QUEUED','PROCESSING')"""),
+                    {"runs": run_ids})
                 connection.execute(text("""UPDATE cost_lab.benchmark_runs
-                SET status='CANCEL_REQUESTED' WHERE run_id=ANY(:runs)
-                  AND status IN ('QUEUED','RUNNING')"""), {"runs": run_ids})
+                SET status='CANCELLED',finished_at=now() WHERE run_id=ANY(:runs)
+                  AND status IN ('QUEUED','RUNNING','CANCEL_REQUESTED')"""), {"runs": run_ids})
             connection.execute(
                 text("DELETE FROM cost_lab.final_model_checks WHERE check_id=:id"),
                 {"id": check_id},
@@ -2532,6 +2686,31 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 SET priority=:priority WHERE release_id=:release"""),
                     {"release": release_id, "priority": priority})
         return {"priorities": [item.model_dump() for item in body.priorities]}
+
+    @app.delete("/api/cost-lab/production-models/{release_id}")
+    def delete_production_model(release_id: UUID, _: Auth) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            release = connection.execute(text("""SELECT release_id,model_id,final_check_id,
+            retired_at FROM cost_lab.production_model_releases
+            WHERE release_id=:id FOR UPDATE"""), {"id": release_id}).mappings().one_or_none()
+            if release is None:
+                raise HTTPException(404, "Promoted model not found")
+            connection.execute(
+                text("DELETE FROM cost_lab.production_model_releases WHERE release_id=:id"),
+                {"id": release_id},
+            )
+            connection.execute(text("""UPDATE cost_lab.final_model_checks
+            SET status='SCORED',promoted_at=NULL WHERE check_id=:id AND status='PROMOTED'"""),
+                {"id": release["final_check_id"]})
+            connection.execute(text("""INSERT INTO cost_lab.audit_events
+            (event_id,action,target_type,target_id,metadata)
+            VALUES(:event,'PRODUCTION_MODEL_DELETED','PRODUCTION_MODEL_RELEASE',:release,
+              jsonb_build_object('model_id',CAST(:model AS text),
+                                 'final_check_id',CAST(:check AS text),
+                                 'was_active',CAST(:active AS boolean)))"""),
+                {"event": uuid4(), "release": release_id, "model": release["model_id"],
+                 "check": release["final_check_id"], "active": release["retired_at"] is None})
+        return {"release_id": release_id, "deleted": True}
 
     return app
 

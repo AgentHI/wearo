@@ -185,7 +185,7 @@ class CostLabWorker:
             )
             item = dict(
                 connection.execute(
-                    text("""SELECT i.*,j.generation_quality,m.api_identifier,p.*,
+                    text("""SELECT i.*,j.generation_quality,j.complexity,m.api_identifier,p.*,
                     q.settings quality_settings,mapping.provider_quality,mapping.request_parameters,
                     coalesce((SELECT components FROM cost_lab.model_pricing x WHERE x.model_id=j.model_id
                     AND x.effective_at <= now() ORDER BY x.effective_at DESC LIMIT 1),'[]'::jsonb) pricing
@@ -249,8 +249,8 @@ class CostLabWorker:
             with self.engine.begin() as connection:
                 connection.execute(
                     text("""INSERT INTO cost_lab.benchmark_assets
-                    (asset_id,kind,name,original_path,variants,content_hash,authorized)
-                    VALUES(:id,:kind,:name,:path,CAST(:variants AS jsonb),:hash,true)"""),
+                    (asset_id,kind,name,original_path,variants,content_hash,authorized,complexity)
+                    VALUES(:id,:kind,:name,:path,CAST(:variants AS jsonb),:hash,true,:complexity)"""),
                     {
                         "id": asset_id,
                         "kind": item["kind"],
@@ -258,6 +258,7 @@ class CostLabWorker:
                         "path": str(original.relative_to(self.service.settings.storage_root)),
                         "variants": json.dumps(variants),
                         "hash": digest,
+                        "complexity": item["complexity"],
                     },
                 )
                 connection.execute(
@@ -309,6 +310,21 @@ class CostLabWorker:
 
     def _finish(self, job: dict[str, Any], status: str, outcome: dict[str, Any] | None) -> None:
         with self.engine.begin() as connection:
+            still_exists = connection.execute(
+                text("SELECT 1 FROM cost_lab.tryon_runs WHERE tryon_id=:id"),
+                {"id": job["tryon_id"]},
+            ).scalar_one_or_none()
+            if still_exists is None:
+                if outcome and outcome.get("path"):
+                    output_path = (self.service.settings.storage_root / outcome["path"]).resolve()
+                    outputs_root = (self.service.settings.storage_root / "outputs").resolve()
+                    if outputs_root in output_path.parents and output_path.is_file():
+                        output_path.unlink()
+                        try:
+                            output_path.parent.rmdir()
+                        except OSError:
+                            pass
+                return
             if status == "SUCCEEDED" and outcome:
                 result = outcome["result"]
                 usage = outcome["usage"]

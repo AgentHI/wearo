@@ -1652,10 +1652,20 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .cost-row-actions { display: flex; align-items: center; gap: .45rem; }
 .cost-delete-button { border-color: rgb(154 52 66 / 35%) !important; color: #8b2635 !important; background: #fff2f2 !important; }
 .cost-delete-button:hover { background: #f9dede !important; }
-.cost-delete-icon { display: inline-grid; width: 34px; height: 34px; padding: 7px !important; place-items: center; }
+.cost-icon-action,
+.cost-delete-icon { display: inline-grid; width: 34px; height: 34px; min-height: 34px; padding: 7px !important; place-items: center; text-decoration: none; }
+.cost-icon-action svg,
 .cost-delete-icon svg { width: 18px; height: 18px; }
 .cost-result-detail { display: grid; gap: 1rem; }
 .cost-result-detail > .admin-data-panel { padding: 1.35rem; }
+.cost-result-view-list { display: grid; gap: 1.25rem; }
+.cost-result-view { overflow: hidden; }
+.cost-result-view__images { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr); gap: .75rem; padding: .85rem; background: #f8f2f7; }
+.cost-result-view__images figure { min-width: 0; margin: 0; }
+.cost-result-view__images figcaption { margin-bottom: .4rem; color: var(--brand-plum); font-size: .68rem; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: .06em; }
+.cost-result-view__images img, .cost-result-view__images .cost-result-card__missing { display: block; width: 100%; aspect-ratio: 3 / 4; border-radius: .65rem; object-fit: contain; background: #eee5e9; }
+.cost-result-view__generated img, .cost-result-view__generated .cost-result-card__missing { box-shadow: 0 .45rem 1.25rem rgb(59 23 70 / 16%); }
+@media (max-width: 680px) { .cost-result-view__images { grid-template-columns: 1fr; } }
 .cost-result-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1.25rem; }
 .cost-result-card { overflow: hidden; border: 1px solid rgb(201 164 107 / 42%); border-radius: 1rem; background: linear-gradient(155deg, #fffefb, #fbf2e2); box-shadow: 0 .45rem 1.2rem rgb(83 49 24 / 8%); }
 .cost-result-card__image { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #eee5e9; }
@@ -1672,7 +1682,17 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .cost-result-person-choice { overflow: hidden; padding: 0; border: 1px solid rgb(201 164 107 / 42%); border-radius: 1rem; color: var(--brand-plum); background: white; cursor: pointer; text-align: left; }
 .cost-result-person-choice span { display: block; padding: .75rem; font-size: .72rem; font-weight: 700; }
 .cost-result-person-choice:hover { border-color: var(--brand-plum); box-shadow: 0 .5rem 1.25rem rgb(59 23 70 / 14%); }
+.cost-result-person-choice.is-selected { border-color: var(--brand-plum); box-shadow: 0 0 0 3px rgb(90 34 90 / 18%); background: #fff5ff; }
+.cost-result-person-choice.is-selected span::before { margin-right: .35rem; content: "✓"; }
+.cost-benchmark-product-sources { display: grid; gap: .45rem; padding: .8rem; border: 1px solid rgb(201 164 107 / 35%); border-radius: .7rem; background: #fffaf1; }
+.cost-benchmark-product-sources > strong { color: var(--brand-plum); font-size: .76rem; }
+.cost-benchmark-product-sources > small { color: var(--ink-mauve); font-size: .68rem; }
+.cost-final-complexities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; padding: .8rem; border: 1px solid rgb(201 164 107 / 35%); border-radius: .7rem; background: #fffaf1; }
+.cost-final-complexities > legend { padding: 0 .35rem; color: var(--brand-plum); font-weight: 800; }
+.cost-final-complexities > p { grid-column: 1 / -1; margin: 0; color: var(--ink-mauve); font-size: .72rem; }
+@media (max-width: 680px) { .cost-final-complexities { grid-template-columns: 1fr; } }
 .cost-result-card .button { width: 100%; margin: 0; text-align: center; text-decoration: none; }
+.cost-result-card .button.cost-icon-action { width: 34px; margin-inline: auto; }
 .cost-dialog textarea { width: 100%; resize: vertical; }
 .cost-dialog .button:disabled { cursor: wait; opacity: .58; box-shadow: none; }
 .cost-clickable-image { cursor: zoom-in; }
