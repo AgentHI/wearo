@@ -647,6 +647,8 @@ test("B2B2C shoppers can reuse an email or mobile consumer account", () => {
 test("consumer PWA has a three-second animated branded launch splash", () => {
   assert.match(main, /showConsumerSplash/);
   assert.match(main, /wearo_consumer_splash_seen/);
+  assert.match(main, /launch-splash__logo"><img src="\/wearo-brand\.png"/);
+  assert.doesNotMatch(main, /launch-splash__logo"><img src="\/wearo-brand_white_bg\.png"/);
   assert.match(main, /Private AI-powered virtual try-on/);
   assert.match(main, /setTimeout\(\(\) => splash\.remove\(\), 3000\)/);
   assert.match(css, /@keyframes launch-logo-rise/);
