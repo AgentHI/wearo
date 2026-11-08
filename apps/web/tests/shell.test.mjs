@@ -642,6 +642,7 @@ test("consumer PWA has a three-second animated branded launch splash", () => {
   assert.match(main, /setTimeout\(\(\) => splash\.remove\(\), 3000\)/);
   assert.match(css, /@keyframes launch-logo-rise/);
   assert.match(css, /translateY\(48vh\)/);
+  assert.match(css, /\.launch-splash p \{ margin: \.75rem 0 0;/);
   assert.match(css, /prefers-reduced-motion/);
 });
 

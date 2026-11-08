@@ -608,7 +608,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .launch-splash__content { position: relative; display: grid; justify-items: center; animation: launch-logo-rise 1.35s cubic-bezier(.2, .78, .24, 1) both; }
 .launch-splash__logo { position: relative; width: min(86vw, 22rem); height: min(56vw, 14rem); overflow: hidden; filter: drop-shadow(0 1rem 1.5rem rgb(59 23 70 / 14%)); }
 .launch-splash__logo img { position: absolute; top: -20%; left: 0; width: 100%; max-width: none; }
-.launch-splash p { margin: -.25rem 0 0; color: var(--brand-plum); font-size: clamp(.78rem, 3.2vw, 1rem); font-weight: 600; letter-spacing: .08em; text-align: center; text-transform: uppercase; opacity: 0; animation: launch-caption-in .65s ease 1.15s forwards; }
+.launch-splash p { margin: .75rem 0 0; color: var(--brand-plum); font-size: clamp(.78rem, 3.2vw, 1rem); font-weight: 600; letter-spacing: .08em; text-align: center; text-transform: uppercase; opacity: 0; animation: launch-caption-in .65s ease 1.15s forwards; }
 @keyframes launch-logo-rise {
   0% { opacity: 0; transform: translateY(48vh) scale(.86); }
   68% { opacity: 1; transform: translateY(-.8rem) scale(1.02); }
