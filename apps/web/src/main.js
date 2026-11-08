@@ -38,7 +38,7 @@ function showConsumerSplash() {
   splash.innerHTML = `
     <div class="launch-splash__glow" aria-hidden="true"></div>
     <div class="launch-splash__content">
-      <div class="launch-splash__logo"><img src="/wearo-brand.png" alt="Wearo.ai" /></div>
+      <div class="launch-splash__logo"><img src="/wearo-brand.png?v=20261108-transparent" alt="Wearo.ai" /></div>
       <p>Private AI-powered virtual try-on</p>
     </div>`;
   document.body.append(splash);
