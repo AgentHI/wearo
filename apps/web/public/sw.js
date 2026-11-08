@@ -1,4 +1,4 @@
-const CACHE_NAME = "wearo-shell-v36";
+const CACHE_NAME = "wearo-shell-v40";
 const APP_SHELL = [
   "/",
   "/about",
@@ -19,6 +19,7 @@ const APP_SHELL = [
   "/wearo-brand.png",
   "/wearo-brand.png?v=20261108-transparent",
   "/wearo-brand_white_bg.png",
+  "/wearo-brand_white_bg.png?v=20261108-white-2",
   "/experiences-jewellery-catalogue.png",
   "/tryon-assets/jewellery/model-classic-gold-v2.webp",
   "/tryon-assets/jewellery/model-kundan-v2.webp",

@@ -531,7 +531,7 @@ function adminHomeView(pathname) {
   const navigation = ADMIN_SECTIONS.map((section) => `<a href="/admin/${section.slug}" ${section.slug === active.slug ? 'aria-current="page"' : ""}><span aria-hidden="true">${section.icon}</span><span>${section.label}</span></a>`).join("");
   return `<div class="business-app admin-app">
     <aside class="business-sidebar admin-sidebar">
-      <div class="business-sidebar__brand admin-sidebar__brand"><a class="brand-white-bg" href="/admin/dashboard"><img src="/wearo-brand_white_bg.png" alt="Wearo.ai" /></a><span>Admin</span></div>
+      <div class="business-sidebar__brand admin-sidebar__brand"><a class="brand-white-bg" href="/admin/dashboard"><img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="Wearo.ai" /></a><span>Admin</span></div>
       <div class="workspace-switcher"><span class="workspace-switcher__mark">WA</span><span><small>Workspace</small><strong>Wearo Platform</strong></span><span aria-hidden="true">⌄</span></div>
       <p class="business-sidebar__label">Manage</p>
       <nav class="business-nav admin-navigation" aria-label="Admin sections">${navigation}</nav>

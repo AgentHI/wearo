@@ -255,7 +255,7 @@ function signInView(shopDetails = null) {
   const shopName = shopDetails?.display_name;
   return `
     <section class="consumer-auth">
-      ${shopName ? `<div class="shop-welcome"><img class="shop-welcome__wearo-logo brand-white-bg" src="/wearo-brand_white_bg.png" alt="Wearo.ai" /><p class="eyebrow">Private virtual try-on</p><h1>Wearo.ai</h1><p>${escapeHtml(shopDetails.caption || "Try before you buy with your private Wearo profile.")}</p></div>` : ""}
+      ${shopName ? `<div class="shop-welcome"><img class="shop-welcome__wearo-logo brand-white-bg" src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="Wearo.ai" /><p class="eyebrow">Private virtual try-on</p><h1>Wearo.ai</h1><p>${escapeHtml(shopDetails.caption || "Try before you buy with your private Wearo profile.")}</p></div>` : ""}
       <div class="flow-progress" aria-label="Account setup progress"><span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span></div>
       <p class="eyebrow">Step 1 of 3</p>
       <h1>${shopName ? "Start your try-on" : "Sign up or sign in"}</h1>

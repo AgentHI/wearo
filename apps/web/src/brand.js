@@ -1,5 +1,7 @@
 export function brandMarkup(home = "/app/", variant = "transparent") {
-  const source = variant === "white" ? "/wearo-brand_white_bg.png" : "/wearo-brand.png";
+  const source = variant === "white"
+    ? "/wearo-brand_white_bg.png?v=20261108-white-2"
+    : "/wearo-brand.png";
   const variantClass = variant === "white" ? " wordmark--white-bg" : "";
   return `
     <a class="wordmark${variantClass}" href="${home}" aria-label="Wearo.ai home">

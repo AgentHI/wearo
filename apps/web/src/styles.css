@@ -48,10 +48,13 @@ p { line-height: 1.55; }
 .wordmark { display: inline-flex; width: 5.5rem; aspect-ratio: 3 / 2; flex: 0 0 auto; align-items: center; justify-content: center; text-decoration: none; }
 .wordmark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .wordmark--white-bg, .brand-white-bg { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.wordmark--white-bg img,
+.brand-white-bg img,
+img.brand-white-bg { clip-path: inset(1.4% round 6.5%); }
 .business-sidebar .wordmark--white-bg,
-.admin-sidebar .brand-white-bg { width: 7.2rem; overflow: hidden; aspect-ratio: 1; border: 1px solid #c28a35; border-radius: 7%; }
+.admin-sidebar .brand-white-bg { width: 6.5rem; overflow: visible; aspect-ratio: 1; flex: 0 0 6.5rem; border: 0; border-radius: 0; }
 .business-sidebar .wordmark--white-bg img,
-.admin-sidebar .brand-white-bg img { width: 100%; height: 100%; object-fit: contain; transform: scale(1.035); }
+.admin-sidebar .brand-white-bg img { width: 100%; height: 100%; object-fit: contain; transform: none; }
 label { display: grid; gap: .45rem; color: var(--ink-charcoal); font-weight: 600; }
 label span, .field-help { color: var(--ink-mauve); font-size: .8rem; font-weight: 400; }
 input, select { min-height: 44px; width: 100%; padding: .68rem .75rem; border: 1px solid var(--border-mauve); border-radius: .65rem; background: white; color: var(--ink-charcoal); }
@@ -687,10 +690,10 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .business-app { display: grid; min-height: 100vh; grid-template-columns: 17.5rem minmax(0, 1fr); background: #f4f5f7; }
 .business-sidebar { position: sticky; top: 0; display: flex; height: 100vh; flex-direction: column; padding: 1.25rem 1rem; color: #f8f5fa; background: #251129; box-shadow: .25rem 0 1.5rem rgb(37 17 41 / 10%); }
 .business-sidebar__brand { display: flex; align-items: center; gap: .65rem; padding: 0 .25rem 1.1rem; border-bottom: 1px solid rgb(255 255 255 / 10%); }
-.business-sidebar__brand .wordmark { width: 10.5rem; min-height: 10.5rem; aspect-ratio: 1; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.business-sidebar__brand > span { margin-left: -.35rem; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; opacity: .65; }
-.store-app .business-sidebar__brand .wordmark { width: 9rem; }
-.store-app .business-sidebar__brand > span { margin-left: -.35rem; font-size: .8rem; opacity: .82; }
+.business-sidebar__brand .wordmark { width: 6.5rem; min-height: 0; aspect-ratio: 1; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.business-sidebar__brand > span { min-width: 0; margin-left: 0; overflow: hidden; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; opacity: .65; }
+.store-app .business-sidebar__brand .wordmark { width: 6.5rem; }
+.store-app .business-sidebar__brand > span { margin-left: 0; font-size: .8rem; opacity: .82; }
 .workspace-switcher { display: grid; grid-template-columns: 2rem 1fr auto; align-items: center; gap: .65rem; margin: 1rem 0; padding: .7rem; border: 1px solid rgb(255 255 255 / 12%); border-radius: .5rem; background: rgb(255 255 255 / 6%); }
 .workspace-switcher__mark { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: .35rem; color: var(--brand-aubergine); background: var(--brand-gold); font-size: .7rem; font-weight: 800; }
 .workspace-switcher > span:nth-child(2) { display: grid; min-width: 0; }

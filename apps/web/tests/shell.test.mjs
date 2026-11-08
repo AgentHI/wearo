@@ -6,6 +6,7 @@ const root = new URL("../", import.meta.url);
 const css = await readFile(new URL("src/styles.css", root), "utf8");
 const html = await readFile(new URL("index.html", root), "utf8");
 const main = await readFile(new URL("src/main.js", root), "utf8");
+const brand = await readFile(new URL("src/brand.js", root), "utf8");
 const business = await readFile(new URL("src/business-app.js", root), "utf8");
 const store = await readFile(new URL("src/store-app.js", root), "utf8");
 const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
@@ -101,6 +102,8 @@ test("public marketing site is isolated and links into existing apps", () => {
 });
 
 test("business and consumer route families are separated", () => {
+  assert.match(business, /brandMarkup\("\/business", "white"\)/);
+  assert.match(brand, /wearo-brand_white_bg\.png\?v=20261108-white-2/);
   assert.match(main, /pathname\.startsWith\("\/business"\)/);
   assert.match(main, /renderBusinessApp/);
   assert.match(main, /renderConsumerApp/);
@@ -116,10 +119,13 @@ test("business and consumer route families are separated", () => {
   assert.match(business, /replaceState\(\{\}, "", "\/business\/sign-in"\)/);
   assert.match(business, /business-logout/);
   assert.match(business, /brandMarkup\("\/business", "white"\)/);
-  assert.match(css, /\.business-sidebar__brand \.wordmark \{ width: 10\.5rem;/);
+  assert.match(css, /\.business-sidebar__brand \.wordmark \{ width: 6\.5rem; min-height: 0; aspect-ratio: 1;/);
+  assert.match(css, /\.wordmark--white-bg, \.brand-white-bg \{ padding: 0; border: 0; background: transparent; box-shadow: none; \}/);
+  assert.match(css, /img\.brand-white-bg \{ clip-path: inset\(1\.4% round 6\.5%\); \}/);
+  assert.match(css, /\.business-sidebar \.wordmark--white-bg img,[^}]*transform: none;/s);
   assert.match(css, /\.business-public__header \.wordmark \{ width: 11rem;/);
   assert.match(css, /\.business-auth__brand \.wordmark \{ position: relative; top: 10px; width: 11rem; padding: 0; border: 0; background: transparent;/);
-  assert.match(css, /\.admin-sidebar \.brand-white-bg \{ width: 7\.2rem; overflow: hidden; aspect-ratio: 1; border: 1px solid #c28a35; border-radius: 7%; \}/);
+  assert.match(css, /\.admin-sidebar \.brand-white-bg \{ width: 6\.5rem; overflow: visible; aspect-ratio: 1; flex: 0 0 6\.5rem; border: 0; border-radius: 0; \}/);
   assert.match(business, /\/auth\/logout/);
 });
 
