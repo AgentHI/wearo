@@ -23,6 +23,10 @@ test("brand and typography tokens remain explicit", () => {
   assert.match(css, /h1[^}]*font-size:\s*2rem/s);
   assert.match(css, /\.button[^}]*font-size:\s*1rem/s);
   assert.match(html, /wearo-brand\.png/);
+  assert.match(css, /\.wordmark img[^}]*object-fit:\s*contain/s);
+  assert.match(css, /\.app-brand img[^}]*object-fit:\s*contain/s);
+  assert.doesNotMatch(css, /\.wordmark__symbol img/);
+  assert.doesNotMatch(css, /\.app-brand__crop/);
 });
 
 test("public marketing site is isolated and links into existing apps", () => {
@@ -34,7 +38,7 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(publicSite, /href="\/app\/"/);
   assert.match(publicSite, /href="\/business\/signup"/);
   assert.match(publicSite, /href="\/business\/sign-in"/);
-  assert.match(publicSite, /wearo-brand\.png/);
+  assert.match(publicSite, /wearo-brand_white_bg\.png/);
   assert.match(publicSite, /wearo-hero-campaign\.webp/);
   assert.match(publicSite, /About Us/);
   assert.match(publicSite, /helping people make choices with greater confidence/);
@@ -111,6 +115,11 @@ test("business and consumer route families are separated", () => {
   assert.match(business, /\/business\/workspaces/);
   assert.match(business, /replaceState\(\{\}, "", "\/business\/sign-in"\)/);
   assert.match(business, /business-logout/);
+  assert.match(business, /brandMarkup\("\/business", "white"\)/);
+  assert.match(css, /\.business-sidebar__brand \.wordmark \{ width: 10\.5rem;/);
+  assert.match(css, /\.business-public__header \.wordmark \{ width: 11rem;/);
+  assert.match(css, /\.business-auth__brand \.wordmark \{ position: relative; top: 10px; width: 11rem; padding: 0; border: 0; background: transparent;/);
+  assert.match(css, /\.admin-sidebar \.brand-white-bg \{ width: 7\.2rem; overflow: hidden; aspect-ratio: 1; border: 1px solid #c28a35; border-radius: 7%; \}/);
   assert.match(business, /\/auth\/logout/);
 });
 

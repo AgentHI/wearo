@@ -101,7 +101,7 @@ function businessFrame(section, content) {
   return `
     <div class="business-app">
       <aside class="business-sidebar">
-        <div class="business-sidebar__brand">${brandMarkup("/business")}<span>Business</span></div>
+        <div class="business-sidebar__brand">${brandMarkup("/business", "white")}<span>Business</span></div>
         <div class="workspace-switcher"><span class="workspace-switcher__mark">BW</span><span><small>Workspace</small><strong>Business workspace</strong></span><span aria-hidden="true">⌄</span></div>
         <p class="business-sidebar__label">Manage</p>
         <nav class="business-nav" aria-label="Business workspace">${navigation}</nav>

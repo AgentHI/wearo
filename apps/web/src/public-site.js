@@ -13,8 +13,8 @@ const heroJewelleryImages = [
 
 function publicBrand() {
   return `
-    <a class="public-brand" href="/" aria-label="Wearo.ai home" data-public-route>
-      <img src="/wearo-brand.png" alt="Wearo.ai" />
+    <a class="public-brand brand-white-bg" href="/" aria-label="Wearo.ai home" data-public-route>
+      <img src="/wearo-brand_white_bg.png" alt="Wearo.ai" />
     </a>`;
 }
 
