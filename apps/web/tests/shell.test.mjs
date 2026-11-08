@@ -114,6 +114,13 @@ test("business and consumer route families are separated", () => {
   assert.match(business, /\/auth\/logout/);
 });
 
+test("consumer try-on restores an active render before the previous result", () => {
+  assert.match(consumer, /result\.queue\?\.find\(\(item\) => \["QUEUED", "PROCESSING"\]\.includes\(item\.status\)\)/);
+  assert.ok(consumer.indexOf("if (activeRender)") < consumer.indexOf("const latest = result.items?.[0]"));
+  assert.match(consumer, /waitForRender\(activeRender\.render_id\)/);
+  assert.match(consumer, /submit\.disabled = generationActive \|\| !businessTryOnsAllowed/);
+});
+
 test("platform admin login is isolated and protects dashboard routes", () => {
   assert.ok(
     main.indexOf('pathname.startsWith("/admin/cost-lab")') <

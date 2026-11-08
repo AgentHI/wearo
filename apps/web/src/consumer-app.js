@@ -1149,7 +1149,7 @@ function attachHomeFlow(auth) {
     allowanceCount.textContent = sponsoredSession.try_ons_remaining;
     allowanceCopy.textContent = sponsoredSession.try_ons_remaining;
     allowanceNote.textContent = `Sponsored by ${sponsoredSession.business_name} · Valid until ${new Date(sponsoredSession.expires_at).toLocaleString()}.`;
-    submit.disabled = unavailable || sponsoredSession.try_ons_remaining <= 0;
+    submit.disabled = generationActive || unavailable || sponsoredSession.try_ons_remaining <= 0;
     try {
       const advertisement = await fetch(
         `${API_BASE}/sponsored-sessions/${encodeURIComponent(sponsoredSession.session_id)}/advertisement`,
@@ -1213,7 +1213,7 @@ function attachHomeFlow(auth) {
         });
       });
       renderSelectedPhoto();
-      submit.disabled = !businessTryOnsAllowed;
+      submit.disabled = generationActive || !businessTryOnsAllowed;
     } catch (error) {
       setStatus(status, error.message, "error");
       if (error.code === "PROFILE_NOT_FOUND") {
@@ -1264,6 +1264,28 @@ function attachHomeFlow(auth) {
   const loadLatestPreview = async () => {
     try {
       const result = await api("/renders", {}, auth);
+      const activeRender = result.queue?.find((item) => ["QUEUED", "PROCESSING"].includes(item.status));
+      if (activeRender) {
+        generationActive = true;
+        showGeneratingPreview();
+        setButtonBusy(submit, true, "Creating preview…", "Generate try-on");
+        setStatus(status, `Creating your preview… ${activeRender.status.toLowerCase()}`);
+        try {
+          const completed = await waitForRender(activeRender.render_id);
+          showGeneratedPreview(completed.result_asset_id);
+          playCompletionSound();
+          setStatus(status, "Your private try-on preview is ready.", "success");
+          await refreshAllowance();
+        } catch (error) {
+          showGenerationFailure();
+          setStatus(status, error.message, "error");
+        } finally {
+          generationActive = false;
+          setButtonBusy(submit, false, "Creating preview…", "Generate try-on");
+          submit.disabled = !businessTryOnsAllowed;
+        }
+        return;
+      }
       const latest = result.items?.[0];
       if (!generationActive && latest?.result_asset_id) {
         showGeneratedPreview(latest.result_asset_id);
