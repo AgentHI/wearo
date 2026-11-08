@@ -121,6 +121,14 @@ test("consumer try-on restores an active render before the previous result", () 
   assert.match(consumer, /submit\.disabled = generationActive \|\| !businessTryOnsAllowed/);
 });
 
+test("consumer authentication persists for the backend session lifetime", () => {
+  assert.match(consumer, /const persisted = localStorage\.getItem\(AUTH_KEY\)/);
+  assert.match(consumer, /auth\?\.expiresAt.*Date\.now\(\)/s);
+  assert.match(consumer, /localStorage\.setItem\(AUTH_KEY, JSON\.stringify\(auth\)\)/);
+  assert.match(consumer, /expiresAt: result\.expires_at/);
+  assert.match(consumer, /localStorage\.removeItem\(AUTH_KEY\)/);
+});
+
 test("platform admin login is isolated and protects dashboard routes", () => {
   assert.ok(
     main.indexOf('pathname.startsWith("/admin/cost-lab")') <
@@ -351,7 +359,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /did not finish within 5 minutes/);
   assert.match(consumer, /backend is running on 127\.0\.0\.1:8000/);
   assert.match(consumer, /result\.has_person_profile/);
-  assert.match(consumer, /sessionStorage\.setItem\(AUTH_KEY/);
+  assert.match(consumer, /localStorage\.setItem\(AUTH_KEY/);
   assert.match(consumer, /auth\.hasProfile \? "home" : "profile"/);
   assert.match(consumer, /const isShopEntry = pathname\.startsWith\("\/shop\/"\)/);
   assert.match(consumer, /id="open-cancellation"/);

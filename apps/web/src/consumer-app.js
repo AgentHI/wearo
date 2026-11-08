@@ -133,18 +133,31 @@ window.addEventListener("beforeinstallprompt", (event) => {
 
 function readAuth() {
   try {
-    const auth = JSON.parse(sessionStorage.getItem(AUTH_KEY) || "null");
+    const persisted = localStorage.getItem(AUTH_KEY);
+    const legacy = sessionStorage.getItem(AUTH_KEY);
+    const auth = JSON.parse(persisted || legacy || "null");
+    if (auth?.expiresAt && new Date(auth.expiresAt).getTime() <= Date.now()) {
+      clearAuth();
+      return null;
+    }
+    if (!persisted && legacy && auth?.csrfToken) {
+      localStorage.setItem(AUTH_KEY, legacy);
+      sessionStorage.removeItem(AUTH_KEY);
+    }
     return auth?.csrfToken ? auth : null;
   } catch {
+    clearAuth();
     return null;
   }
 }
 
 function saveAuth(auth) {
-  sessionStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  sessionStorage.removeItem(AUTH_KEY);
 }
 
 function clearAuth() {
+  localStorage.removeItem(AUTH_KEY);
   sessionStorage.removeItem(AUTH_KEY);
 }
 
@@ -626,6 +639,7 @@ function attachSignInFlow() {
         displayName: form.elements.name?.value.trim() || "",
         identityVersion: AUTH_IDENTITY_VERSION,
         accountStatus: "ACTIVE",
+        expiresAt: result.expires_at,
       };
       saveAuth(auth);
       if (shopContext) {
