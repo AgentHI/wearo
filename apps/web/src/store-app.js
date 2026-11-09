@@ -1,5 +1,6 @@
 import { brandMarkup } from "./brand.js";
 import { wearoConfirm } from "./wearo-dialog.js";
+import { apiError, networkError, readApiBody } from "./api-messages.js";
 
 const API = "/api/v1";
 const AUTH_KEY = "wearo_store_auth";
@@ -18,9 +19,14 @@ async function api(path, options = {}) {
   if (auth()?.csrfToken && options.method && !["GET", "HEAD"].includes(options.method)) {
     headers.set("X-CSRF-Token", auth().csrfToken);
   }
-  const response = await fetch(`${API}${path}`, { credentials: "same-origin", ...options, headers });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || "The request could not be completed.");
+  let response;
+  try {
+    response = await fetch(`${API}${path}`, { credentials: "same-origin", ...options, headers });
+  } catch {
+    throw networkError();
+  }
+  const body = await readApiBody(response);
+  if (!response.ok) throw apiError(response, body);
   return body;
 }
 

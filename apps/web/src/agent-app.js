@@ -1,4 +1,5 @@
 import { brandMarkup } from "./brand.js";
+import { apiError, networkError, readApiBody } from "./api-messages.js";
 
 const API_BASE = "/api/v1";
 const AUTH_KEY = "wearo_agent_auth";
@@ -43,9 +44,14 @@ async function agentApi(path, options = {}) {
     const separator = path.includes("?") ? "&" : "?";
     requestPath = `${path}${separator}business=${encodeURIComponent(launch.business)}&key=${encodeURIComponent(launch.key)}`;
   }
-  const response = await fetch(`${API_BASE}${requestPath}`, { credentials: "same-origin", ...options, headers });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || "The request could not be completed.");
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${requestPath}`, { credentials: "same-origin", ...options, headers });
+  } catch {
+    throw networkError();
+  }
+  const body = await readApiBody(response);
+  if (!response.ok) throw apiError(response, body);
   return body;
 }
 

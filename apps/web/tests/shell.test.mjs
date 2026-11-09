@@ -12,6 +12,8 @@ const store = await readFile(new URL("src/store-app.js", root), "utf8");
 const agent = await readFile(new URL("src/agent-app.js", root), "utf8");
 const admin = await readFile(new URL("src/admin-app.js", root), "utf8");
 const consumer = await readFile(new URL("src/consumer-app.js", root), "utf8");
+const apiMessages = await readFile(new URL("src/api-messages.js", root), "utf8");
+const imageOptimizer = await readFile(new URL("src/image-optimizer.js", root), "utf8");
 const wearoDialog = await readFile(new URL("src/wearo-dialog.js", root), "utf8");
 const publicSite = await readFile(new URL("src/public-site.js", root), "utf8");
 const worker = await readFile(new URL("public/sw.js", root), "utf8");
@@ -368,11 +370,15 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     assert.match(consumer, new RegExp(text, "i"));
   }
   assert.match(consumer, /\/auth\/email-otp\/request/);
-  assert.match(consumer, /responseText = await response\.text\(\)/);
-  assert.match(consumer, /INVALID_API_RESPONSE/);
+  assert.match(consumer, /readApiBody\(response\)/);
+  assert.match(consumer, /throw apiError\(response, body\)/);
   assert.match(consumer, /attempt < 165/);
   assert.match(consumer, /did not finish within 5 minutes/);
-  assert.match(consumer, /backend is running on 127\.0\.0\.1:8000/);
+  assert.match(apiMessages, /This photo is too large to upload/);
+  assert.match(consumer, /optimizeImageForUpload\(file, kind\)/);
+  assert.match(imageOptimizer, /DEFAULT_MAX_EDGE = 2048/);
+  assert.match(imageOptimizer, /DEFAULT_TARGET_BYTES = 900 \* 1024/);
+  assert.doesNotMatch(consumer, /backend is running on 127\.0\.0\.1:8000|unreadable response/);
   assert.match(consumer, /result\.has_person_profile/);
   assert.match(consumer, /localStorage\.setItem\(AUTH_KEY/);
   assert.match(consumer, /auth\.hasProfile \? "home" : "profile"/);
@@ -485,10 +491,8 @@ test("destructive account action uses the recoverable 30-day lifecycle", () => {
   assert.match(consumer, /Account and photos remain recoverable for 30 days/);
   assert.match(consumer, /Cancel subscription and delete account\?/);
   assert.doesNotMatch(consumer, /id="delete-profile"|id="profile-deletion-dialog"/);
-  assert.doesNotMatch(
-    consumer,
-    /api\("\/me\/person-profile", \{ method: "DELETE" \}, auth\)/,
-  );
+  assert.match(consumer, /api\("\/me\/person-profile", \{ method: "DELETE" \}, auth\)/);
+  assert.match(consumer, /\/assets\/\$\{encodeURIComponent\(assetId\)\}/);
 });
 
 test("account cancellation requires explicit affirmative consent", () => {

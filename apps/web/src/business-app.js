@@ -1,4 +1,5 @@
 import { brandMarkup } from "./brand.js";
+import { apiError, networkError, readApiBody } from "./api-messages.js";
 
 const API_BASE = "/api/v1";
 const BUSINESS_AUTH_KEY = "wearo_business_auth";
@@ -63,10 +64,15 @@ async function businessApi(path, options = {}) {
   if (auth?.csrfToken && options.method && !["GET", "HEAD"].includes(options.method)) {
     headers.set("X-CSRF-Token", auth.csrfToken);
   }
-  let response = await fetch(`${API_BASE}${path}`, {
-    credentials: "same-origin", ...options, headers,
-  });
-  let body = await response.json().catch(() => ({}));
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      credentials: "same-origin", ...options, headers,
+    });
+  } catch {
+    throw networkError();
+  }
+  let body = await readApiBody(response);
   const isMutation = options.method && !["GET", "HEAD"].includes(options.method);
   if (response.status === 403 && body.code === "AUTHENTICATION_REQUIRED" && isMutation) {
     const refresh = await fetch(`${API_BASE}/auth/business/csrf`, { credentials: "same-origin" });
@@ -75,17 +81,10 @@ async function businessApi(path, options = {}) {
       sessionStorage.setItem(BUSINESS_AUTH_KEY, JSON.stringify({ csrfToken: refreshed.csrf_token }));
       headers.set("X-CSRF-Token", refreshed.csrf_token);
       response = await fetch(`${API_BASE}${path}`, { credentials: "same-origin", ...options, headers });
-      body = await response.json().catch(() => ({}));
+      body = await readApiBody(response);
     }
   }
-  if (!response.ok) {
-    const validationMessage = Array.isArray(body.detail)
-      ? body.detail
-        .map((issue) => `${issue.loc?.at(-1) || "field"}: ${issue.msg || "invalid value"}`)
-        .join(" · ")
-      : null;
-    throw new Error(body.message || validationMessage || "The request could not be completed.");
-  }
+  if (!response.ok) throw apiError(response, body);
   return body;
 }
 

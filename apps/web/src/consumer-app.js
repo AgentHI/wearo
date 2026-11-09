@@ -1,5 +1,7 @@
 import { compactBrandMarkup } from "./brand.js";
 import { wearoConfirm } from "./wearo-dialog.js";
+import { apiError, networkError, readApiBody } from "./api-messages.js";
+import { optimizeImageForUpload } from "./image-optimizer.js";
 
 const API_BASE = "/api/v1";
 const AUTH_KEY = "wearo_consumer_auth";
@@ -193,34 +195,18 @@ async function api(path, options = {}, auth = readAuth()) {
   if (auth?.csrfToken && options.method && !["GET", "HEAD"].includes(options.method)) {
     headers.set("X-CSRF-Token", auth.csrfToken);
   }
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: "same-origin",
-    ...options,
-    headers,
-  });
-  let body = {};
-  if (response.status !== 204) {
-    const responseText = await response.text();
-    if (responseText) {
-      try {
-        body = JSON.parse(responseText);
-      } catch {
-        body = {
-          code: "INVALID_API_RESPONSE",
-          message:
-            response.status >= 500
-              ? `Wearo API returned ${response.status} ${response.statusText || "Internal Server Error"}. Make sure the backend is running on 127.0.0.1:8000 and check its terminal log.`
-              : `Wearo API returned an unreadable response (${response.status}).`,
-        };
-      }
-    }
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      credentials: "same-origin",
+      ...options,
+      headers,
+    });
+  } catch {
+    throw networkError();
   }
-  if (!response.ok) {
-    const error = new Error(body.message || "The request could not be completed.");
-    error.code = body.code;
-    error.status = response.status;
-    throw error;
-  }
+  const body = response.status === 204 ? {} : await readApiBody(response);
+  if (!response.ok) throw apiError(response, body);
   return body;
 }
 
@@ -670,9 +656,10 @@ function attachSignInFlow() {
 }
 
 async function upload(kind, file, auth) {
+  const preparedFile = await optimizeImageForUpload(file, kind);
   const data = new FormData();
   data.set("kind", kind);
-  data.set("image", file);
+  data.set("image", preparedFile);
   return api("/assets", { method: "POST", body: data }, auth);
 }
 
@@ -781,25 +768,111 @@ function attachProfileFlow(auth) {
         src: `${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}`,
         label: image.label,
         primary: image.is_primary,
+        assetId: image.person_asset_id,
       })),
       ...Array.from(selectedProfileFiles.entries()).map(([name]) => ({
         src: previewUrls.get(name),
         label: name === "full_body" ? "New full-body photo" : "New close-up photo",
         pending: true,
+        pendingName: name,
       })),
       ...additionalFiles.map((file, index) => ({
         src: previewUrls.get(`additional_${index}`),
         label: `New photo ${index + 1}`,
         pending: true,
+        additionalIndex: index,
       })),
     ];
     photoCount.textContent = `${entries.length} of 10 photos`;
     photoLibrary.innerHTML = entries.length
-      ? entries.map((entry) => `<figure class="profile-library__item"><img src="${entry.src}" alt="${escapeHtml(entry.label)}" /><figcaption>${entry.primary ? "Primary" : entry.pending ? "Ready to save" : escapeHtml(entry.label)}</figcaption></figure>`).join("")
+      ? entries.map((entry) => `<figure class="profile-library__item"><img src="${entry.src}" alt="${escapeHtml(entry.label)}" /><button class="profile-library__delete" type="button" ${entry.assetId ? `data-delete-profile-asset="${escapeHtml(entry.assetId)}"` : entry.pendingName ? `data-delete-pending-photo="${escapeHtml(entry.pendingName)}"` : `data-delete-additional-photo="${entry.additionalIndex}"`} aria-label="Remove ${escapeHtml(entry.label)}" title="Remove photo">×</button><figcaption>${entry.primary ? "Primary" : entry.pending ? "Ready to save" : escapeHtml(entry.label)}</figcaption></figure>`).join("")
       : '<p class="profile-library__empty">Your saved photos will appear here.</p>';
     additionalPhotosInput.disabled = entries.length >= 10;
     document.querySelector("#capture-additional-photo").disabled = entries.length >= 10;
   };
+
+  photoLibrary.addEventListener("click", async (event) => {
+    const button = event.target instanceof Element
+      ? event.target.closest(".profile-library__delete")
+      : null;
+    if (!button) return;
+    if (!await wearoConfirm({
+      eyebrow: "Profile photo",
+      title: "Delete this photo?",
+      message: "This photo will be removed from your profile and scheduled for permanent deletion.",
+      note: "If it is your full-body, close-up, or primary photo, that association will also be removed.",
+      confirmLabel: "Delete photo",
+      cancelLabel: "Keep photo",
+    })) return;
+
+    const pendingName = button.dataset.deletePendingPhoto;
+    if (pendingName) {
+      selectedProfileFiles.delete(pendingName);
+      if (previewUrls.has(pendingName)) URL.revokeObjectURL(previewUrls.get(pendingName));
+      previewUrls.delete(pendingName);
+      const target = pendingName === "full_body" ? fullBodyPreview : closeUpPreview;
+      target.innerHTML = `<span aria-hidden="true">◎</span><strong>Add a ${pendingName === "full_body" ? "full-body" : "close-up"} photo</strong>`;
+      renderPhotoLibrary();
+      setStatus(status, "The unsaved photo was removed.", "success");
+      return;
+    }
+
+    if (button.dataset.deleteAdditionalPhoto !== undefined) {
+      const index = Number(button.dataset.deleteAdditionalPhoto);
+      const urlKey = `additional_${index}`;
+      if (previewUrls.has(urlKey)) URL.revokeObjectURL(previewUrls.get(urlKey));
+      additionalFiles.splice(index, 1);
+      for (const key of Array.from(previewUrls.keys())) {
+        if (String(key).startsWith("additional_")) previewUrls.delete(key);
+      }
+      additionalFiles.forEach((file, nextIndex) => previewUrls.set(`additional_${nextIndex}`, URL.createObjectURL(file)));
+      renderPhotoLibrary();
+      setStatus(status, "The unsaved photo was removed.", "success");
+      return;
+    }
+
+    const assetId = button.dataset.deleteProfileAsset;
+    if (!assetId || !existingProfile) return;
+    const remaining = currentImages().filter((image) => image.person_asset_id !== assetId);
+    const hasRequiredPhoto = remaining.some((image) => ["FULL_BODY", "CLOSE_UP"].includes(image.photo_type));
+    if (remaining.length && !hasRequiredPhoto) {
+      setStatus(status, "Add another full-body or close-up photo before deleting this one.", "error");
+      return;
+    }
+
+    button.disabled = true;
+    setStatus(status, "Deleting your private profile photo…");
+    try {
+      if (remaining.length) {
+        const primaryId = remaining.find((image) => image.is_primary)?.person_asset_id || remaining[0].person_asset_id;
+        const images = remaining.map((image) => ({ ...image, is_primary: image.person_asset_id === primaryId }));
+        existingProfile = await api("/me/person-profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            images,
+            height_cm: existingProfile.height_cm,
+            weight_kg: existingProfile.weight_kg,
+          }),
+        }, auth);
+      } else {
+        await api("/me/person-profile", { method: "DELETE" }, auth);
+        existingProfile = null;
+        auth.hasProfile = false;
+        saveAuth(auth);
+      }
+      await api(`/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" }, auth);
+      const fullBody = currentImages().find((image) => image.photo_type === "FULL_BODY");
+      const closeUp = currentImages().find((image) => image.photo_type === "CLOSE_UP");
+      if (!fullBody) fullBodyPreview.innerHTML = '<span aria-hidden="true">◎</span><strong>Add a full-body photo</strong>';
+      if (!closeUp) closeUpPreview.innerHTML = '<span aria-hidden="true">◎</span><strong>Add a close-up photo</strong>';
+      renderPhotoLibrary();
+      setStatus(status, "The photo was deleted from your profile.", "success");
+    } catch (error) {
+      button.disabled = false;
+      setStatus(status, error.message, "error");
+    }
+  });
 
   if (auth.hasProfile) {
     submit.disabled = true;

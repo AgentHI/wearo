@@ -1177,6 +1177,10 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .profile-library__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
 .profile-library__item { position: relative; min-width: 0; margin: 0; overflow: hidden; border-radius: .7rem; background: var(--surface-soft); }
 .profile-library__item img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.profile-library__delete { position: absolute; z-index: 2; top: .3rem; right: .3rem; display: grid; width: 1.7rem; height: 1.7rem; place-items: center; padding: 0; border: 1px solid rgb(255 255 255 / 80%); border-radius: 50%; color: white; background: rgb(45 20 49 / 82%); box-shadow: 0 .2rem .55rem rgb(20 8 23 / 28%); font: 700 1.15rem/1 sans-serif; cursor: pointer; opacity: 0; transform: scale(.88); transition: opacity .15s ease, transform .15s ease; }
+.profile-library__item:hover .profile-library__delete, .profile-library__delete:focus-visible { opacity: 1; transform: scale(1); }
+.profile-library__delete:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 2px; }
+@media (hover: none) { .profile-library__delete { opacity: 1; transform: scale(1); } }
 .profile-library__item figcaption { position: absolute; right: .2rem; bottom: .2rem; left: .2rem; overflow: hidden; padding: .2rem .3rem; border-radius: .35rem; color: white; background: rgb(37 17 41 / 76%); font-size: .55rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .profile-library__empty { grid-column: 1 / -1; margin: 0; padding: 1rem; border-radius: .7rem; color: var(--ink-mauve); background: var(--surface-soft); font-size: .75rem; text-align: center; }
 .person-preview { display: grid; min-height: 15rem; place-items: center; align-content: center; overflow: hidden; border-radius: .9rem; color: var(--brand-plum); background: radial-gradient(circle at 50% 25%, white, var(--state-lilac)); }

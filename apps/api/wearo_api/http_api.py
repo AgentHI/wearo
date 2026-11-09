@@ -144,8 +144,10 @@ from .postgres_beta import (
     decimal_or_none,
 )
 from .postgres_catalog import PostgresCatalogStore
+from .postgres_retention import PostgresLifecycleStore
 from .render_preflight import BetaRenderPreflightService, RenderPreflightError
 from .render_runtime import DurableRenderError, DurableRenderJob, PostgresRenderRuntime
+from .retention import LifecycleError, RetentionService
 from .sensitive_audit import PostgresSensitiveAudit, SensitiveAuditError
 from .sms_delivery import HttpSmsDeliveryProvider
 from .smtp_email import SmtpEmailDeliveryProvider, SmtpSettings
@@ -192,6 +194,7 @@ class ApiContainer:
     profiles: PersonProfileService
     quota: DailyQuotaService
     renders: PostgresRenderRuntime
+    retention: RetentionService | None = None
     catalog: CatalogService | None = None
     business_platform: PostgresBusinessPlatform | None = None
     plan_usage: PostgresPlanUsage | None = None
@@ -3119,6 +3122,21 @@ def create_app(
         content, content_type = container.media.read_owned(asset_id, session.account_id)
         return Response(content=content, media_type=content_type)
 
+    @app.delete("/api/v1/assets/{asset_id}", status_code=202)
+    def delete_asset(
+        asset_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, bool]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.retention is None:
+            raise ApiProblem(503, "ASSET_DELETION_UNAVAILABLE", "Photo deletion is unavailable.")
+        try:
+            container.retention.request_delete(asset_id, session.account_id)
+        except LifecycleError:
+            raise ApiProblem(404, "ASSET_UNAVAILABLE", "Private asset is unavailable.") from None
+        return {"ok": True}
+
     @app.post("/api/v1/consents", status_code=201)
     def create_consent(
         body: ConsentBody,
@@ -3530,6 +3548,7 @@ def create_app_from_env() -> FastAPI:
         profiles=profile_service,
         quota=quota_service,
         renders=PostgresRenderRuntime(engine, enforce_daily_allowance=daily_limit_enabled),
+        retention=RetentionService(PostgresLifecycleStore(engine), blob_store),
         catalog=CatalogService(PostgresCatalogStore(engine)),
         business_platform=PostgresBusinessPlatform(engine),
         plan_usage=PostgresPlanUsage(engine),
