@@ -42,6 +42,7 @@ class Config:
     cost_root: Path
     cost_bucket: str
     region: str | None
+    aws_profile: str | None
 
 
 @dataclass
@@ -103,6 +104,7 @@ def load_config(env_file: Path | None) -> Config:
         cost_root=Path(values.get("COST_LAB_STORAGE_ROOT", ".wearo-storage/cost-lab")).resolve(),
         cost_bucket=cost_bucket,
         region=values.get("AWS_REGION") or values.get("AWS_DEFAULT_REGION"),
+        aws_profile=values.get("AWS_PROFILE"),
     )
 
 
@@ -257,7 +259,7 @@ def run(args: argparse.Namespace) -> tuple[Report, Path]:
         private_bucket=config.private_bucket,
         cost_bucket=config.cost_bucket,
     )
-    session = boto3.Session(region_name=config.region)
+    session = boto3.Session(profile_name=config.aws_profile, region_name=config.region)
     identity = session.client("sts").get_caller_identity()
     report.aws_account = identity["Account"]
     report.aws_arn = identity["Arn"]
