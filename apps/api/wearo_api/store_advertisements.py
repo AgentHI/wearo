@@ -11,6 +11,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import Engine, text
 
 from .media_runtime import PostgresMediaRuntime
+from .retention import RetentionService
 
 CARD_WIDTH = 768
 CARD_HEIGHT = 1024
@@ -88,11 +89,16 @@ class OpenAIAdvertisementGenerator:
 
 class PostgresStoreAdvertisements:
     def __init__(
-        self, engine: Engine, media: PostgresMediaRuntime, generator: OpenAIAdvertisementGenerator
+        self,
+        engine: Engine,
+        media: PostgresMediaRuntime,
+        generator: OpenAIAdvertisementGenerator,
+        retention: RetentionService,
     ) -> None:
         self.engine = engine
         self.media = media
         self.generator = generator
+        self.retention = retention
 
     def _context(self, principal_id: UUID) -> dict[str, object]:
         with self.engine.connect() as connection:
@@ -348,7 +354,7 @@ class PostgresStoreAdvertisements:
             removed = connection.execute(
                 text("""DELETE FROM store_advertisement_activations
                 WHERE store_id=:store_id AND active_date=:active_date
-                RETURNING advertisement_id"""),
+                RETURNING advertisement_id, asset_id"""),
                 {**context, "active_date": active_date},
             ).scalar_one_or_none()
         return {
@@ -366,9 +372,10 @@ class PostgresStoreAdvertisements:
                   AND account_id=:account_id
                 RETURNING advertisement_id"""),
                 {**context, "advertisement": advertisement_id},
-            ).scalar_one_or_none()
+            ).mappings().one_or_none()
         if removed is None:
             raise StoreAdvertisementError("ADVERTISEMENT_UNAVAILABLE", "Advertisement unavailable.")
+        self.retention.request_delete(removed["asset_id"], UUID(str(context["account_id"])))
 
     def image(self, principal_id: UUID, advertisement_id: UUID) -> tuple[bytes, str]:
         context = self._context(principal_id)

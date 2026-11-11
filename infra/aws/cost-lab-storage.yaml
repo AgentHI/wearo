@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Private object storage for Wearo Cost Lab
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Globally unique lowercase S3 bucket name
+  CostLabRoleArn:
+    Type: String
+    Description: IAM role ARN used by the Cost Lab API and worker
+
+Resources:
+  CostLabBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      Tags:
+        - Key: Application
+          Value: wearo-cost-lab
+        - Key: DataClassification
+          Value: private-model-evaluation
+
+  CostLabBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CostLabBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt CostLabBucket.Arn
+              - !Sub "${CostLabBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: AllowCostLabList
+            Effect: Allow
+            Principal:
+              AWS: !Ref CostLabRoleArn
+            Action: s3:ListBucket
+            Resource: !GetAtt CostLabBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "cost-lab/*"
+          - Sid: AllowCostLabObjects
+            Effect: Allow
+            Principal:
+              AWS: !Ref CostLabRoleArn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub "${CostLabBucket.Arn}/cost-lab/*"
+
+Outputs:
+  BucketName:
+    Value: !Ref CostLabBucket
+  BucketArn:
+    Value: !GetAtt CostLabBucket.Arn

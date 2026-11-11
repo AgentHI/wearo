@@ -19,6 +19,8 @@ class Settings:
     secure_cookie: bool
     storage_root: Path
     fx_url: str
+    storage_backend: str = "FILESYSTEM"
+    storage_bucket: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -44,6 +46,8 @@ class Settings:
             session_ttl_minutes=int(os.getenv("COST_LAB_SESSION_TTL_MINUTES", "60")),
             secure_cookie=os.getenv("COST_LAB_SECURE_COOKIE", "true").lower() == "true",
             storage_root=Path(os.getenv("COST_LAB_STORAGE_ROOT", ".wearo-storage/cost-lab")),
+            storage_backend=os.getenv("COST_LAB_STORAGE_BACKEND", "FILESYSTEM").strip().upper(),
+            storage_bucket=os.getenv("COST_LAB_STORAGE_BUCKET", ""),
             fx_url=os.getenv(
                 "COST_LAB_FX_URL", "https://api.frankfurter.app/latest?from=USD&to=INR"
             ),

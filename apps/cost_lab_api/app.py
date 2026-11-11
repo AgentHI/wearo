@@ -6,7 +6,6 @@ import os
 import random
 import re
 import secrets
-import shutil
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -17,7 +16,7 @@ from uuid import UUID, uuid4
 import requests
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from PIL import Image, ImageOps
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Engine, create_engine, text
@@ -28,8 +27,30 @@ from apps.api.wearo_api.render_quality_strategy import quality_parameters
 from .adapters import BFLAdapter, BFLUpstreamError, BytePlusAdapter, OpenAICompatibleAdapter
 from .config import Settings
 from .pricing import calculate_cost
+from .storage import FilesystemCostLabStorage, S3CostLabStorage
 
 COOKIE = "wearo_cost_lab_session"
+
+
+def _stored_response(
+    service: "CostLab", key: str, *, filename: str | None = None, download: bool = False
+) -> Response:
+    content = service.storage.get(key)
+    if content is None:
+        raise HTTPException(404, "Stored file not found")
+    suffix = key.rsplit(".", 1)[-1].lower() if "." in key else ""
+    media_type = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "pdf": "application/pdf",
+    }.get(suffix, "application/octet-stream")
+    headers = {}
+    if filename:
+        disposition = "attachment" if download else "inline"
+        headers["Content-Disposition"] = f'{disposition}; filename="{filename}"'
+    return Response(content=content, media_type=media_type, headers=headers)
 
 
 class LoginBody(BaseModel):
@@ -89,7 +110,35 @@ class ModelWithPricingBody(ModelBody):
         return self
 
 
-def _model_pricing_components(body: ModelWithPricingBody) -> list[dict[str, str]]:
+class ProductionPricingBody(BaseModel):
+    """Price-only update for an active promoted model."""
+
+    model_config = ConfigDict(extra="forbid")
+    image_input_price_usd_per_million: Decimal | None = Field(default=None, ge=0)
+    image_output_price_usd_per_million: Decimal | None = Field(default=None, ge=0)
+    output_image_price_usd_low: Decimal | None = Field(default=None, ge=0)
+    output_image_price_usd_medium: Decimal | None = Field(default=None, ge=0)
+    output_image_price_usd_high: Decimal | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def has_pricing(self) -> "ProductionPricingBody":
+        if all(
+            price is None
+            for price in (
+                self.image_input_price_usd_per_million,
+                self.image_output_price_usd_per_million,
+                self.output_image_price_usd_low,
+                self.output_image_price_usd_medium,
+                self.output_image_price_usd_high,
+            )
+        ):
+            raise ValueError("At least one token or per-image price is required")
+        return self
+
+
+def _model_pricing_components(
+    body: ModelWithPricingBody | ProductionPricingBody,
+) -> list[dict[str, str]]:
     components: list[dict[str, str]] = []
     token_prices = (
         ("image_input_tokens", body.image_input_price_usd_per_million),
@@ -513,7 +562,15 @@ class CostLab:
             self.cipher = Fernet(settings.encryption_key.encode())
         except ValueError as error:
             raise RuntimeError("COST_LAB_ENCRYPTION_KEY must be a Fernet key") from error
-        settings.storage_root.mkdir(parents=True, exist_ok=True)
+        if settings.storage_backend == "FILESYSTEM":
+            self.storage = FilesystemCostLabStorage(settings.storage_root)
+        elif settings.storage_backend == "S3":
+            self.storage = S3CostLabStorage(
+                settings.storage_bucket,
+                region=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
+            )
+        else:
+            raise RuntimeError("COST_LAB_STORAGE_BACKEND must be FILESYSTEM or S3")
 
     def secret_for(self, provider: dict[str, Any]) -> str:
         if provider.get("secret_ciphertext"):
@@ -990,18 +1047,19 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         except (requests.RequestException, RuntimeError, ValueError, KeyError) as error:
             raise HTTPException(502, f"Model test failed: {str(error)[:1000]}") from error
 
-        folder = service.settings.storage_root / "model-tests" / str(model_id)
-        folder.mkdir(parents=True, exist_ok=True)
+        folder = f"model-tests/{model_id}"
         try:
             with Image.open(BytesIO(result.image_bytes)) as generated:
                 extension = ".png" if generated.format == "PNG" else ".jpg"
                 generated.verify()
         except Exception as error:
             raise HTTPException(502, "Provider returned an invalid image") from error
-        relative_path = (
-            folder / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}{extension}"
-        ).relative_to(service.settings.storage_root)
-        (service.settings.storage_root / relative_path).write_bytes(result.image_bytes)
+        relative_path = f"{folder}/{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}{extension}"
+        service.storage.put(
+            relative_path,
+            result.image_bytes,
+            "image/png" if extension == ".png" else "image/jpeg",
+        )
         input_paths: list[str] = []
         test_stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
         for index, content in enumerate(image_bytes):
@@ -1011,11 +1069,15 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     if source.format == "PNG"
                     else (".webp" if source.format == "WEBP" else ".jpg")
                 )
-            input_path = (folder / f"{test_stamp}-input-{index + 1}{input_extension}").relative_to(
-                service.settings.storage_root
+            input_path = f"{folder}/{test_stamp}-input-{index + 1}{input_extension}"
+            service.storage.put(
+                input_path,
+                content,
+                {".png": "image/png", ".webp": "image/webp"}.get(
+                    input_extension, "image/jpeg"
+                ),
             )
-            (service.settings.storage_root / input_path).write_bytes(content)
-            input_paths.append(str(input_path))
+            input_paths.append(input_path)
         with service.engine.begin() as connection:
             connection.execute(
                 text("""UPDATE cost_lab.ai_models SET tested_at=now(),tested_method='GENERATED',
@@ -1025,7 +1087,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 {
                     "id": model_id,
                     "prompt": prompt,
-                    "path": str(relative_path),
+                    "path": relative_path,
                     "inputs": _json(input_paths),
                     "request": result.request_id,
                 },
@@ -1083,7 +1145,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         return {"model_id": model_id, "tested": body.tested}
 
     @app.get("/api/cost-lab/models/{model_id}/test-image")
-    def model_test_image(model_id: UUID, _: Auth) -> FileResponse:
+    def model_test_image(model_id: UUID, _: Auth) -> Response:
         with service.engine.begin() as connection:
             path = connection.execute(
                 text("SELECT test_output_path FROM cost_lab.ai_models WHERE model_id=:id"),
@@ -1091,16 +1153,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             ).scalar_one_or_none()
         if not path:
             raise HTTPException(404, "Model test image not found")
-        resolved = (service.settings.storage_root / path).resolve()
-        if (
-            service.settings.storage_root.resolve() not in resolved.parents
-            or not resolved.is_file()
-        ):
-            raise HTTPException(404, "Model test image not found")
-        return FileResponse(resolved)
+        return _stored_response(service, path)
 
     @app.get("/api/cost-lab/models/{model_id}/test-input/{input_index}")
-    def model_test_input(model_id: UUID, input_index: int, _: Auth) -> FileResponse:
+    def model_test_input(model_id: UUID, input_index: int, _: Auth) -> Response:
         if input_index not in {0, 1}:
             raise HTTPException(404, "Model test input image not found")
         with service.engine.begin() as connection:
@@ -1110,13 +1166,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             ).scalar_one_or_none()
         if not paths or input_index >= len(paths):
             raise HTTPException(404, "Model test input image not found")
-        resolved = (service.settings.storage_root / paths[input_index]).resolve()
-        if (
-            service.settings.storage_root.resolve() not in resolved.parents
-            or not resolved.is_file()
-        ):
-            raise HTTPException(404, "Model test input image not found")
-        return FileResponse(resolved)
+        return _stored_response(service, paths[input_index])
 
     @app.get("/api/cost-lab/quality-profiles")
     def profiles(_: Auth) -> dict[str, Any]:
@@ -1224,11 +1274,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         if not content.startswith(b"%PDF-"):
             raise HTTPException(422, "Invalid PDF file")
         knowledge_id = uuid4()
-        folder = actual.storage_root / "knowledge" / str(knowledge_id)
-        folder.mkdir(parents=True)
-        stored = folder / "source.pdf"
-        stored.write_bytes(content)
-        relative_path = str(stored.relative_to(actual.storage_root))
+        relative_path = f"knowledge/{knowledge_id}/source.pdf"
+        service.storage.put(relative_path, content, "application/pdf")
         try:
             with service.engine.begin() as connection:
                 connection.execute(
@@ -1246,8 +1293,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     },
                 )
         except Exception:
-            stored.unlink(missing_ok=True)
-            folder.rmdir()
+            service.storage.delete(relative_path)
             raise
         return {"knowledge_id": knowledge_id, "source_type": "PDF"}
 
@@ -1286,14 +1332,10 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
 .content ul,.content ol{{margin:.4em 0 1.3em;padding-left:1.5em}}.content li{{margin:.35em 0;padding-left:.25em}}
 .content li::marker{{color:#a26f31;font-weight:700}}blockquote{{margin:1.2em 0;padding:.8em 1.1em;border-left:3px solid #c9974d;background:#fff8e9;color:#684f62;font-style:italic}}
 </style></head><body><main><header><p class="eyebrow">Wearo Model Cost Lab · Knowledge</p><h1>{title}</h1><p class="meta">Added {added}</p></header><article><div class="content">{content}</div></article></main></body></html>""")
-        resolved = (actual.storage_root / item["file_path"]).resolve()
-        if actual.storage_root.resolve() not in resolved.parents or not resolved.is_file():
-            raise HTTPException(404, "Knowledge PDF not found")
-        return FileResponse(
-            resolved,
-            media_type="application/pdf",
+        return _stored_response(
+            service,
+            item["file_path"],
             filename=item["original_filename"] or "knowledge.pdf",
-            content_disposition_type="inline",
         )
 
     @app.delete("/api/cost-lab/knowledge/{knowledge_id}", status_code=204)
@@ -1305,13 +1347,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 {"id": knowledge_id},
             ).scalar_one_or_none()
         if file_path:
-            resolved = (actual.storage_root / file_path).resolve()
-            if actual.storage_root.resolve() in resolved.parents and resolved.is_file():
-                resolved.unlink()
-                try:
-                    resolved.parent.rmdir()
-                except OSError:
-                    pass
+            service.storage.delete(file_path)
         return Response(status_code=204)
 
     @app.get("/api/cost-lab/assets")
@@ -1347,10 +1383,11 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         except Exception as error:
             raise HTTPException(422, "Invalid image") from error
         asset_id = uuid4()
-        folder = actual.storage_root / "assets" / str(asset_id)
-        folder.mkdir(parents=True)
-        original = folder / "original.jpg"
-        source.save(original, "JPEG", quality=96)
+        folder = f"datasets/{asset_id}"
+        original = f"{folder}/original.jpg"
+        original_buffer = BytesIO()
+        source.save(original_buffer, "JPEG", quality=96)
+        service.storage.put(original, original_buffer.getvalue(), "image/jpeg")
         variants: dict[str, str] = {}
         with service.engine.begin() as connection:
             profiles = (
@@ -1363,11 +1400,18 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 .all()
             )
         for profile in profiles:
-            target = folder / f"{profile['code'].lower()}.jpg"
+            target = f"{folder}/variants/{profile['code'].lower()}.jpg"
             image = source.copy()
             image.thumbnail((profile["width"], profile["height"]), Image.Resampling.LANCZOS)
-            image.save(target, "JPEG", quality=profile["compression_quality"], optimize=True)
-            variants[profile["code"]] = str(target.relative_to(actual.storage_root))
+            target_buffer = BytesIO()
+            image.save(
+                target_buffer,
+                "JPEG",
+                quality=profile["compression_quality"],
+                optimize=True,
+            )
+            service.storage.put(target, target_buffer.getvalue(), "image/jpeg")
+            variants[profile["code"]] = target
         digest = hashlib.sha256(content).hexdigest()
         with service.engine.begin() as connection:
             connection.execute(
@@ -1377,7 +1421,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     "id": asset_id,
                     "kind": kind,
                     "name": name,
-                    "path": str(original.relative_to(actual.storage_root)),
+                    "path": original,
                     "variants": _json(variants),
                     "hash": digest,
                     "complexity": complexity,
@@ -1399,7 +1443,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         return dict(updated)
 
     @app.get("/api/cost-lab/assets/{asset_id}/content")
-    def asset_content(asset_id: UUID, _: Auth, quality: str | None = None) -> FileResponse:
+    def asset_content(asset_id: UUID, _: Auth, quality: str | None = None) -> Response:
         normalized_quality = quality.upper() if quality else None
         if normalized_quality and normalized_quality not in {"LOW", "MEDIUM", "HIGH"}:
             raise HTTPException(422, "Unsupported dataset quality")
@@ -1423,10 +1467,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         )
         if not path:
             raise HTTPException(404, "Dataset quality variant not found")
-        resolved = (actual.storage_root / path).resolve()
-        if actual.storage_root.resolve() not in resolved.parents:
-            raise HTTPException(400, "Invalid asset path")
-        return FileResponse(resolved)
+        return _stored_response(service, path)
 
     @app.delete("/api/cost-lab/assets/{asset_id}", status_code=204)
     def delete_asset(asset_id: UUID, _: Auth) -> Response:
@@ -1802,38 +1843,38 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             raise HTTPException(422, "Dataset needs person and product assets")
         derived_person: dict[str, Any] | None = None
         if selected_result is not None:
-            source_path = (actual.storage_root / selected_result["output_path"]).resolve()
-            if (
-                actual.storage_root.resolve() not in source_path.parents
-                or not source_path.is_file()
-            ):
+            source_content = service.storage.get(selected_result["output_path"])
+            if source_content is None:
                 raise HTTPException(422, "Selected result image file is not available")
             try:
-                source = ImageOps.exif_transpose(Image.open(source_path)).convert("RGB")
+                source = ImageOps.exif_transpose(Image.open(BytesIO(source_content))).convert("RGB")
             except Exception as error:
                 raise HTTPException(422, "Selected result image is invalid") from error
             derived_id = uuid4()
-            folder = actual.storage_root / "assets" / str(derived_id)
-            folder.mkdir(parents=True)
-            original = folder / "original.jpg"
-            source.save(original, "JPEG", quality=96)
+            folder = f"datasets/{derived_id}"
+            original = f"{folder}/original.jpg"
+            original_buffer = BytesIO()
+            source.save(original_buffer, "JPEG", quality=96)
+            service.storage.put(original, original_buffer.getvalue(), "image/jpeg")
             variants: dict[str, str] = {}
             for profile in mappings:
-                target = folder / f"{str(profile['code']).lower()}.jpg"
+                target = f"{folder}/variants/{str(profile['code']).lower()}.jpg"
                 image = source.copy()
                 image.thumbnail((profile["width"], profile["height"]), Image.Resampling.LANCZOS)
+                target_buffer = BytesIO()
                 image.save(
-                    target,
+                    target_buffer,
                     "JPEG",
                     quality=profile["compression_quality"],
                     optimize=True,
                 )
-                variants[str(profile["code"])] = str(target.relative_to(actual.storage_root))
-            content = source_path.read_bytes()
+                service.storage.put(target, target_buffer.getvalue(), "image/jpeg")
+                variants[str(profile["code"])] = target
+            content = source_content
             derived_person = {
                 "asset_id": derived_id,
                 "content_hash": hashlib.sha256(content).hexdigest(),
-                "original_path": str(original.relative_to(actual.storage_root)),
+                "original_path": original,
                 "variants": variants,
                 "name": f"Result image {selected_result['tryon_id']}",
             }
@@ -2037,10 +2078,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                   jsonb_build_object('status',CAST(:status AS text)))"""),
                 {"event": uuid4(), "run": run_id, "status": status},
             )
-        output_directory = (actual.storage_root / "outputs" / str(run_id)).resolve()
-        outputs_root = (actual.storage_root / "outputs").resolve()
-        if output_directory.parent == outputs_root and output_directory.is_dir():
-            shutil.rmtree(output_directory)
+        service.storage.delete_prefix(f"benchmarks/{run_id}")
+        service.storage.delete_prefix(f"outputs/{run_id}")
         return {"run_id": run_id, "deleted": True}
 
     @app.post("/api/cost-lab/results/recalculate")
@@ -2106,7 +2145,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         return {"updated": updated, "skipped": skipped, "total_cost_usd": total_cost}
 
     @app.get("/api/cost-lab/results/tryons/{tryon_id}/image")
-    def result_image(tryon_id: UUID, _: Auth, download: bool = False) -> FileResponse:
+    def result_image(tryon_id: UUID, _: Auth, download: bool = False) -> Response:
         with service.engine.begin() as connection:
             path = connection.execute(
                 text("SELECT output_path FROM cost_lab.tryon_runs WHERE tryon_id=:id"),
@@ -2114,13 +2153,12 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             ).scalar_one_or_none()
         if not path:
             raise HTTPException(404, "Generated image not found")
-        resolved = (actual.storage_root / path).resolve()
-        if actual.storage_root.resolve() not in resolved.parents or not resolved.is_file():
-            raise HTTPException(404, "Generated image not found")
-        return FileResponse(
-            resolved,
-            filename=f"wearo-tryon-{tryon_id}{resolved.suffix or '.png'}",
-            content_disposition_type="attachment" if download else "inline",
+        suffix = "." + path.rsplit(".", 1)[-1] if "." in path else ".png"
+        return _stored_response(
+            service,
+            path,
+            filename=f"wearo-tryon-{tryon_id}{suffix}",
+            download=download,
         )
 
     @app.get("/api/cost-lab/results/person-candidates")
@@ -2304,15 +2342,15 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             item["image_format"] = None
             item["file_size_bytes"] = None
             if item.get("output_path"):
-                resolved = (actual.storage_root / item["output_path"]).resolve()
-                if actual.storage_root.resolve() in resolved.parents and resolved.is_file():
+                stored_content = service.storage.get(item["output_path"])
+                if stored_content is not None:
                     try:
-                        with Image.open(resolved) as generated:
+                        with Image.open(BytesIO(stored_content)) as generated:
                             item["pixel_width"], item["pixel_height"] = generated.size
                             item["image_format"] = generated.format
                     except Exception:
                         item["image_format"] = "UNKNOWN"
-                    item["file_size_bytes"] = resolved.stat().st_size
+                    item["file_size_bytes"] = len(stored_content)
                     item["image_url"] = f"/api/cost-lab/results/tryons/{item['tryon_id']}/image"
                     item["download_url"] = (
                         f"/api/cost-lab/results/tryons/{item['tryon_id']}/image?download=true"
@@ -2566,11 +2604,9 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
               CAST(:metadata AS jsonb))"""),
                 {"event": uuid4(), "id": check_id,
                  "metadata": _json({"status": check})})
-        outputs_root = (actual.storage_root / "outputs").resolve()
         for run_id in run_ids:
-            output_directory = (outputs_root / str(run_id)).resolve()
-            if output_directory.parent == outputs_root and output_directory.is_dir():
-                shutil.rmtree(output_directory)
+            service.storage.delete_prefix(f"benchmarks/{run_id}")
+            service.storage.delete_prefix(f"outputs/{run_id}")
         return {"check_id": check_id, "deleted": True, "deleted_runs": len(run_ids)}
 
     @app.put("/api/cost-lab/final-checks/{check_id}/reviews")
@@ -2687,6 +2723,66 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     {"release": release_id, "priority": priority})
         return {"priorities": [item.model_dump() for item in body.priorities]}
 
+    @app.put("/api/cost-lab/production-models/{release_id}/pricing")
+    def update_production_model_pricing(
+        release_id: UUID, body: ProductionPricingBody, _: Auth
+    ) -> dict[str, Any]:
+        components = _model_pricing_components(body)
+        pricing_id = uuid4()
+        effective_at = datetime.now(UTC)
+        with service.engine.begin() as connection:
+            release = connection.execute(
+                text("""SELECT release_id,model_id,retired_at
+                FROM cost_lab.production_model_releases
+                WHERE release_id=:id FOR UPDATE"""),
+                {"id": release_id},
+            ).mappings().one_or_none()
+            if release is None:
+                raise HTTPException(404, "Promoted model not found")
+            if release["retired_at"] is not None:
+                raise HTTPException(409, "Retired model pricing cannot be changed")
+            connection.execute(
+                text("""INSERT INTO cost_lab.model_pricing
+                (pricing_id,model_id,effective_at,components)
+                VALUES(:id,:model,:effective,CAST(:components AS jsonb))"""),
+                {
+                    "id": pricing_id,
+                    "model": release["model_id"],
+                    "effective": effective_at,
+                    "components": _json(components),
+                },
+            )
+            connection.execute(
+                text("""UPDATE cost_lab.production_model_releases
+                SET pricing_snapshot=CAST(:components AS jsonb),pricing_effective_at=:effective
+                WHERE release_id=:release"""),
+                {
+                    "release": release_id,
+                    "components": _json(components),
+                    "effective": effective_at,
+                },
+            )
+            connection.execute(
+                text("""INSERT INTO cost_lab.audit_events
+                (event_id,action,target_type,target_id,metadata)
+                VALUES(:event,'PRODUCTION_MODEL_PRICING_UPDATED','PRODUCTION_MODEL_RELEASE',
+                :release,jsonb_build_object('model_id',CAST(:model AS text),
+                'pricing_id',CAST(:pricing AS text),'components',CAST(:components AS jsonb)))"""),
+                {
+                    "event": uuid4(),
+                    "release": release_id,
+                    "model": release["model_id"],
+                    "pricing": pricing_id,
+                    "components": _json(components),
+                },
+            )
+        return {
+            "release_id": release_id,
+            "pricing_id": pricing_id,
+            "pricing_snapshot": components,
+            "pricing_effective_at": effective_at,
+        }
+
     @app.delete("/api/cost-lab/production-models/{release_id}")
     def delete_production_model(release_id: UUID, _: Auth) -> dict[str, Any]:
         with service.engine.begin() as connection:
@@ -2719,3 +2815,7 @@ def run() -> None:
     import uvicorn
 
     uvicorn.run("apps.cost_lab_api.app:create_app", factory=True, host="127.0.0.1", port=8011)
+
+
+if __name__ == "__main__":
+    run()

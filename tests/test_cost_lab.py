@@ -612,6 +612,23 @@ def test_model_pricing_accepts_quality_based_output_image_prices() -> None:
     ]
 
 
+def test_promoted_model_pricing_update_contains_prices_only() -> None:
+    from apps.cost_lab_api.app import ProductionPricingBody, _model_pricing_components
+
+    body = ProductionPricingBody.model_validate(
+        {
+            "image_input_price_usd_per_million": "8.50",
+            "output_image_price_usd_high": "0.04",
+        }
+    )
+    assert _model_pricing_components(body) == [
+        {"unit": "image_input_tokens", "price_usd": "8.50"},
+        {"unit": "output_images", "quality": "HIGH", "price_usd": "0.04"},
+    ]
+    with pytest.raises(ValueError):
+        ProductionPricingBody.model_validate({"name": "cannot rename production model"})
+
+
 def test_provider_accepts_pricing_reference_url_or_text() -> None:
     from apps.cost_lab_api.app import ProviderBody
 

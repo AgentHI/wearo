@@ -4,7 +4,6 @@ import argparse
 import os
 import socket
 import threading
-from pathlib import Path
 from typing import TypedDict
 
 from sqlalchemy import create_engine, text
@@ -19,7 +18,7 @@ from .external_runtime import (
     RequestsJsonTransport,
     RequestsMultipartTransport,
 )
-from .media_runtime import FilesystemPrivateBlobStore, PostgresMediaRuntime
+from .media_runtime import PostgresMediaRuntime, private_blob_store_from_env
 from .render_provider import (
     BytePlusImageGenerationAdapter,
     OpenAIImageEditAdapter,
@@ -78,9 +77,7 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
     engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
     media = PostgresMediaRuntime(
         engine,
-        FilesystemPrivateBlobStore(
-            Path(os.environ.get("WEARO_PRIVATE_STORAGE_ROOT", ".wearo-storage"))
-        ),
+        private_blob_store_from_env(),
     )
     selected_provider = os.environ.get("WEARO_RENDER_PROVIDER", "GOOGLE_VERTEX").strip().upper()
     provider: WorkerProvider

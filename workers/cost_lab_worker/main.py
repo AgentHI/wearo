@@ -85,10 +85,10 @@ class CostLabWorker:
                 .one()
             )
         relative = str(asset["variants"].get(quality) or asset["original_path"])
-        path = (self.service.settings.storage_root / relative).resolve()
-        if self.service.settings.storage_root.resolve() not in path.parents:
-            raise ValueError("unsafe asset path")
-        return path.read_bytes()
+        content = self.service.storage.get(relative)
+        if content is None:
+            raise FileNotFoundError(relative)
+        return content
 
     def process_one(self) -> bool:
         job = self.claim()
@@ -133,15 +133,17 @@ class CostLabWorker:
                 ],
                 parameters=parameters,
             )
-            output = self.service.settings.storage_root / "outputs" / str(job["run_id"])
-            output.mkdir(parents=True, exist_ok=True)
             try:
                 with Image.open(BytesIO(result.image_bytes)) as generated:
                     extension = ".png" if generated.format == "PNG" else ".jpg"
             except Exception:
                 extension = ".bin"
-            path = output / f"{job['tryon_id']}{extension}"
-            path.write_bytes(result.image_bytes)
+            path = f"benchmarks/{job['run_id']}/{job['tryon_id']}{extension}"
+            self.service.storage.put(
+                path,
+                result.image_bytes,
+                "image/png" if extension == ".png" else "image/jpeg",
+            )
             usage = dict(result.usage)
             usage.setdefault("requests", 1)
             usage.setdefault("output_images", 1)
@@ -151,7 +153,7 @@ class CostLabWorker:
                 job,
                 "SUCCEEDED",
                 {
-                    "path": str(path.relative_to(self.service.settings.storage_root)),
+                    "path": path,
                     "result": result,
                     "usage": usage,
                     "cost": cost,
@@ -219,10 +221,11 @@ class CostLabWorker:
             )
             source = ImageOps.exif_transpose(Image.open(BytesIO(result.image_bytes))).convert("RGB")
             asset_id = uuid4()
-            folder = self.service.settings.storage_root / "assets" / str(asset_id)
-            folder.mkdir(parents=True)
-            original = folder / "original.jpg"
-            source.save(original, "JPEG", quality=96)
+            folder = f"datasets/{asset_id}"
+            original = f"{folder}/original.jpg"
+            original_buffer = BytesIO()
+            source.save(original_buffer, "JPEG", quality=96)
+            self.service.storage.put(original, original_buffer.getvalue(), "image/jpeg")
             variants: dict[str, str] = {}
             with self.engine.begin() as connection:
                 profiles = (
@@ -234,13 +237,18 @@ class CostLabWorker:
                     .all()
                 )
             for profile in profiles:
-                target = folder / f"{str(profile['code']).lower()}.jpg"
+                target = f"{folder}/variants/{str(profile['code']).lower()}.jpg"
                 image = source.copy()
                 image.thumbnail((profile["width"], profile["height"]), Image.Resampling.LANCZOS)
-                image.save(target, "JPEG", quality=profile["compression_quality"], optimize=True)
-                variants[str(profile["code"])] = str(
-                    target.relative_to(self.service.settings.storage_root)
+                target_buffer = BytesIO()
+                image.save(
+                    target_buffer,
+                    "JPEG",
+                    quality=profile["compression_quality"],
+                    optimize=True,
                 )
+                self.service.storage.put(target, target_buffer.getvalue(), "image/jpeg")
+                variants[str(profile["code"])] = target
             usage = dict(result.usage)
             usage.setdefault("output_images", 1)
             usage["output_quality"] = item["generation_quality"]
@@ -255,7 +263,7 @@ class CostLabWorker:
                         "id": asset_id,
                         "kind": item["kind"],
                         "name": f"AI generated {str(item['kind']).title()} {item['ordinal'] + 1}",
-                        "path": str(original.relative_to(self.service.settings.storage_root)),
+                        "path": original,
                         "variants": json.dumps(variants),
                         "hash": digest,
                         "complexity": item["complexity"],
@@ -316,14 +324,7 @@ class CostLabWorker:
             ).scalar_one_or_none()
             if still_exists is None:
                 if outcome and outcome.get("path"):
-                    output_path = (self.service.settings.storage_root / outcome["path"]).resolve()
-                    outputs_root = (self.service.settings.storage_root / "outputs").resolve()
-                    if outputs_root in output_path.parents and output_path.is_file():
-                        output_path.unlink()
-                        try:
-                            output_path.parent.rmdir()
-                        except OSError:
-                            pass
+                    self.service.storage.delete(outcome["path"])
                 return
             if status == "SUCCEEDED" and outcome:
                 result = outcome["result"]

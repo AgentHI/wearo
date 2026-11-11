@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
@@ -127,7 +126,7 @@ from .external_runtime import (
     OpenAIAnalysisClient,
 )
 from .image_preflight import ImagePreflightService, VisionAnalyzer
-from .media_runtime import FilesystemPrivateBlobStore, MediaRuntimeError, PostgresMediaRuntime
+from .media_runtime import MediaRuntimeError, PostgresMediaRuntime, private_blob_store_from_env
 from .plan_usage import BUSINESS_REPORTING_TIMEZONE, PostgresPlanUsage
 from .platform_admin_auth import PlatformAdminAuth
 from .platform_identity import PlatformIdentityError, PostgresPlatformIdentity
@@ -3472,7 +3471,6 @@ def create_app_from_env() -> FastAPI:
         raise RuntimeError("embedded worker is restricted to local test authentication")
     fixed_test_code = os.environ.get("WEARO_TEST_OTP_CODE", "1324") if test_auth_enabled else None
     engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
-    storage_root = Path(os.environ.get("WEARO_PRIVATE_STORAGE_ROOT", ".wearo-storage"))
     consent_service = ConsentService(PostgresConsentStore(engine), current_version="beta-v1")
     profile_service = PersonProfileService(PostgresProfileStore(engine))
     quota_service = DailyQuotaService(PostgresQuotaStore(engine), limit_enabled=daily_limit_enabled)
@@ -3517,7 +3515,7 @@ def create_app_from_env() -> FastAPI:
             PostgresTryOnRouteRegistry(engine),
             PostgresQuoteStore(engine),
         )
-    blob_store = FilesystemPrivateBlobStore(storage_root)
+    blob_store = private_blob_store_from_env()
     container = ApiContainer(
         engine=engine,
         otp=EmailOtpService(
@@ -3597,6 +3595,7 @@ def create_app_from_env() -> FastAPI:
                 os.environ.get("WEARO_OPENAI_API_KEY", ""),
                 os.environ.get("WEARO_ADVERTISEMENT_AI_MODEL", "gpt-image-2"),
             ),
+            container.retention,
         ),
     )
     embedded_worker = None

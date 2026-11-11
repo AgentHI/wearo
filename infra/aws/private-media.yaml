@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Private image storage for Wearo API and render workers
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Globally unique lowercase S3 bucket name
+  ApplicationRoleArn:
+    Type: String
+    Description: IAM role ARN used by both the Wearo API and worker
+
+Resources:
+  PrivateMediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: ExpireRenderPreviews
+            Status: Enabled
+            Prefix: private/previews/
+            ExpirationInDays: 1
+      Tags:
+        - Key: Application
+          Value: wearo
+        - Key: DataClassification
+          Value: private-images
+
+  PrivateMediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PrivateMediaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt PrivateMediaBucket.Arn
+              - !Sub "${PrivateMediaBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: AllowApplicationList
+            Effect: Allow
+            Principal:
+              AWS: !Ref ApplicationRoleArn
+            Action: s3:ListBucket
+            Resource: !GetAtt PrivateMediaBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "private/*"
+          - Sid: AllowApplicationObjects
+            Effect: Allow
+            Principal:
+              AWS: !Ref ApplicationRoleArn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub "${PrivateMediaBucket.Arn}/private/*"
+
+Outputs:
+  BucketName:
+    Value: !Ref PrivateMediaBucket
+  BucketArn:
+    Value: !GetAtt PrivateMediaBucket.Arn

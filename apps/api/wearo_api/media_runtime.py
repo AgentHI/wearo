@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from PIL import Image, UnidentifiedImageError
@@ -28,6 +30,16 @@ class StoredMedia:
     size_bytes: int
 
 
+class PrivateBlobStore(Protocol):
+    def put(
+        self, key: str, content: bytes, content_type: str = "application/octet-stream"
+    ) -> None: ...
+    def get(self, key: str) -> bytes | None: ...
+    def delete(self, key: str) -> None: ...
+    def delete_asset_family(self, key: str) -> None: ...
+    def delete_render_preview(self, job_id: UUID) -> None: ...
+
+
 class FilesystemPrivateBlobStore:
     """Non-public local blob backend for development and single-host beta deployments."""
 
@@ -35,7 +47,9 @@ class FilesystemPrivateBlobStore:
         self.root = root.resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
 
-    def put(self, key: str, content: bytes) -> None:
+    def put(
+        self, key: str, content: bytes, content_type: str = "application/octet-stream"
+    ) -> None:
         target = self._path(key)
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         temporary = target.with_suffix(f".{uuid4().hex}.tmp")
@@ -81,6 +95,90 @@ class FilesystemPrivateBlobStore:
         return target
 
 
+class S3PrivateBlobStore:
+    """Private S3 backend used only through authenticated server-side code."""
+
+    def __init__(self, bucket: str, *, region: str | None = None, client: Any | None = None):
+        if not bucket:
+            raise ValueError("S3 bucket name is required")
+        if client is None:
+            import boto3
+
+            client = boto3.client("s3", region_name=region)
+        self.bucket = bucket
+        self.client = client
+
+    def put(
+        self, key: str, content: bytes, content_type: str = "application/octet-stream"
+    ) -> None:
+        self._validate_key(key)
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=content,
+            ContentType=content_type,
+            ServerSideEncryption="AES256",
+        )
+
+    def get(self, key: str) -> bytes | None:
+        self._validate_key(key)
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+        except self.client.exceptions.ClientError as error:
+            if error.response.get("Error", {}).get("Code") in {"NoSuchKey", "404"}:
+                return None
+            raise
+        body = response["Body"]
+        try:
+            return bytes(body.read())
+        finally:
+            body.close()
+
+    def delete(self, key: str) -> None:
+        self.delete_asset_family(key)
+
+    def delete_asset_family(self, key: str) -> None:
+        self._validate_key(key)
+        keys = [key]
+        try:
+            paginator = self.client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=f"{key}."):
+                keys.extend(item["Key"] for item in page.get("Contents", ()))
+            for offset in range(0, len(keys), 1000):
+                response = self.client.delete_objects(
+                    Bucket=self.bucket,
+                    Delete={"Objects": [{"Key": item} for item in keys[offset : offset + 1000]]},
+                )
+                if response.get("Errors"):
+                    raise OSError("S3 did not delete every object in the private asset family")
+        except self.client.exceptions.ClientError as error:
+            raise OSError("S3 private asset deletion failed") from error
+
+    def delete_render_preview(self, job_id: UUID) -> None:
+        self.delete_asset_family(f"private/previews/{job_id.hex}")
+
+    @staticmethod
+    def _validate_key(key: str) -> None:
+        if not key.startswith("private/") or ".." in key.split("/"):
+            raise MediaRuntimeError("ASSET_UNAVAILABLE", "Private asset is unavailable.")
+
+
+def private_blob_store_from_env() -> PrivateBlobStore:
+    backend = os.environ.get("WEARO_PRIVATE_STORAGE_BACKEND", "FILESYSTEM").strip().upper()
+    if backend == "FILESYSTEM":
+        return FilesystemPrivateBlobStore(
+            Path(os.environ.get("WEARO_PRIVATE_STORAGE_ROOT", ".wearo-storage"))
+        )
+    if backend == "S3":
+        bucket = os.environ.get("WEARO_PRIVATE_STORAGE_BUCKET", "")
+        if not bucket:
+            raise RuntimeError("WEARO_PRIVATE_STORAGE_BUCKET is required for the S3 backend")
+        return S3PrivateBlobStore(
+            bucket, region=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+        )
+    raise RuntimeError("WEARO_PRIVATE_STORAGE_BACKEND must be FILESYSTEM or S3")
+
+
 class PostgresMediaRuntime:
     maximum_bytes = 15 * 1024 * 1024
     mime_formats = {
@@ -93,7 +191,7 @@ class PostgresMediaRuntime:
     def __init__(
         self,
         engine: Engine,
-        blobs: FilesystemPrivateBlobStore,
+        blobs: PrivateBlobStore,
         preprocessor: ImageInputPreprocessor | None = None,
     ) -> None:
         self.engine = engine
@@ -176,8 +274,15 @@ class PostgresMediaRuntime:
                 )
 
         asset_id = uuid4()
-        object_key = f"private/{account_id.hex}/{asset_id.hex}"
-        self.blobs.put(object_key, content)
+        purpose_prefix = {
+            "PERSON_SOURCE": "person-sources",
+            "PRODUCT_SOURCE": "product-sources",
+            "RENDER_RESULT": "render-results",
+            "BUSINESS_LOGO": "business-logos",
+            "ADVERTISEMENT": "advertisements",
+        }[purpose]
+        object_key = f"private/accounts/{account_id.hex}/{purpose_prefix}/{asset_id.hex}"
+        self.blobs.put(object_key, content, normalized_type)
         try:
             with self.engine.begin() as connection:
                 connection.execute(
@@ -256,13 +361,15 @@ class PostgresMediaRuntime:
             raise MediaRuntimeError(
                 "INVALID_IMAGE_CONTENT", "The uploaded file is not a safe supported image."
             ) from None
-        self.blobs.put(cache_key, prepared.content)
+        self.blobs.put(cache_key, prepared.content, prepared.mime_type)
         return prepared.content, prepared.mime_type
 
     def store_progressive_preview(self, job_id: UUID, content: bytes) -> None:
         if detect_image_mime(content) is None:
             raise MediaRuntimeError("INVALID_IMAGE_CONTENT", "Invalid progressive preview.")
-        self.blobs.put(f"private/previews/{job_id.hex}", content)
+        self.blobs.put(
+            f"private/previews/{job_id.hex}", content, detect_image_mime(content) or "image/jpeg"
+        )
 
     def read_progressive_preview(self, job_id: UUID) -> tuple[bytes, str] | None:
         content = self.blobs.get(f"private/previews/{job_id.hex}")
