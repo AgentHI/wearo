@@ -14,6 +14,15 @@ def test_explicit_psycopg_url_is_supported() -> None:
     assert url.drivername == "postgresql+psycopg"
 
 
+def test_digitalocean_sslmode_is_preserved() -> None:
+    url = normalize_database_url(
+        "postgresql://doadmin:password@db.example.com:25060/defaultdb?sslmode=require"
+    )
+
+    assert url.drivername == "postgresql+psycopg"
+    assert url.query["sslmode"] == "require"
+
+
 @pytest.mark.parametrize(
     "value",
     ["sqlite:///wearo.db", "mysql://user:password@localhost/wearo"],

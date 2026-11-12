@@ -31,3 +31,20 @@ def test_dotenv_preserves_export_without_explicit_override(
     load_wearo_environment()
 
     assert os.environ["WEARO_OPENAI_ENABLED"] == "false"
+
+
+@pytest.mark.parametrize("environment", ["production", "staging", "test"])
+def test_non_local_environment_never_loads_dotenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, environment: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WEARO_ENVIRONMENT", environment)
+    monkeypatch.setenv("WEARO_DATABASE_URL", "postgresql://injected/database")
+    (tmp_path / ".env").write_text(
+        "WEARO_LOCAL_DOTENV_OVERRIDE=true\nWEARO_DATABASE_URL=postgresql://local/database\n",
+        encoding="utf-8",
+    )
+
+    load_wearo_environment()
+
+    assert os.environ["WEARO_DATABASE_URL"] == "postgresql://injected/database"

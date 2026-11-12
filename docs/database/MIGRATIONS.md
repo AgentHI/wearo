@@ -2,6 +2,9 @@
 
 Wearo uses PostgreSQL and Alembic. `WEARO_DATABASE_URL` is supplied by the runtime or CI secret store; no database credential or environment URL is committed.
 
+For the VM/DigitalOcean production procedure, including TLS and the first migration, see
+`docs/deployment/VM_POSTGRESQL.md`.
+
 ## Ownership and classification
 
 Every created table must have exactly one `TABLE_POLICIES` entry in its migration revision.
