@@ -490,7 +490,7 @@ class PostgresNotificationService:
             ).scalar_one()
             if status == "ACTIVE":
                 connection.execute(
-                    text("""UPDATE communication_templates SET status='ARCHIVED', updated_at=:now
+                    text("""UPDATE communication_templates SET status='DRAFT', updated_at=:now
                       WHERE channel=:channel AND template_key=:key AND status='ACTIVE'"""),
                     {"channel": channel, "key": key, "now": now},
                 )
@@ -517,6 +517,58 @@ class PostgresNotificationService:
                         "version": version,
                         "now": now,
                     },
+                )
+                .mappings()
+                .one()
+            )
+            return dict(row)
+
+    def activate_template(self, template_id: UUID) -> dict[str, object]:
+        """Activate one draft and demote the current version in the same transaction."""
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            selected = (
+                connection.execute(
+                    text("""SELECT template_id,channel,template_key,status
+                      FROM communication_templates WHERE template_id=:id"""),
+                    {"id": template_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if selected is None:
+                raise NotificationError("TEMPLATE_NOT_FOUND", "Template version was not found.")
+            if selected["status"] == "ACTIVE":
+                return self.template_version(template_id)
+            if selected["status"] != "DRAFT":
+                raise NotificationError(
+                    "TEMPLATE_NOT_DRAFT", "Only a draft template can be made active."
+                )
+
+            # Lock every version for this purpose so concurrent activation requests cannot
+            # violate the partial unique index that permits only one active version.
+            connection.execute(
+                text("""SELECT template_id FROM communication_templates
+                  WHERE channel=:channel AND template_key=:key
+                  ORDER BY template_id FOR UPDATE"""),
+                {"channel": selected["channel"], "key": selected["template_key"]},
+            ).all()
+            connection.execute(
+                text("""UPDATE communication_templates SET status='DRAFT',updated_at=:now
+                  WHERE channel=:channel AND template_key=:key AND status='ACTIVE'"""),
+                {
+                    "channel": selected["channel"],
+                    "key": selected["template_key"],
+                    "now": now,
+                },
+            )
+            row = (
+                connection.execute(
+                    text("""UPDATE communication_templates SET status='ACTIVE',updated_at=:now
+                      WHERE template_id=:id
+                      RETURNING template_id,channel,template_key,category,display_name,subject,
+                                body,signature,generation_prompt,status,version,updated_at"""),
+                    {"id": template_id, "now": now},
                 )
                 .mappings()
                 .one()

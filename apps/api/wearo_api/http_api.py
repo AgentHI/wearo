@@ -1186,6 +1186,17 @@ def create_app(
         except NotificationError as error:
             raise ApiProblem(503, error.code, str(error)) from None
 
+    @app.post("/api/v1/admin/notifications/templates/{template_id}/activate")
+    def admin_activate_notification_template(
+        template_id: UUID, request: Request
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return notifications.activate_template(template_id)
+        except NotificationError as error:
+            status = 404 if error.code == "TEMPLATE_NOT_FOUND" else 409
+            raise ApiProblem(status, error.code, str(error)) from None
+
     @app.delete("/api/v1/admin/notifications/templates/{template_id}", status_code=204)
     def admin_delete_notification_template(template_id: UUID, request: Request) -> Response:
         require_platform_admin(request)
