@@ -1875,6 +1875,16 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .notification-editor input:focus, .notification-editor select:focus, .notification-editor textarea:focus { border-color: var(--brand-plum); outline: 0; background: white; box-shadow: 0 0 0 3px rgb(111 61 130 / 13%); }
 .notification-editor__ai { background: linear-gradient(145deg, #fffcf6, #fdf9fe); }
 .notification-editor__ai textarea { min-height: 7.5rem; background: rgb(255 255 255 / 82%); }
+.notification-reference { display: grid; gap: .65rem; }
+.notification-reference input[type="file"] { padding: .65rem; background: white; }
+.notification-reference input[type="file"]::file-selector-button { margin-right: .75rem; padding: .5rem .75rem; border: 1px solid var(--border-mauve); border-radius: .5rem; color: var(--brand-plum); background: #fffaf2; font: inherit; font-weight: 700; cursor: pointer; }
+.notification-reference__preview { display: flex; align-items: center; gap: .8rem; padding: .65rem; border: 1px solid var(--border-mauve); border-radius: .75rem; background: white; }
+.notification-reference__preview[hidden] { display: none; }
+.notification-reference__preview img { width: 4.5rem; height: 3.5rem; border-radius: .5rem; object-fit: cover; }
+.notification-reference__preview div { display: grid; min-width: 0; gap: .15rem; }
+.notification-reference__preview strong { overflow: hidden; color: var(--ink-charcoal); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.notification-reference__preview small { color: var(--ink-mauve); font-size: .68rem; }
+.notification-reference__preview button { width: max-content; padding: 0; border: 0; color: var(--brand-plum); background: transparent; font: inherit; font-size: .7rem; font-weight: 700; cursor: pointer; }
 .notification-editor__inline-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .notification-editor__inline-actions small { color: var(--ink-mauve); font-size: .72rem; }
 .notification-editor__inline-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .6rem; }

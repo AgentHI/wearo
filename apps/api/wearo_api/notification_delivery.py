@@ -3,6 +3,8 @@ from __future__ import annotations
 import html
 import json
 import re
+from base64 import b64decode
+from binascii import Error as Base64Error
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
@@ -17,6 +19,9 @@ TemplateStatus = Literal["DRAFT", "ACTIVE", "ARCHIVED"]
 
 _VARIABLE = re.compile(r"{{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*}}")
 _BRACKET_VARIABLE = re.compile(r"\[([a-zA-Z][a-zA-Z0-9_]*)\]")
+_REFERENCE_IMAGE = re.compile(
+    r"^data:image/(?:png|jpeg|webp|gif);base64,(?P<data>[A-Za-z0-9+/]+={0,2})$"
+)
 _HTML_TAG = re.compile(r"<[^>]+>")
 _IMAGE_TAG = re.compile(r"<img\b[^>]*>", re.I)
 _STANDALONE_WEARO_LINE = re.compile(
@@ -248,7 +253,43 @@ class OpenAITemplateGenerator:
         self.model = model
         self.timeout_seconds = timeout_seconds
 
-    def generate(self, *, channel: Channel, template_key: str, prompt: str) -> dict[str, str]:
+    @staticmethod
+    def _input(prompt: str, reference_image: str | None) -> object:
+        if reference_image is None:
+            return prompt
+        match = _REFERENCE_IMAGE.fullmatch(reference_image)
+        if match is None:
+            raise NotificationError(
+                "INVALID_REFERENCE_IMAGE", "Use a PNG, JPEG, WEBP, or non-animated GIF image."
+            )
+        try:
+            image_bytes = b64decode(match.group("data"), validate=True)
+        except (Base64Error, ValueError):
+            raise NotificationError(
+                "INVALID_REFERENCE_IMAGE", "The reference image could not be read."
+            ) from None
+        if not image_bytes or len(image_bytes) > 5 * 1024 * 1024:
+            raise NotificationError(
+                "INVALID_REFERENCE_IMAGE", "The reference image must be 5 MB or smaller."
+            )
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": reference_image, "detail": "high"},
+                ],
+            }
+        ]
+
+    def generate(
+        self,
+        *,
+        channel: Channel,
+        template_key: str,
+        prompt: str,
+        reference_image: str | None = None,
+    ) -> dict[str, str]:
         if not self.api_key or not self.model:
             raise NotificationError(
                 "TEMPLATE_AI_UNAVAILABLE", "AI template generation is unavailable."
@@ -258,7 +299,7 @@ class OpenAITemplateGenerator:
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={
                 "model": self.model,
-                "input": (
+                "input": self._input((
                     "Create a concise Wearo.ai customer communication template. "
                     "Return JSON matching the schema. Preserve useful "
                     "{{variable_name}} placeholders. "
@@ -282,8 +323,12 @@ class OpenAITemplateGenerator:
                     "These layout rules are mandatory and the admin prompt may only control "
                     "content, audience, and tone. "
                     "Do not invent discounts, policies, dates, payment status, or commitments. "
+                    "When a reference image is supplied, use it only for visual inspiration such "
+                    "as hierarchy, spacing, tone, and color contrast. Do not identify people, copy "
+                    "visible personal information, reproduce logos, or insert the reference image "
+                    "into the email. "
                     f"Channel: {channel}. Template purpose: {template_key}. Admin prompt: {prompt}"
-                ),
+                ), reference_image),
                 "text": {
                     "format": {
                         "type": "json_schema",
@@ -321,7 +366,9 @@ class OpenAITemplateGenerator:
                 "TEMPLATE_AI_FAILED", "The template response was invalid."
             ) from None
 
-    def generate_all(self, *, channel: Channel, prompt: str) -> tuple[dict[str, str], ...]:
+    def generate_all(
+        self, *, channel: Channel, prompt: str, reference_image: str | None = None
+    ) -> tuple[dict[str, str], ...]:
         if not self.api_key or not self.model:
             raise NotificationError(
                 "TEMPLATE_AI_UNAVAILABLE", "AI template generation is unavailable."
@@ -333,7 +380,7 @@ class OpenAITemplateGenerator:
             json={
                 "model": self.model,
                 "max_output_tokens": 16000,
-                "input": (
+                "input": self._input((
                     "Create one concise Wearo.ai customer communication template for every "
                     "purpose listed below, applying the same admin creative brief consistently. "
                     "Preserve useful {{variable_name}} placeholders. For every EMAIL template, "
@@ -349,8 +396,12 @@ class OpenAITemplateGenerator:
                     "For SMS and WHATSAPP use plain text and return an empty subject. "
                     "Do not invent "
                     "discounts, policies, dates, payment status, or commitments. "
+                    "When a reference image is supplied, use it only for consistent visual "
+                    "inspiration such as hierarchy, spacing, tone, and contrast. Do not identify "
+                    "people, copy personal information, reproduce logos, or insert the reference "
+                    "image into any email. "
                     f"Channel: {channel}. Purposes: {', '.join(keys)}. Admin brief: {prompt}"
-                ),
+                ), reference_image),
                 "text": {
                     "format": {
                         "type": "json_schema",

@@ -153,7 +153,7 @@ function notificationsView() {
     <form id="notification-template-form" class="notification-editor">
       <header class="notification-editor__header"><div><p class="eyebrow">Communication studio</p><h2>Template editor</h2><p>Generate with AI, review the customer experience, and publish when ready.</p></div><span class="notification-editor__badge">AI assisted</span></header>
       <section class="notification-editor__section"><div class="notification-editor__section-heading"><span>1</span><div><h3>Template configuration</h3><p>Choose where this communication is delivered and what triggers it.</p></div></div><div class="notification-editor__config"><label>Channel<select name="channel"><option>EMAIL</option><option>SMS</option><option>WHATSAPP</option></select></label><label>Purpose<select name="templateKey">${purposes}</select></label><label>Display name<input name="displayName" required maxlength="160" /></label></div></section>
-      <section class="notification-editor__section notification-editor__ai"><div class="notification-editor__section-heading"><span>2</span><div><h3>AI creative brief</h3><p>Describe the audience, tone, and message. Wearo layout and safety rules are applied automatically.</p></div></div><label><span class="sr-only">AI generation prompt</span><textarea name="prompt" rows="5" maxlength="4000" placeholder="Example: Welcome a new business owner with a warm, premium tone. Encourage them to sign in and explore their dashboard."></textarea></label><div class="notification-editor__inline-actions"><small>AI creates drafts only. You remain in control of publishing.</small><div><button id="generate-notification-template" class="button button--primary" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 1.35 4.15L17.5 8.5l-4.15 1.35L12 14l-1.35-4.15L6.5 8.5l4.15-1.35L12 3Z"/><path d="m18.5 14 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg><span>Generate drafts</span></button></div></div></section>
+      <section class="notification-editor__section notification-editor__ai"><div class="notification-editor__section-heading"><span>2</span><div><h3>AI creative brief</h3><p>Describe the audience, tone, and message. Wearo layout and safety rules are applied automatically.</p></div></div><label><span class="sr-only">AI generation prompt</span><textarea name="prompt" rows="5" maxlength="4000" placeholder="Example: Welcome a new business owner with a warm, premium tone. Encourage them to sign in and explore their dashboard."></textarea></label><div class="notification-reference"><label>Reference image <small>Optional visual inspiration for layout and tone</small><input name="referenceImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label><div class="notification-reference__preview" hidden><img alt="Selected template reference"><div><strong data-reference-name></strong><small>PNG, JPEG, WEBP or GIF · maximum 5 MB</small><button type="button" data-remove-reference>Remove image</button></div></div></div><div class="notification-editor__inline-actions"><small>AI creates drafts only. You remain in control of publishing.</small><div><button id="generate-notification-template" class="button button--primary" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 1.35 4.15L17.5 8.5l-4.15 1.35L12 14l-1.35-4.15L6.5 8.5l4.15-1.35L12 3Z"/><path d="m18.5 14 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg><span>Generate drafts</span></button></div></div></section>
       <section class="notification-editor__section notification-editor__message-section"><div class="notification-editor__section-heading"><span>3</span><div><h3>Message content</h3><p>Review the generated content or edit it directly before previewing.</p></div></div><div class="notification-editor__content"><label class="notification-subject">Subject<input name="subject" maxlength="998" placeholder="Customer-facing email subject" /></label><label>Body <small>Email-safe HTML is supported</small><textarea class="notification-code-field" name="body" rows="9" required maxlength="20000" placeholder="Your message body will appear here."></textarea></label><label>Signature <small>Displayed once beneath the message</small><textarea class="notification-code-field" name="signature" rows="4" maxlength="2000" placeholder="Your sign-off will appear here."></textarea></label></div></section>
       <section class="notification-editor__publish"><label>Publishing status<select name="status"><option value="DRAFT">Save as draft</option><option value="ACTIVE">Publish active version</option></select></label><div class="notification-editor__publish-actions"><button id="preview-notification-template" class="button button--quiet notification-editor__icon-action" type="button" aria-label="Preview email" title="Preview email"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button><button class="button button--primary notification-editor__icon-action" type="submit" aria-label="Save template version" title="Save template version"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5V3Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></svg></button></div><p class="form-status" role="status"></p></section>
     </form>
@@ -260,6 +260,34 @@ async function loadNotificationTemplates(root) {
 function attachNotificationControls(root) {
   const form = root.querySelector("#notification-template-form");
   const purpose = form.elements.templateKey;
+  const referenceInput = form.elements.referenceImage;
+  const referencePreview = form.querySelector(".notification-reference__preview");
+  let referenceImage = null;
+  const clearReference = () => {
+    referenceImage = null;
+    referenceInput.value = "";
+    referencePreview.hidden = true;
+    referencePreview.querySelector("img").removeAttribute("src");
+  };
+  referenceInput.addEventListener("change", () => {
+    const file = referenceInput.files[0];
+    if (!file) return clearReference();
+    const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    if (!allowed.includes(file.type) || file.size > 5 * 1024 * 1024) {
+      clearReference();
+      form.querySelector(".form-status").textContent = "Choose a PNG, JPEG, WEBP, or GIF image no larger than 5 MB.";
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      referenceImage = String(reader.result);
+      referencePreview.querySelector("img").src = referenceImage;
+      referencePreview.querySelector("[data-reference-name]").textContent = file.name;
+      referencePreview.hidden = false;
+    });
+    reader.readAsDataURL(file);
+  });
+  referencePreview.querySelector("[data-remove-reference]").addEventListener("click", clearReference);
   const syncPurpose = () => {
     const selected = purpose.selectedOptions[0];
     const isAll = purpose.value === "ALL";
@@ -284,13 +312,14 @@ function attachNotificationControls(root) {
       button.disabled = true;
       status.textContent = "Generating the selected draft…";
       try {
-        const response = await fetch(`${API_ROOT}/admin/notifications/templates/generate`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, template_key: purpose.value, prompt }) });
+        const response = await fetch(`${API_ROOT}/admin/notifications/templates/generate`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, template_key: purpose.value, prompt, reference_image: referenceImage }) });
         const result = await response.json();
         if (!response.ok) return void (status.textContent = result.detail || "The draft could not be generated.");
         form.elements.subject.value = result.subject;
         form.elements.body.value = result.body;
         form.elements.signature.value = result.signature;
-        status.textContent = "Draft generated. Review it before saving.";
+        status.textContent = `Version ${result.version} generated and saved as a draft. Review it before publishing.`;
+        loadNotificationTemplates(root);
         if (channel === "EMAIL") showNotificationPreview(root, { channel: "EMAIL", category: purpose.selectedOptions[0].dataset.category, subject: result.subject, body: result.body, signature: result.signature });
       } finally {
         button.disabled = false;
@@ -302,7 +331,7 @@ function attachNotificationControls(root) {
     button.disabled = true;
     status.textContent = "Generating all template drafts… This can take up to two minutes.";
     try {
-      const response = await fetch(`${API_ROOT}/admin/notifications/templates/generate-all`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, template_key: purpose.value, prompt }) });
+      const response = await fetch(`${API_ROOT}/admin/notifications/templates/generate-all`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, template_key: purpose.value, prompt, reference_image: referenceImage }) });
       const result = await response.json();
       if (!response.ok) return void (status.textContent = result.detail || "The template drafts could not be generated.");
       status.textContent = `${result.count} template drafts generated and saved.`;

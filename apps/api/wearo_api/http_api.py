@@ -646,6 +646,7 @@ class AdminTemplateGenerationBody(BaseModel):
     channel: Literal["EMAIL", "SMS", "WHATSAPP"]
     template_key: str = Field(min_length=1, max_length=80)
     prompt: str = Field(min_length=3, max_length=4_000)
+    reference_image: str | None = Field(default=None, max_length=7_000_000)
 
 
 class NotificationEnqueueBody(BaseModel):
@@ -1152,14 +1153,34 @@ def create_app(
     @app.post("/api/v1/admin/notifications/templates/generate")
     def admin_generate_notification_template(
         body: AdminTemplateGenerationBody, request: Request
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         require_platform_admin(request)
         try:
-            return template_generator.generate(
-                channel=body.channel, template_key=body.template_key, prompt=body.prompt
+            if body.template_key not in TEMPLATE_DEFINITIONS:
+                raise NotificationError(
+                    "INVALID_TEMPLATE_KEY", "Select a supported template purpose."
+                )
+            generated = template_generator.generate(
+                channel=body.channel,
+                template_key=body.template_key,
+                prompt=body.prompt,
+                reference_image=body.reference_image,
+            )
+            category, display_name = TEMPLATE_DEFINITIONS[body.template_key]
+            return notifications.save_template(
+                channel=body.channel,
+                template_key=body.template_key,
+                category=category,
+                display_name=display_name,
+                subject=generated["subject"] if body.channel == "EMAIL" else None,
+                body=generated["body"],
+                signature=generated["signature"],
+                prompt=body.prompt,
+                status="DRAFT",
             )
         except NotificationError as error:
-            raise ApiProblem(503, error.code, str(error)) from None
+            status = 422 if error.code == "INVALID_REFERENCE_IMAGE" else 503
+            raise ApiProblem(status, error.code, str(error)) from None
 
     @app.post("/api/v1/admin/notifications/templates/generate-all", status_code=201)
     def admin_generate_all_notification_templates(
@@ -1167,7 +1188,11 @@ def create_app(
     ) -> dict[str, object]:
         require_platform_admin(request)
         try:
-            generated = template_generator.generate_all(channel=body.channel, prompt=body.prompt)
+            generated = template_generator.generate_all(
+                channel=body.channel,
+                prompt=body.prompt,
+                reference_image=body.reference_image,
+            )
             templates = tuple(
                 notifications.save_template(
                     channel=body.channel,
@@ -1184,7 +1209,8 @@ def create_app(
             )
             return {"templates": templates, "count": len(templates)}
         except NotificationError as error:
-            raise ApiProblem(503, error.code, str(error)) from None
+            status = 422 if error.code == "INVALID_REFERENCE_IMAGE" else 503
+            raise ApiProblem(status, error.code, str(error)) from None
 
     @app.post("/api/v1/admin/notifications/templates/{template_id}/activate")
     def admin_activate_notification_template(

@@ -7,6 +7,7 @@ from apps.api.wearo_api.notification_delivery import (
     ClaimedNotification,
     NotificationError,
     NotificationWorker,
+    OpenAITemplateGenerator,
     SesEmailSender,
     _render,
 )
@@ -77,6 +78,28 @@ def test_template_render_requires_every_placeholder() -> None:
     assert _render("Hello [first_name]", {"first_name": "Ananya"}) == "Hello Ananya"
     with pytest.raises(NotificationError, match="Missing template variable"):
         _render("Due {{due_date}}", {})
+
+
+def test_template_generator_builds_optional_multimodal_input() -> None:
+    prompt = "Create a premium welcome email."
+    reference = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+
+    assert OpenAITemplateGenerator._input(prompt, None) == prompt
+    multimodal = OpenAITemplateGenerator._input(prompt, reference)
+    assert multimodal[0]["content"][0] == {"type": "input_text", "text": prompt}
+    assert multimodal[0]["content"][1] == {
+        "type": "input_image",
+        "image_url": reference,
+        "detail": "high",
+    }
+
+
+def test_template_generator_rejects_invalid_reference_image() -> None:
+    with pytest.raises(NotificationError, match="PNG, JPEG, WEBP, or non-animated GIF"):
+        OpenAITemplateGenerator._input("Create an email", "data:text/plain;base64,SGVsbG8=")
 
 
 def test_ses_sender_renders_authored_html_instead_of_showing_tags() -> None:
