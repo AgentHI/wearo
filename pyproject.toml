@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 wearo-cost-lab-api = "apps.cost_lab_api.app:run"
 wearo-cost-lab-worker = "workers.cost_lab_worker.main:run"
+wearo-notification-worker = "apps.api.wearo_api.notification_worker_process:main"
 
 [project.optional-dependencies]
 dev = [

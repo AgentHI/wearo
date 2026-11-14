@@ -9,6 +9,7 @@ const ADMIN_SECTIONS = [
   { slug: "enquiries", label: "Enquiries", icon: "✦", description: "Review business enquiries submitted through the public contact page." },
   { slug: "customers-subscriptions", label: "Subscriptions", icon: "◎", description: "Manage plans, trials, billing status, cancellations, and renewals." },
   { slug: "billing-pricing", label: "Billing & Pricing", icon: "₹", description: "Review platform billing and pricing configuration." },
+  { slug: "notifications", label: "Notifications", icon: "✉", description: "Create and publish Email, SMS, and WhatsApp communication templates." },
   { slug: "platform-operations", label: "Platform Operations", icon: "⚙", description: "Monitor the services that operate Wearo." },
   { slug: "audit-history", label: "Audit History", icon: "≡", description: "Review administrator and platform audit events." },
   { slug: "ai-models-cost", label: "AI Models & Cost", icon: "$", description: "Manage providers, models, funding, and model-level generation cost." },
@@ -127,9 +128,211 @@ function sectionContent(active, pathname) {
   if (active.slug === "enquiries") return enquiriesView();
   if (active.slug === "customers-subscriptions") return customerDashboardView();
   if (active.slug === "billing-pricing") return pricingSettingsView();
+  if (active.slug === "notifications") return notificationsView();
   if (active.slug === "platform-operations") return tryOnOperationsView();
   if (active.slug === "audit-history") return auditHistoryView();
   return `<article class="admin-welcome-panel"><h2>${active.slug === "dashboard" ? "Wearo Admin home" : `${active.label} overview`}</h2><p>${active.slug === "dashboard" ? "Choose a section from the navigation to manage the Wearo platform." : "This section is ready for its dedicated administration capabilities."}</p></article>`;
+}
+
+const NOTIFICATION_PURPOSES = [
+  ["WELCOME", "NOTIFICATION", "Welcome"],
+  ["NEW_FEATURES", "NOTIFICATION", "New features"],
+  ["MONTHLY_REPORT", "NOTIFICATION", "Monthly report"],
+  ["SUPPORT_DEFAULT_RESPONSE", "SUPPORT", "Default support response"],
+  ["BILLING_MONTH_START", "BILLING", "Monthly first billing notification"],
+  ["BILLING_DAY_BEFORE", "BILLING", "Day before billing notification"],
+  ["BILLING_DUE_DAY", "BILLING", "Due-day billing notification"],
+  ["BILLING_PAUSE_DAY_1", "BILLING", "One day after due date"],
+  ["BILLING_PAUSE_DAY_3", "BILLING", "Three days after due date"],
+  ["BILLING_ACCOUNT_PAUSED_DAY_7", "BILLING", "Account paused after seven days"],
+];
+
+function notificationsView() {
+  const purposes = `<option value="ALL" data-category="ALL">All templates</option>${NOTIFICATION_PURPOSES.map(([key, category, label]) => `<option value="${key}" data-category="${category}">${label}</option>`).join("")}`;
+  return `<div class="admin-notifications">
+    <form id="notification-template-form" class="notification-editor">
+      <header class="notification-editor__header"><div><p class="eyebrow">Communication studio</p><h2>Template editor</h2><p>Generate with AI, review the customer experience, and publish when ready.</p></div><span class="notification-editor__badge">AI assisted</span></header>
+      <section class="notification-editor__section"><div class="notification-editor__section-heading"><span>1</span><div><h3>Template configuration</h3><p>Choose where this communication is delivered and what triggers it.</p></div></div><div class="notification-editor__config"><label>Channel<select name="channel"><option>EMAIL</option><option>SMS</option><option>WHATSAPP</option></select></label><label>Purpose<select name="templateKey">${purposes}</select></label><label>Display name<input name="displayName" required maxlength="160" /></label></div></section>
+      <section class="notification-editor__section notification-editor__ai"><div class="notification-editor__section-heading"><span>2</span><div><h3>AI creative brief</h3><p>Describe the audience, tone, and message. Wearo layout and safety rules are applied automatically.</p></div></div><label><span class="sr-only">AI generation prompt</span><textarea name="prompt" rows="5" maxlength="4000" placeholder="Example: Welcome a new business owner with a warm, premium tone. Encourage them to sign in and explore their dashboard."></textarea></label><div class="notification-editor__inline-actions"><small>AI creates drafts only. You remain in control of publishing.</small><div><button id="generate-notification-template" class="button button--primary" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 1.35 4.15L17.5 8.5l-4.15 1.35L12 14l-1.35-4.15L6.5 8.5l4.15-1.35L12 3Z"/><path d="m18.5 14 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg><span>Generate drafts</span></button></div></div></section>
+      <section class="notification-editor__section notification-editor__message-section"><div class="notification-editor__section-heading"><span>3</span><div><h3>Message content</h3><p>Review the generated content or edit it directly before previewing.</p></div></div><div class="notification-editor__content"><label class="notification-subject">Subject<input name="subject" maxlength="998" placeholder="Customer-facing email subject" /></label><label>Body <small>Email-safe HTML is supported</small><textarea class="notification-code-field" name="body" rows="9" required maxlength="20000" placeholder="Your message body will appear here."></textarea></label><label>Signature <small>Displayed once beneath the message</small><textarea class="notification-code-field" name="signature" rows="4" maxlength="2000" placeholder="Your sign-off will appear here."></textarea></label></div></section>
+      <section class="notification-editor__publish"><label>Publishing status<select name="status"><option value="DRAFT">Save as draft</option><option value="ACTIVE">Publish active version</option></select></label><div class="notification-editor__publish-actions"><button id="preview-notification-template" class="button button--quiet notification-editor__icon-action" type="button" aria-label="Preview email" title="Preview email"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button><button class="button button--primary notification-editor__icon-action" type="submit" aria-label="Save template version" title="Save template version"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5V3Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></svg></button></div><p class="form-status" role="status"></p></section>
+    </form>
+    <section class="notification-versions"><div class="admin-section-heading"><div><p class="eyebrow">Version control</p><h2>Template versions</h2><p>Only one active version is used for each channel and purpose.</p></div><button id="delete-all-email-templates" class="button button--quiet notification-delete-all" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/></svg><span>Delete all email templates</span></button></div><div id="notification-template-list" class="admin-data-panel">Loading templates…</div></section>
+    <dialog id="notification-email-preview" class="notification-preview-dialog"><div class="notification-preview-dialog__panel"><header><div><p class="eyebrow">Email preview</p><h2>Recipient view</h2></div><button class="notification-preview-dialog__close" type="button" aria-label="Close preview">×</button></header><div class="notification-preview-envelope"><div class="notification-preview-envelope__header"><p><span>From</span><strong data-preview-from></strong></p><p><span>To</span><strong data-preview-to></strong></p><p><span>Subject</span><strong data-preview-subject></strong></p></div><div class="notification-preview-envelope__body" data-preview-body></div></div><p class="field-help">Names, addresses, links, amounts, and images are realistic preview samples. Actual delivery uses API-provided values.</p></div></dialog>
+  </div>`;
+}
+
+function notificationSamples() {
+  const people = [{ firstName: "Aarav", fullName: "Aarav Sharma", email: "aarav.sharma@example.com" }, { firstName: "Ananya", fullName: "Ananya Iyer", email: "ananya.iyer@example.com" }, { firstName: "Diya", fullName: "Diya Mehta", email: "diya.mehta@example.com" }, { firstName: "Kabir", fullName: "Kabir Rao", email: "kabir.rao@example.com" }, { firstName: "Meera", fullName: "Meera Nair", email: "meera.nair@example.com" }];
+  const person = people[Math.floor(Math.random() * people.length)];
+  return { person, values: { name: person.fullName, first_name: person.firstName, full_name: person.fullName, account_email: person.email, email: person.email, features: "Faster virtual try-ons and new reporting tools", report_month: "November 2026", report_summary: "Your business completed 248 try-ons this month.", original_subject: "Help with my account", support_reference: "SUP-2026-1042", support_email: "support@wearo.ai", billing_month: "November 2026", amount_due: "₹4,999.00", due_date: "15 November 2026", customer_login_url: `${window.location.origin}/business/sign-in`, dashboard_url: `${window.location.origin}/business/sign-in`, help_center_url: `${window.location.origin}/business/support`, lady_image_url: `${window.location.origin}/wearo-hero-campaign.webp`, wearo_logo_url: `${window.location.origin}/wearo-brand_white_bg.png?v=20261114-email-2` } };
+}
+
+function notificationSample(value, samples) {
+  return String(value || "")
+    .replace(/{{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*}}/g, (_, key) => samples[key] || `[${key}]`)
+    .replace(/\[([a-zA-Z][a-zA-Z0-9_]*)\]/g, (_, key) => samples[key] || `[${key}]`);
+}
+
+function safeEmailPreview(markup) {
+  if (!/<[a-z][\s\S]*>/i.test(markup)) return escapeHtml(markup).replaceAll("\n", "<br>");
+  const documentPreview = new DOMParser().parseFromString(markup, "text/html");
+  documentPreview.querySelectorAll("script, iframe, object, embed, form, meta, base, img").forEach((node) => node.remove());
+  documentPreview.querySelectorAll("*").forEach((node) => [...node.attributes].forEach((attribute) => {
+    if (attribute.name.toLowerCase().startsWith("on") || /javascript:/i.test(attribute.value)) node.removeAttribute(attribute.name);
+  }));
+  documentPreview.querySelectorAll("a").forEach((link) => {
+    if (/sign in|dashboard|view report|pay now/i.test(link.textContent || "")) link.classList.add("notification-preview-cta");
+  });
+  return documentPreview.body.innerHTML;
+}
+
+function cleanNotificationSignature(markup) {
+  const value = String(markup || "").replace(/<img\b[^>]*>/gi, "").trim();
+  if (!/\bteam\s+wearo(?:\.ai)?\b/i.test(value)) return value;
+  return value.replace(/<(p|div|span)\b[^>]*>\s*(?:https?:\/\/)?(?:www\.)?wearo\.ai\/?\s*<\/\1>/gi, "").trim();
+}
+
+function showNotificationPreview(root, template) {
+  if (template.channel !== "EMAIL") return;
+  const dialog = root.querySelector("#notification-email-preview");
+  const sample = notificationSamples();
+  const category = template.category || "NOTIFICATION";
+  dialog.querySelector("[data-preview-from]").textContent = category === "BILLING" ? "Wearo.ai Billing" : category === "SUPPORT" ? "Wearo.ai Support" : "Wearo.ai Notifications";
+  dialog.querySelector("[data-preview-to]").textContent = `${sample.person.fullName} <${sample.person.email}>`;
+  dialog.querySelector("[data-preview-subject]").textContent = notificationSample(template.subject, sample.values) || "(No subject)";
+  const sampledBody = notificationSample(template.body, sample.values).trim();
+  const body = safeEmailPreview(sampledBody);
+  const bodyHasSignature = /\b(from the (?:wearo\.ai )?team|team wearo(?:\.ai)?)\b/i.test(sampledBody);
+  const signature = template.signature && !bodyHasSignature ? safeEmailPreview(cleanNotificationSignature(notificationSample(template.signature, sample.values))) : "";
+  const logo = '<div class="notification-preview-email-logo"><img src="/wearo-brand_white_bg.png?v=20261114-email-2" alt="Wearo.ai"></div>';
+  const messageContent = `<div class="notification-preview-email-copy">${body}${signature ? `<div class="notification-preview-email-signature">${signature}</div>` : ""}</div>`;
+  const message = `<div class="notification-preview-email-campaign"><div class="notification-preview-email-overlay">${logo}${messageContent}</div></div>`;
+  dialog.querySelector("[data-preview-body]").innerHTML = `<div class="notification-preview-email-content"><div class="notification-preview-email-message">${message}</div></div>`;
+  dialog.showModal();
+}
+
+async function loadNotificationTemplates(root) {
+  const list = root.querySelector("#notification-template-list");
+  const response = await fetch(`${API_ROOT}/admin/notifications/templates`, { credentials: "same-origin" });
+  if (!response.ok) return void (list.textContent = "Templates could not be loaded.");
+  const data = await response.json();
+  const deleteAll = root.querySelector("#delete-all-email-templates");
+  deleteAll.disabled = !data.templates.some((item) => item.channel === "EMAIL");
+  list.innerHTML = data.templates.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Channel</th><th>Purpose</th><th>Category</th><th>Version</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${data.templates.map((item, index) => `<tr><td>${escapeHtml(item.channel)}</td><td><strong>${escapeHtml(item.display_name)}</strong><br><small>${escapeHtml(item.template_key)}</small></td><td>${escapeHtml(displayEnum(item.category))}</td><td>${escapeHtml(item.version)}</td><td><span class="admin-status">${escapeHtml(displayEnum(item.status))}</span></td><td>${escapeHtml(new Date(item.updated_at).toLocaleString())}</td><td><div class="admin-ai-row-actions notification-template-actions">${item.channel === "EMAIL" ? `<button class="advertisement-icon-button" type="button" data-preview-template="${index}" aria-label="Preview template" title="Preview template"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button><button class="advertisement-icon-button advertisement-icon-button--primary" type="button" data-send-test-template="${escapeHtml(item.template_id)}" data-send-test-template-name="${escapeHtml(item.display_name)}" aria-label="Send test email" title="Send test email"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2.5-7.5L3 11Z"/><path d="M10.5 13.5 21 3"/></svg></button>` : ""}<button class="advertisement-icon-button advertisement-icon-button--danger" type="button" data-delete-template="${escapeHtml(item.template_id)}" data-delete-template-name="${escapeHtml(item.display_name)}" data-delete-template-version="${escapeHtml(item.version)}" data-delete-template-status="${escapeHtml(item.status)}" aria-label="Delete template" title="Delete template"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button></div></td></tr>`).join("")}</tbody></table></div>` : '<p class="admin-empty">No templates configured.</p>';
+  list.querySelectorAll("[data-preview-template]").forEach((button) => button.addEventListener("click", () => showNotificationPreview(root, data.templates[Number(button.dataset.previewTemplate)])));
+  list.querySelectorAll("[data-send-test-template]").forEach((button) => button.addEventListener("click", async () => {
+    const confirmed = await wearoConfirm({ eyebrow: "Test email", title: `Send ${button.dataset.sendTestTemplateName}?`, message: "This exact saved template version will be queued for delivery to the configured super-admin email address.", note: "The notification worker must be running and Amazon SES must allow the recipient address.", confirmLabel: "Send test email", cancelLabel: "Cancel", tone: "info" });
+    if (!confirmed) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(`${API_ROOT}/admin/notifications/templates/${encodeURIComponent(button.dataset.sendTestTemplate)}/send-test`, { method: "POST", credentials: "same-origin" });
+      const result = await response.json();
+      if (!response.ok) return void (await wearoAlert({ eyebrow: "Test email not queued", title: "Unable to send the test", message: result.message || result.detail || "Check the email and SES configuration, then try again.", confirmLabel: "Understood" }));
+      await wearoAlert({ eyebrow: "Test email queued", title: "Check the super-admin inbox", message: `The saved template was queued for ${result.recipient}.`, confirmLabel: "Done" });
+    } finally {
+      button.disabled = false;
+    }
+  }));
+  list.querySelectorAll("[data-delete-template]").forEach((button) => button.addEventListener("click", async () => {
+    const isActive = button.dataset.deleteTemplateStatus === "ACTIVE";
+    const confirmed = await wearoConfirm({ eyebrow: "Notification template", title: isActive ? "Delete the active template?" : "Delete this template version?", message: `${button.dataset.deleteTemplateName} version ${button.dataset.deleteTemplateVersion} will be permanently deleted.`, note: isActive ? "Pending notifications using this active template will be cancelled. Publish another version before sending this notification type again." : "This action cannot be undone.", confirmLabel: "Delete version", cancelLabel: "Keep template" });
+    if (!confirmed) return;
+    const deleteResponse = await fetch(`${API_ROOT}/admin/notifications/templates/${encodeURIComponent(button.dataset.deleteTemplate)}`, { method: "DELETE", credentials: "same-origin" });
+    if (!deleteResponse.ok) return void (await wearoAlert({ eyebrow: "Template not deleted", title: "This version is currently in use", message: "Wait for the notification worker to finish its current delivery, then try again.", confirmLabel: "Understood" }));
+    loadNotificationTemplates(root);
+  }));
+}
+
+function attachNotificationControls(root) {
+  const form = root.querySelector("#notification-template-form");
+  const purpose = form.elements.templateKey;
+  const syncPurpose = () => {
+    const selected = purpose.selectedOptions[0];
+    const isAll = purpose.value === "ALL";
+    form.elements.displayName.value = selected.textContent;
+    form.elements.displayName.disabled = isAll;
+    form.querySelector(".notification-editor__message-section").hidden = isAll;
+    form.querySelector(".notification-editor__publish").classList.toggle("is-batch", isAll);
+    form.querySelector(".notification-subject").hidden = form.elements.channel.value !== "EMAIL";
+    root.querySelector("#preview-notification-template").hidden = isAll || form.elements.channel.value !== "EMAIL";
+    root.querySelector("#generate-notification-template span").textContent = isAll ? "Generate all drafts" : "Generate selected draft";
+  };
+  purpose.addEventListener("change", syncPurpose);
+  form.elements.channel.addEventListener("change", syncPurpose);
+  root.querySelector("#generate-notification-template").addEventListener("click", async () => {
+    const status = form.querySelector(".form-status");
+    const prompt = form.elements.prompt.value.trim();
+    if (!prompt) return void (status.textContent = "Enter an AI creative brief first.");
+    const channel = form.elements.channel.value;
+    const isAll = purpose.value === "ALL";
+    const button = root.querySelector("#generate-notification-template");
+    if (!isAll) {
+      button.disabled = true;
+      status.textContent = "Generating the selected draft…";
+      try {
+        const response = await fetch(`${API_ROOT}/admin/notifications/templates/generate`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, template_key: purpose.value, prompt }) });
+        const result = await response.json();
+        if (!response.ok) return void (status.textContent = result.detail || "The draft could not be generated.");
+        form.elements.subject.value = result.subject;
+        form.elements.body.value = result.body;
+        form.elements.signature.value = result.signature;
+        status.textContent = "Draft generated. Review it before saving.";
+        if (channel === "EMAIL") showNotificationPreview(root, { channel: "EMAIL", category: purpose.selectedOptions[0].dataset.category, subject: result.subject, body: result.body, signature: result.signature });
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    const confirmed = await wearoConfirm({ eyebrow: "AI template batch", title: `Generate every ${displayEnum(channel)} template?`, message: "The same creative brief will be applied to all notification, support, and billing purposes.", note: "Ten new versions will be saved as drafts. Existing active templates will not change.", confirmLabel: "Generate all drafts", cancelLabel: "Not now", tone: "info" });
+    if (!confirmed) return;
+    button.disabled = true;
+    status.textContent = "Generating all template drafts… This can take up to two minutes.";
+    try {
+      const response = await fetch(`${API_ROOT}/admin/notifications/templates/generate-all`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, template_key: purpose.value, prompt }) });
+      const result = await response.json();
+      if (!response.ok) return void (status.textContent = result.detail || "The template drafts could not be generated.");
+      status.textContent = `${result.count} template drafts generated and saved.`;
+      loadNotificationTemplates(root);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  root.querySelector("#preview-notification-template").addEventListener("click", () => {
+    const status = form.querySelector(".form-status");
+    if (!form.elements.body.value.trim()) return void (status.textContent = "Add or generate the email body before previewing it.");
+    showNotificationPreview(root, { channel: "EMAIL", category: purpose.selectedOptions[0].dataset.category, subject: form.elements.subject.value, body: form.elements.body.value, signature: form.elements.signature.value });
+  });
+  const previewDialog = root.querySelector("#notification-email-preview");
+  previewDialog.querySelector(".notification-preview-dialog__close").addEventListener("click", () => previewDialog.close());
+  previewDialog.addEventListener("click", (event) => { if (event.target === previewDialog) previewDialog.close(); });
+  root.querySelector("#delete-all-email-templates").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const confirmed = await wearoConfirm({ eyebrow: "Email templates", title: "Delete every email template?", message: "All saved email drafts, active versions, and archived versions will be permanently deleted.", note: "Queued and retrying email notifications will be cancelled. SMS and WhatsApp templates will not be affected.", confirmLabel: "Delete all email templates", cancelLabel: "Keep templates" });
+    if (!confirmed) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(`${API_ROOT}/admin/notifications/templates?channel=EMAIL`, { method: "DELETE", credentials: "same-origin" });
+      const result = await response.json();
+      if (!response.ok) return void (await wearoAlert({ eyebrow: "Templates not deleted", title: "Email delivery is currently active", message: result.message || result.detail || "Wait for current deliveries to finish, then try again.", confirmLabel: "Understood" }));
+      await wearoAlert({ eyebrow: "Email templates deleted", title: `${result.deleted} template versions removed`, message: "You can generate a fresh set of email templates whenever you are ready.", confirmLabel: "Done" });
+      loadNotificationTemplates(root);
+    } finally {
+      if (root.querySelector("#notification-template-list")) button.disabled = false;
+    }
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = form.querySelector(".form-status");
+    if (purpose.value === "ALL") return void (status.textContent = "Use Generate all drafts for the All templates selection.");
+    const selected = purpose.selectedOptions[0];
+    const response = await fetch(`${API_ROOT}/admin/notifications/templates`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel: form.elements.channel.value, template_key: purpose.value, category: selected.dataset.category, display_name: form.elements.displayName.value, subject: form.elements.channel.value === "EMAIL" ? form.elements.subject.value : null, body: form.elements.body.value, signature: form.elements.signature.value || null, generation_prompt: form.elements.prompt.value || null, status: form.elements.status.value }) });
+    const result = await response.json();
+    status.textContent = response.ok ? `Version ${result.version} saved.` : (result.detail || "Template could not be saved.");
+    if (response.ok) loadNotificationTemplates(root);
+  });
+  syncPurpose();
+  loadNotificationTemplates(root);
 }
 
 function aiCostDashboardView() {
@@ -726,6 +929,7 @@ function renderAuthenticatedSection(root, pathname) {
   if (adminSection(pathname).slug === "ai-models-cost") attachAiCostDashboard(root);
   if (adminSection(pathname).slug === "customers-subscriptions") attachCustomerControls(root);
   if (adminSection(pathname).slug === "billing-pricing") attachPricingControls(root);
+  if (adminSection(pathname).slug === "notifications") attachNotificationControls(root);
   if (adminSection(pathname).slug === "platform-operations") attachTryOnOperations(root);
   if (adminSection(pathname).slug === "audit-history") attachAuditHistory(root);
 }

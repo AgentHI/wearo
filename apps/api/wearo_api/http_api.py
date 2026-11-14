@@ -127,6 +127,13 @@ from .external_runtime import (
 )
 from .image_preflight import ImagePreflightService, VisionAnalyzer
 from .media_runtime import MediaRuntimeError, PostgresMediaRuntime, private_blob_store_from_env
+from .notification_delivery import (
+    TEMPLATE_DEFINITIONS,
+    NotificationError,
+    OpenAITemplateGenerator,
+    PostgresNotificationService,
+    template_variable_names,
+)
 from .plan_usage import BUSINESS_REPORTING_TIMEZONE, PostgresPlanUsage
 from .platform_admin_auth import PlatformAdminAuth
 from .platform_identity import PlatformIdentityError, PostgresPlatformIdentity
@@ -621,6 +628,47 @@ class AdminAiStatusBody(BaseModel):
     status: Literal["ACTIVE", "DISABLED", "ARCHIVED"]
 
 
+class AdminCommunicationTemplateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: Literal["EMAIL", "SMS", "WHATSAPP"]
+    template_key: str = Field(min_length=1, max_length=80)
+    category: Literal["NOTIFICATION", "SUPPORT", "BILLING"]
+    display_name: str = Field(min_length=1, max_length=160)
+    subject: str | None = Field(default=None, max_length=998)
+    body: str = Field(min_length=1, max_length=20_000)
+    signature: str | None = Field(default=None, max_length=2_000)
+    generation_prompt: str | None = Field(default=None, max_length=4_000)
+    status: Literal["DRAFT", "ACTIVE"] = "DRAFT"
+
+
+class AdminTemplateGenerationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: Literal["EMAIL", "SMS", "WHATSAPP"]
+    template_key: str = Field(min_length=1, max_length=80)
+    prompt: str = Field(min_length=3, max_length=4_000)
+
+
+class NotificationEnqueueBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: Literal["EMAIL", "SMS", "WHATSAPP"]
+    template_key: str = Field(min_length=1, max_length=80)
+    recipient: str = Field(min_length=3, max_length=320)
+    variables: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    deduplication_key: str | None = Field(default=None, max_length=300)
+    scheduled_at: datetime | None = None
+
+
+class InboundSupportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_message_id: str = Field(min_length=1, max_length=500)
+    sender_email: str = Field(min_length=3, max_length=320)
+    recipient_email: str = Field(min_length=3, max_length=320)
+    subject: str = Field(default="Support request", max_length=998)
+    body_text: str = Field(default="", max_length=100_000)
+    received_at: datetime
+
+
 def _authenticate(
     request: Request,
     container: ApiContainer,
@@ -841,6 +889,11 @@ def create_app(
         container.engine
     )
     admin_audit = container.admin_audit or PostgresAdminAudit(container.engine)
+    notifications = PostgresNotificationService(container.engine)
+    template_generator = OpenAITemplateGenerator(
+        os.environ.get("WEARO_OPENAI_API_KEY", ""),
+        os.environ.get("WEARO_NOTIFICATION_AI_MODEL", "gpt-5-mini"),
+    )
     admin_email = os.environ.get("WEARO_ADMIN_EMAIL", "")
     admin_password = os.environ.get("WEARO_ADMIN_PASSWORD", "")
     if platform_admin_auth is None and admin_email and admin_password:
@@ -1062,6 +1115,211 @@ def create_app(
         token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
         if platform_admin_auth is None or not platform_admin_auth.authenticate(token):
             raise ApiProblem(401, "ADMIN_AUTHENTICATION_REQUIRED", "Admin sign-in required.")
+
+    def require_notification_webhook(secret: str | None) -> None:
+        configured = os.environ.get("WEARO_NOTIFICATION_WEBHOOK_SECRET", "")
+        if not configured or not secret or not hmac.compare_digest(secret, configured):
+            raise ApiProblem(401, "INVALID_WEBHOOK_SECRET", "Webhook authentication failed.")
+
+    @app.get("/api/v1/admin/notifications/templates")
+    def admin_notification_templates(
+        request: Request,
+        channel: Literal["EMAIL", "SMS", "WHATSAPP"] | None = None,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        return {"templates": notifications.list_templates(channel)}
+
+    @app.post("/api/v1/admin/notifications/templates", status_code=201)
+    def admin_save_notification_template(
+        body: AdminCommunicationTemplateBody, request: Request
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return notifications.save_template(
+                channel=body.channel,
+                template_key=body.template_key,
+                category=body.category,
+                display_name=body.display_name,
+                subject=body.subject,
+                body=body.body,
+                signature=body.signature,
+                prompt=body.generation_prompt,
+                status=body.status,
+            )
+        except NotificationError as error:
+            raise ApiProblem(422, error.code, str(error)) from None
+
+    @app.post("/api/v1/admin/notifications/templates/generate")
+    def admin_generate_notification_template(
+        body: AdminTemplateGenerationBody, request: Request
+    ) -> dict[str, str]:
+        require_platform_admin(request)
+        try:
+            return template_generator.generate(
+                channel=body.channel, template_key=body.template_key, prompt=body.prompt
+            )
+        except NotificationError as error:
+            raise ApiProblem(503, error.code, str(error)) from None
+
+    @app.post("/api/v1/admin/notifications/templates/generate-all", status_code=201)
+    def admin_generate_all_notification_templates(
+        body: AdminTemplateGenerationBody, request: Request
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            generated = template_generator.generate_all(channel=body.channel, prompt=body.prompt)
+            templates = tuple(
+                notifications.save_template(
+                    channel=body.channel,
+                    template_key=item["template_key"],
+                    category=TEMPLATE_DEFINITIONS[item["template_key"]][0],
+                    display_name=TEMPLATE_DEFINITIONS[item["template_key"]][1],
+                    subject=item["subject"] if body.channel == "EMAIL" else None,
+                    body=item["body"],
+                    signature=item["signature"],
+                    prompt=body.prompt,
+                    status="DRAFT",
+                )
+                for item in generated
+            )
+            return {"templates": templates, "count": len(templates)}
+        except NotificationError as error:
+            raise ApiProblem(503, error.code, str(error)) from None
+
+    @app.delete("/api/v1/admin/notifications/templates/{template_id}", status_code=204)
+    def admin_delete_notification_template(template_id: UUID, request: Request) -> Response:
+        require_platform_admin(request)
+        try:
+            notifications.delete_template(template_id)
+        except NotificationError as error:
+            status = 409 if error.code == "TEMPLATE_IN_USE" else 404
+            raise ApiProblem(status, error.code, str(error)) from None
+        return Response(status_code=204)
+
+    @app.delete("/api/v1/admin/notifications/templates", status_code=200)
+    def admin_delete_all_notification_templates(
+        request: Request,
+        channel: Literal["EMAIL", "SMS", "WHATSAPP"],
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            deleted = notifications.delete_all_templates(channel)
+        except NotificationError as error:
+            raise ApiProblem(409, error.code, str(error)) from None
+        return {"channel": channel, "deleted": deleted}
+
+    @app.post("/api/v1/admin/notifications/templates/{template_id}/send-test", status_code=202)
+    def admin_send_test_notification_template(
+        template_id: UUID, request: Request
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        recipient_email = os.environ.get("WEARO_ADMIN_EMAIL", "").strip()
+        recipient_name = os.environ.get("WEARO_ADMIN_NAME", "").strip() or "Wearo Super Admin"
+        if not recipient_email:
+            raise ApiProblem(
+                503, "ADMIN_EMAIL_UNAVAILABLE", "Configure WEARO_ADMIN_EMAIL to send test emails."
+            )
+        try:
+            template = notifications.template_version(template_id)
+            if template["channel"] != "EMAIL":
+                raise NotificationError(
+                    "INVALID_TEST_CHANNEL", "Test delivery is currently available for email only."
+                )
+            sample_values: dict[str, object] = {
+                "first_name": recipient_name.split()[0],
+                "name": recipient_name,
+                "full_name": recipient_name,
+                "customer_name": recipient_name,
+                "account_email": recipient_email,
+                "email": recipient_email,
+                "original_subject": "Your support request",
+                "support_reference": "TEST-1001",
+                "billing_month": datetime.now(UTC).strftime("%B %Y"),
+                "amount_due": "INR 1,999.00",
+                "due_date": (datetime.now(UTC) + timedelta(days=7)).date().isoformat(),
+            }
+            origin = _public_origin(request)
+            sample_values.update(
+                {
+                    "customer_login_url": f"{origin}/business/sign-in",
+                    "dashboard_url": f"{origin}/business/sign-in",
+                    "help_center_url": f"{origin}/business/support",
+                    "support_email": os.environ.get("SES_SUPPORT_EMAIL", "support@wearo.ai"),
+                    "lady_image_url": f"{origin}/wearo-hero-campaign.webp",
+                    "wearo_logo_url": f"{origin}/wearo-brand_white_bg.png?v=20261114-email-2",
+                }
+            )
+            for variable in template_variable_names(
+                str(template.get("subject") or ""),
+                str(template["body"]),
+                str(template.get("signature") or ""),
+            ):
+                sample_values.setdefault(variable, "Sample value")
+            job_id = notifications.enqueue(
+                channel="EMAIL",
+                template_key=str(template["template_key"]),
+                recipient=f"{recipient_name} <{recipient_email}>",
+                variables=sample_values,
+                metadata={"template_id": str(template_id), "test_email": True},
+            )
+            return {"job_id": job_id, "status": "QUEUED", "recipient": recipient_email}
+        except NotificationError as error:
+            status = 404 if error.code == "TEMPLATE_NOT_FOUND" else 422
+            raise ApiProblem(status, error.code, str(error)) from None
+
+    @app.post("/api/v1/webhooks/notifications/enqueue", status_code=202)
+    def enqueue_notification(
+        body: NotificationEnqueueBody,
+        x_wearo_webhook_secret: Annotated[
+            str | None, Header(alias="X-Wearo-Webhook-Secret")
+        ] = None,
+    ) -> dict[str, object]:
+        require_notification_webhook(x_wearo_webhook_secret)
+        try:
+            job_id = notifications.enqueue(
+                channel=body.channel,
+                template_key=body.template_key,
+                recipient=body.recipient,
+                variables=body.variables,
+                metadata=body.metadata,
+                deduplication_key=body.deduplication_key,
+                scheduled_at=body.scheduled_at,
+            )
+            return {"job_id": job_id, "status": "QUEUED"}
+        except NotificationError as error:
+            raise ApiProblem(422, error.code, str(error)) from None
+
+    @app.post("/api/v1/webhooks/ses/support", status_code=202)
+    def inbound_support_email(
+        body: InboundSupportBody,
+        x_wearo_webhook_secret: Annotated[
+            str | None, Header(alias="X-Wearo-Webhook-Secret")
+        ] = None,
+    ) -> dict[str, object]:
+        require_notification_webhook(x_wearo_webhook_secret)
+        support_address = os.environ.get("SES_SUPPORT_EMAIL", "").casefold()
+        if support_address and body.recipient_email.casefold() != support_address:
+            raise ApiProblem(422, "INVALID_SUPPORT_RECIPIENT", "Support recipient is invalid.")
+        try:
+            return notifications.ingest_support(
+                provider_message_id=body.provider_message_id,
+                sender=body.sender_email,
+                recipient=body.recipient_email,
+                subject=body.subject,
+                body_text=body.body_text,
+                received_at=body.received_at,
+            )
+        except NotificationError as error:
+            raise ApiProblem(422, error.code, str(error)) from None
+
+    @app.post("/api/v1/webhooks/notifications/schedule-billing", status_code=202)
+    def schedule_billing_notifications(
+        x_wearo_webhook_secret: Annotated[
+            str | None, Header(alias="X-Wearo-Webhook-Secret")
+        ] = None,
+    ) -> dict[str, int]:
+        require_notification_webhook(x_wearo_webhook_secret)
+        return {"queued": notifications.schedule_billing(datetime.now(UTC).date())}
 
     @app.get("/api/v1/admin/organizations")
     def admin_organization_list(
