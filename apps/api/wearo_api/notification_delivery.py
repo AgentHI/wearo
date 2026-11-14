@@ -34,6 +34,7 @@ _CTA_ANCHOR = re.compile(
     re.I,
 )
 _TEMPLATE_KEYS = {
+    "OTP",
     "WELCOME",
     "NEW_FEATURES",
     "MONTHLY_REPORT",
@@ -526,6 +527,14 @@ class PostgresNotificationService:
         key = template_key.strip().upper()
         if key not in _TEMPLATE_KEYS:
             raise NotificationError("INVALID_TEMPLATE_KEY", "Select a supported template purpose.")
+        if channel == "SMS" and key != "OTP":
+            raise NotificationError(
+                "INVALID_TEMPLATE_KEY", "SMS templates only support the OTP purpose."
+            )
+        if channel != "SMS" and key == "OTP":
+            raise NotificationError(
+                "INVALID_TEMPLATE_KEY", "The OTP purpose is only available for SMS."
+            )
         if channel == "EMAIL" and not (subject or "").strip():
             raise NotificationError("SUBJECT_REQUIRED", "Email templates require a subject.")
         if not body.strip() or len(body) > 20_000:

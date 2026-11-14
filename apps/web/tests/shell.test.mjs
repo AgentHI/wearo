@@ -19,6 +19,17 @@ const publicSite = await readFile(new URL("src/public-site.js", root), "utf8");
 const worker = await readFile(new URL("public/sw.js", root), "utf8");
 const manifest = JSON.parse(await readFile(new URL("public/manifest.webmanifest", root), "utf8"));
 
+test("notification templates keep SMS manual and filter versions by channel", () => {
+  assert.match(admin, /const otpPurpose = '<option value="OTP"/);
+  assert.match(admin, /form\.querySelector\("\.notification-editor__ai"\)\.hidden = isSms/);
+  assert.match(admin, /Enter the OTP message exactly as it should be sent/);
+  assert.match(admin, /id="notification-channel-filter"/);
+  assert.match(admin, /item\.channel === "EMAIL"[\s\S]*? : ""\}\$\{item\.status === "DRAFT"/);
+  for (const channel of ["SMS", "EMAIL", "WHATSAPP"]) {
+    assert.match(admin, new RegExp(`<option value="${channel}">`));
+  }
+});
+
 test("brand and typography tokens remain explicit", () => {
   for (const token of ["#3b1746", "#c9a46b", "#faf7f2", "#f1eaf1", '"Inter"']) {
     assert.match(css, new RegExp(token, "i"));

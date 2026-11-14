@@ -1935,8 +1935,11 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .notification-template-actions .advertisement-icon-button { flex: 0 0 2.35rem; }
 .notification-delete-all { display: inline-flex; align-items: center; gap: .45rem; color: #7a244a; }
 .notification-delete-all svg { width: 1rem; height: 1rem; fill: none; stroke: currentcolor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.notification-version-tools { display: flex; align-items: end; gap: .75rem; }
+.notification-version-tools label { gap: .3rem; color: var(--ink-mauve); font-size: .74rem; }
+.notification-version-tools select { min-width: 9rem; min-height: 40px; padding: .45rem .65rem; border-radius: .55rem; }
 @media (max-width: 900px) { .notification-editor__config, .notification-editor__content { grid-template-columns: 1fr; } .notification-editor__content .notification-subject { grid-column: auto; } }
-@media (max-width: 620px) { .notification-editor__header, .notification-editor__inline-actions { align-items: stretch; flex-direction: column; } .notification-editor__badge { align-self: flex-start; } .notification-editor__section, .notification-editor__header, .notification-editor__publish { padding: 1.1rem; } .notification-editor__publish { grid-template-columns: 1fr; } .notification-editor__publish-actions { display: grid; grid-template-columns: 1fr; } .notification-editor__inline-actions .button, .notification-editor__publish .button { width: 100%; } }
+@media (max-width: 620px) { .notification-editor__header, .notification-editor__inline-actions, .notification-version-tools { align-items: stretch; flex-direction: column; } .notification-editor__badge { align-self: flex-start; } .notification-editor__section, .notification-editor__header, .notification-editor__publish { padding: 1.1rem; } .notification-editor__publish { grid-template-columns: 1fr; } .notification-editor__publish-actions { display: grid; grid-template-columns: 1fr; } .notification-editor__inline-actions .button, .notification-editor__publish .button { width: 100%; } }
 .admin-ai-panel { overflow: hidden; border: 1px solid var(--border-mauve); border-radius: .85rem; background: white; box-shadow: var(--shadow-sm); }
 .admin-ai-panel summary { display: flex; min-height: 4.5rem; align-items: center; justify-content: space-between; gap: 1rem; padding: .9rem 1.1rem; cursor: pointer; list-style: none; }
 .admin-ai-panel summary::-webkit-details-marker { display: none; }

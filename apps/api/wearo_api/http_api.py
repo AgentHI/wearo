@@ -1156,6 +1156,10 @@ def create_app(
     ) -> dict[str, object]:
         require_platform_admin(request)
         try:
+            if body.channel == "SMS":
+                raise NotificationError(
+                    "SMS_AI_DISABLED", "Enter and save the SMS OTP message manually."
+                )
             if body.template_key not in TEMPLATE_DEFINITIONS:
                 raise NotificationError(
                     "INVALID_TEMPLATE_KEY", "Select a supported template purpose."
@@ -1188,6 +1192,10 @@ def create_app(
     ) -> dict[str, object]:
         require_platform_admin(request)
         try:
+            if body.channel == "SMS":
+                raise NotificationError(
+                    "SMS_AI_DISABLED", "Enter and save the SMS OTP message manually."
+                )
             generated = template_generator.generate_all(
                 channel=body.channel,
                 prompt=body.prompt,
