@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, Form, Header, Request, Response, UploadFile
@@ -49,6 +49,7 @@ from .admin_subscriptions import (
     PostgresAdminSubscriptions,
     SubscriptionAction,
 )
+from .admin_support import AdminSupportError, PostgresAdminSupport
 from .admin_usage_analytics import AdminUsageAnalyticsError, PostgresAdminUsageAnalytics
 from .beta_profile import (
     IST,
@@ -554,6 +555,13 @@ class AdminTokenAdjustmentBody(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class AdminSupportTokenCreditBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: int = Field(ge=1, le=1_000_000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class AdminPlatformControlBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -922,6 +930,7 @@ def create_app(
     )
     admin_ai_costs = container.admin_ai_costs or PostgresAdminAiCosts(container.engine)
     admin_customers = container.admin_customers or PostgresAdminCustomers(container.engine)
+    admin_support = PostgresAdminSupport(container.engine)
     admin_subscriptions = container.admin_subscriptions or PostgresAdminSubscriptions(
         container.engine
     )
@@ -1432,6 +1441,25 @@ def create_app(
             )
         except AdminOrganizationError as error:
             raise ApiProblem(422, "INVALID_ORGANIZATION_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/support/customers")
+    def admin_support_customer_search(request: Request, identity: str) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_support.search(identity)
+        except AdminSupportError as error:
+            raise ApiProblem(422, error.code, str(error)) from None
+
+    @app.post("/api/v1/admin/support/customers/{account_id}/token-credits")
+    def admin_support_token_credit(
+        account_id: UUID, body: AdminSupportTokenCreditBody, request: Request
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_support.add_tokens(account_id, body.amount, body.reason)
+        except AdminSupportError as error:
+            status = 404 if error.code == "SUPPORT_ACCOUNT_NOT_FOUND" else 422
+            raise ApiProblem(status, error.code, str(error)) from None
 
     @app.get("/api/v1/admin/dashboard")
     def admin_dashboard_metrics(
@@ -3769,7 +3797,7 @@ def create_app(
             token_balance = usage_snapshot.token_balance
             retail_price = retail_tryon_pricing.current()
             token_cost = (
-                int(retail_price["tokens_per_tryon"])
+                cast(int, retail_price["tokens_per_tryon"])
                 if retail_price is not None
                 else usage_snapshot.action_cost
             )

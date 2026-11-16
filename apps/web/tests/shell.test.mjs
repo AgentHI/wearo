@@ -713,6 +713,15 @@ test("B2B2C shoppers can reuse an email or mobile consumer account", () => {
   assert.match(consumer, /\/sponsored-sessions\/\$\{encodeURIComponent\(sponsoredSession\.session_id\)\}\/try-ons/);
 });
 
+test("platform support can find every customer realm and add audited tokens", () => {
+  assert.match(admin, /slug: "support"/);
+  assert.match(admin, /Search an exact verified email address or phone number across B2C, B2B2C, and B2B accounts/);
+  assert.match(admin, /\/admin\/support\/customers\?identity=/);
+  assert.match(admin, /\/token-credits/);
+  assert.match(admin, /Try-ons from payment/);
+  assert.match(admin, /This creates an append-only, audited support credit/);
+});
+
 test("consumer PWA has a three-second animated branded launch splash", () => {
   assert.match(main, /showConsumerSplash/);
   assert.match(main, /wearo_consumer_splash_seen/);

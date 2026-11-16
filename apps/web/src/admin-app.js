@@ -6,6 +6,7 @@ const ADMIN_SECTIONS = [
   { slug: "dashboard", label: "Dashboard", icon: "▦", description: "Platform overview and key operational signals." },
   { slug: "realtime", label: "Realtime", icon: "◉", description: "Live try-on volume, generation time, and AI cost." },
   { slug: "organizations", label: "Businesses", icon: "◇", description: "Manage business profiles, usage, tokens, and operational access." },
+  { slug: "support", label: "Support", icon: "?", description: "Find customers, inspect payment status, and add audited token credits." },
   { slug: "enquiries", label: "Enquiries", icon: "✦", description: "Review business enquiries submitted through the public contact page." },
   { slug: "customers-subscriptions", label: "Subscriptions", icon: "◎", description: "Manage plans, trials, billing status, cancellations, and renewals." },
   { slug: "billing-pricing", label: "Billing & Pricing", icon: "₹", description: "Review platform billing and pricing configuration." },
@@ -65,6 +66,10 @@ function organizationsView(pathname) {
       <button class="button button--primary" type="submit">Apply filters</button>
     </form>
     <div id="organization-list" class="admin-data-panel" aria-live="polite">Loading businesses…</div>`;
+}
+
+function supportView() {
+  return `<section class="admin-data-panel"><div class="admin-section-heading"><div><p class="eyebrow">Customer support</p><h2>Find a Wearo user</h2><p>Search an exact verified email address or phone number across B2C, B2B2C, and B2B accounts.</p></div></div><form id="admin-support-search" class="admin-filters" role="search"><label>Email or phone<input name="identity" type="search" required maxlength="320" autocomplete="off" placeholder="user@example.com or +91…" /></label><button class="button button--primary" type="submit">Search user</button></form><p id="admin-support-status" class="form-status" role="status" aria-live="polite"></p></section><div id="admin-support-results" aria-live="polite"></div>`;
 }
 
 function platformDashboardView() {
@@ -137,6 +142,7 @@ function sectionContent(active, pathname) {
   if (active.slug === "realtime") return realtimeDashboardView();
   if (active.slug === "ai-models-cost") return aiCostDashboardView();
   if (active.slug === "organizations") return organizationsView(pathname);
+  if (active.slug === "support") return supportView();
   if (active.slug === "enquiries") return enquiriesView();
   if (active.slug === "customers-subscriptions") return customerDashboardView();
   if (active.slug === "billing-pricing") return pricingSettingsView();
@@ -1143,6 +1149,64 @@ function attachOrganizationControls(root, pathname) {
   loadOrganizations(root);
 }
 
+function supportPaymentMarkup(payment) {
+  if (!payment) return '<div class="admin-data-panel"><strong>No payment found</strong><p>This account has no payment order history.</p></div>';
+  const amount = new Intl.NumberFormat("en-IN", { style: "currency", currency: payment.currency || "INR" }).format(Number(payment.amount_minor || 0) / 100);
+  const date = new Date(payment.paid_at || payment.updated_at || payment.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return `<div class="admin-data-panel"><h3>Latest payment</h3><dl><div><dt>Status</dt><dd><span class="admin-status admin-status--${escapeHtml(String(payment.state).toLowerCase())}">${escapeHtml(displayEnum(payment.state))}</span></dd></div><div><dt>Amount</dt><dd>${escapeHtml(amount)}</dd></div><div><dt>Package</dt><dd>${escapeHtml(payment.package_name || "Token purchase")}</dd></div><div><dt>Tokens</dt><dd>${Number(payment.tokens || 0).toLocaleString("en-IN")}</dd></div><div><dt>Try-ons from payment</dt><dd>${payment.number_of_try_ons == null ? "—" : Number(payment.number_of_try_ons).toLocaleString("en-IN")}</dd></div><div><dt>Receipt</dt><dd>${escapeHtml(payment.receipt_number || "Not issued")}</dd></div><div><dt>Provider payment</dt><dd>${escapeHtml(payment.provider_payment_id || "Not available")}</dd></div><div><dt>Updated</dt><dd>${escapeHtml(date)}</dd></div></dl></div>`;
+}
+
+function renderSupportResults(root, results) {
+  const target = root.querySelector("#admin-support-results");
+  if (!results.length) {
+    target.innerHTML = '<div class="admin-data-panel">No user was found for that verified identity.</div>';
+    return;
+  }
+  target.innerHTML = results.map((user) => `<article class="admin-data-panel admin-support-customer" data-support-account="${escapeHtml(user.account_id)}"><div class="admin-section-heading"><div><p class="eyebrow">${escapeHtml(user.customer_type)}</p><h2>${escapeHtml(user.business_name || user.normalized_value)}</h2><p>${escapeHtml(user.channel)} · ${escapeHtml(user.normalized_value)}${user.business_slug ? ` · ${escapeHtml(user.business_slug)}` : ""}</p></div><span class="admin-status">${escapeHtml(displayEnum(user.account_status))}</span></div><div class="admin-platform-metrics"><article class="admin-metric-card"><div><span>Token balance</span></div><strong data-support-token-balance>${Number(user.token_balance || 0).toLocaleString("en-IN")}</strong><small>Current ledger balance</small></article><article class="admin-metric-card"><div><span>Estimated try-ons</span></div><strong data-support-tryons>${user.try_ons_remaining == null ? "—" : Number(user.try_ons_remaining).toLocaleString("en-IN")}</strong><small>Using the current published rate</small></article></div>${supportPaymentMarkup(user.latest_payment)}<form class="admin-support-credit admin-data-panel"><h3>Add tokens manually</h3><p class="field-help">This creates an append-only, audited support credit. It does not alter the payment record.</p><label>Tokens to add<input name="amount" type="number" min="1" max="1000000" required /></label><label>Support reason<input name="reason" required maxlength="500" placeholder="Support case or approved correction" /></label><button class="button button--primary" type="submit">Add tokens</button><p class="form-status" role="status" aria-live="polite"></p></form></article>`).join("");
+  target.querySelectorAll(".admin-support-credit").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const card = form.closest("[data-support-account]");
+    const status = form.querySelector(".form-status");
+    const values = new FormData(form);
+    const button = form.querySelector("button");
+    button.disabled = true;
+    status.textContent = "Adding audited token credit…";
+    try {
+      const response = await fetch(`${API_ROOT}/admin/support/customers/${encodeURIComponent(card.dataset.supportAccount)}/token-credits`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: Number(values.get("amount")), reason: values.get("reason") }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Token credit failed.");
+      card.querySelector("[data-support-token-balance]").textContent = Number(result.token_balance).toLocaleString("en-IN");
+      card.querySelector("[data-support-tryons]").textContent = result.try_ons_remaining == null ? "—" : Number(result.try_ons_remaining).toLocaleString("en-IN");
+      form.reset();
+      status.textContent = `${Number(result.tokens_added).toLocaleString("en-IN")} tokens added successfully.`;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }));
+}
+
+function attachSupport(root) {
+  const form = root.querySelector("#admin-support-search");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = root.querySelector("#admin-support-status");
+    const identity = new FormData(form).get("identity");
+    status.textContent = "Searching verified identities…";
+    try {
+      const response = await fetch(`${API_ROOT}/admin/support/customers?identity=${encodeURIComponent(identity)}`, { credentials: "same-origin" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "User search failed.");
+      status.textContent = `${result.results.length} matching account${result.results.length === 1 ? "" : "s"} found.`;
+      renderSupportResults(root, result.results);
+    } catch (error) {
+      status.textContent = error.message;
+      root.querySelector("#admin-support-results").innerHTML = "";
+    }
+  });
+}
+
 function renderAuthenticatedSection(root, pathname) {
   root.innerHTML = adminHomeView(pathname);
   root.querySelectorAll(".admin-navigation a, .admin-sidebar__brand a").forEach((link) => {
@@ -1158,6 +1222,7 @@ function renderAuthenticatedSection(root, pathname) {
     redirect("/admin");
   });
   if (adminSection(pathname).slug === "organizations") attachOrganizationControls(root, pathname);
+  if (adminSection(pathname).slug === "support") attachSupport(root);
   if (adminSection(pathname).slug === "enquiries") attachEnquiries(root);
   if (adminSection(pathname).slug === "dashboard") attachDashboardControls(root);
   if (adminSection(pathname).slug === "realtime") attachRealtimeDashboard(root);
