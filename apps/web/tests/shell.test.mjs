@@ -488,6 +488,10 @@ test("B2C checkout and B2B payment information stay backend-priced", () => {
   assert.match(consumer, /\/me\/verify-payment/);
   assert.match(consumer, /window\.Razorpay/);
   assert.match(consumer, /razorpayCheckoutLogo/);
+  assert.match(consumer, /prefill: \{ email: destination/);
+  assert.match(consumer, /hidden: \{ contact: true \}/);
+  assert.match(consumer, /prefill: \{ contact/);
+  assert.match(consumer, /`\+91\$\{compactContact\}`/);
   assert.match(consumer, /backdrop_color: "#f4edf6"/);
   assert.match(consumer, /<span>Buy<\/span>/);
   assert.doesNotMatch(consumer, /₹3(?:\.00)?\b/);

@@ -512,6 +512,28 @@ function livePaymentOriginIsApproved(keyId) {
   return host === "wearo.ai" || host.endsWith(".wearo.ai");
 }
 
+function razorpayCustomerOptions(auth) {
+  const destination = String(auth?.destination || "").trim();
+  const name = String(auth?.displayName || "").trim();
+  if (!destination) return name ? { prefill: { name } } : {};
+  if (destination.includes("@")) {
+    return {
+      prefill: { email: destination, ...(name ? { name } : {}) },
+      hidden: { contact: true },
+    };
+  }
+  const compactContact = destination.replace(/[\s()-]/g, "");
+  const contact = /^\d{10}$/.test(compactContact)
+    ? `+91${compactContact}`
+    : /^91\d{10}$/.test(compactContact)
+      ? `+${compactContact}`
+      : compactContact;
+  return {
+    prefill: { contact, ...(name ? { name } : {}) },
+    hidden: { contact: true },
+  };
+}
+
 async function buyConsumerPackage(item, button, status, auth) {
   const idleMarkup = `${purchaseIcon}<span>Buy</span>`;
   button.disabled = true;
@@ -573,6 +595,7 @@ async function buyConsumerPackage(item, button, status, auth) {
       image: checkoutLogo,
       description: `${item.name} · ${Number(item.total_tokens).toLocaleString("en-IN")} tokens`,
       order_id: order.provider_order_id,
+      ...razorpayCustomerOptions(auth),
       handler: async (payment) => {
         setStatus(status, "Payment received. Verifying it securely…");
         const verificationController = new AbortController();
