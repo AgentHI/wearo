@@ -3760,19 +3760,33 @@ def create_app(
         ist = current.astimezone(IST)
         reset_local = datetime.combine(ist.date() + timedelta(days=1), time(), ist.tzinfo)
         token_cost = None
+        token_balance = 0
+        purchased_try_ons_remaining = 0
         if container.plan_usage is not None:
             usage_snapshot = container.plan_usage.for_account(
                 session.account_id, action_code="TRY_ON", date_from=ist.date(), date_to=ist.date()
             )
-            token_cost = usage_snapshot.action_cost
+            token_balance = usage_snapshot.token_balance
+            retail_price = retail_tryon_pricing.current()
+            token_cost = (
+                int(retail_price["tokens_per_tryon"])
+                if retail_price is not None
+                else usage_snapshot.action_cost
+            )
+            if token_cost and token_cost > 0:
+                purchased_try_ons_remaining = max(token_balance, 0) // token_cost
+        free_remaining = (
+            container.quota.maximum
+            if not container.quota.limit_enabled
+            else max(container.quota.maximum - used, 0)
+        )
         return {
-            "successful_limit": container.quota.maximum,
+            "successful_limit": container.quota.maximum + purchased_try_ons_remaining,
             "successful_used": used,
-            "remaining": (
-                container.quota.maximum
-                if not container.quota.limit_enabled
-                else container.quota.maximum - used
-            ),
+            "remaining": free_remaining + purchased_try_ons_remaining,
+            "free_remaining": free_remaining,
+            "purchased_try_ons_remaining": purchased_try_ons_remaining,
+            "token_balance": token_balance,
             "unlimited": not container.quota.limit_enabled,
             "token_cost_per_try_on": token_cost,
             "tokens_consumed_today": (

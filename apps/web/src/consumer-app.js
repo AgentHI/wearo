@@ -1684,9 +1684,13 @@ function attachHomeFlow(auth) {
       const allowance = await api("/me/daily-allowance", {}, auth);
       allowanceCount.textContent = allowance.unlimited ? "∞" : allowance.remaining;
       allowanceCopy.textContent = allowance.unlimited ? "Unlimited" : allowance.remaining;
-      allowanceNote.textContent = allowance.unlimited
-        ? `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"}.`
-        : `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · Resets at midnight IST.`;
+      if (allowance.unlimited) {
+        allowanceNote.textContent = `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"}.`;
+      } else if (Number(allowance.purchased_try_ons_remaining) > 0) {
+        allowanceNote.textContent = `${allowance.free_remaining} free today + ${allowance.purchased_try_ons_remaining} purchased · ${Number(allowance.token_balance).toLocaleString("en-IN")} tokens.`;
+      } else {
+        allowanceNote.textContent = `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · Free allowance resets at midnight IST.`;
+      }
       return true;
     } catch (error) {
       if (error.status === 401) {
