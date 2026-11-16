@@ -10,6 +10,22 @@ import { renderCostLab } from "../../../packages/cost-lab-ui/src/index.js";
 import { renderAboutSite, renderContactSite, renderExperiencesSite, renderForBusinessSite, renderPublicSite } from "./public-site.js";
 import "./styles.css";
 
+// Keep consumer payment activity isolated from the administration workspace. This also
+// neutralizes obsolete checkout timers that can survive Vite hot-module replacement.
+const ORIGINAL_FETCH_KEY = "__wearoOriginalFetch";
+const originalFetch = window[ORIGINAL_FETCH_KEY] || window.fetch.bind(window);
+window[ORIGINAL_FETCH_KEY] = originalFetch;
+window.fetch = (input, options = {}) => {
+  const request = input instanceof Request ? input : null;
+  const method = String(options.method || request?.method || "GET").toUpperCase();
+  const url = new URL(request?.url || String(input), window.location.origin);
+  const isConsumerOrderStatus = /^\/api\/v1\/me\/topup-orders\/[^/]+$/.test(url.pathname);
+  if (/^\/admin(?:\/|$)/.test(window.location.pathname) && method === "GET" && isConsumerOrderStatus) {
+    return Promise.reject(new DOMException("Consumer payment watcher stopped on admin route.", "AbortError"));
+  }
+  return originalFetch(input, options);
+};
+
 function currentExperience(pathname) {
   if (pathname === "/" || pathname === "/index.html") return "public";
   if (pathname === "/experiences" || pathname === "/experiences/") return "experiences";

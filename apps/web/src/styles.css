@@ -1924,6 +1924,65 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-status--delivered { color: #225b43; background: #e0f1e9; }
 .admin-status--failed { color: #822b38; background: #f8e3e6; }
 .admin-status--processing, .admin-status--pending { color: #795714; background: #fff0c9; }
+.service-health { display: grid; gap: 1.25rem; }
+.service-health__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding: 1.35rem 1.5rem; border: 1px solid rgb(201 164 107 / 44%); border-radius: 1rem; background: linear-gradient(145deg, #fff, #fffaf1); box-shadow: var(--shadow-sm); }
+.service-health__toolbar h2 { margin: .2rem 0 .35rem; font-size: 1.45rem; }
+.service-health__toolbar p { max-width: 43rem; margin: 0; color: var(--ink-mauve); font-size: .88rem; }
+.service-health__toolbar .button { flex: 0 0 auto; margin: 0; box-shadow: 0 .5rem 1rem rgb(69 24 73 / 16%); }
+.service-health__toolbar .button svg { width: 1.05rem; height: 1.05rem; }
+.service-health__toolbar .button.is-syncing svg { animation: admin-spin .8s linear infinite; }
+.service-health__summary { position: relative; display: flex; min-height: 7.5rem; align-items: center; gap: 1rem; overflow: hidden; padding: 1.25rem 1.4rem; border: 1px solid #e0d4df; border-radius: 1rem; color: var(--brand-plum); background: linear-gradient(135deg, #f9f4fa, #fff); box-shadow: var(--shadow-sm); }
+.service-health__summary::after { position: absolute; right: -2.5rem; width: 10rem; height: 10rem; border-radius: 50%; background: rgb(255 255 255 / 24%); content: ""; }
+.service-health__summary-icon { z-index: 1; display: grid; width: 3.2rem; height: 3.2rem; flex: 0 0 auto; place-items: center; border-radius: .9rem; background: rgb(69 24 73 / 10%); }
+.service-health__summary-icon svg { width: 1.5rem; height: 1.5rem; }
+.service-health__summary-icon i { width: 1.25rem; height: 1.25rem; border: 2px solid rgb(69 24 73 / 18%); border-top-color: var(--brand-plum); border-radius: 50%; animation: admin-spin .8s linear infinite; }
+.service-health__summary > div { z-index: 1; }
+.service-health__summary small { display: block; margin-bottom: .25rem; font-size: .67rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; opacity: .72; }
+.service-health__summary strong { display: block; font-size: 1.25rem; }
+.service-health__summary p { margin: .3rem 0 0; color: inherit; font-size: .8rem; opacity: .75; }
+.service-health__summary.is-healthy { border-color: #b9dfca; color: #225b43; background: linear-gradient(135deg, #e8f6ee, #f8fcfa); }
+.service-health__summary.is-unhealthy, .service-health__summary.is-unavailable { border-color: #eccbd0; color: #822b38; background: linear-gradient(135deg, #fbeaec, #fff8f9); }
+.service-health__section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-top: .35rem; }
+.service-health__section-heading h3, .service-health__section-heading p { margin: 0; }
+.service-health__section-heading h3 { font-size: 1.05rem; }
+.service-health__section-heading p, .service-health__section-heading > span { margin-top: .2rem; color: var(--ink-mauve); font-size: .72rem; }
+.service-health__section-heading > span { padding: .3rem .6rem; border-radius: 99rem; background: white; box-shadow: var(--shadow-sm); }
+.service-health__table { overflow: hidden; border: 1px solid #e1dce2; border-radius: 1rem; background: white; box-shadow: 0 .35rem 1rem rgb(37 17 41 / 5%); }
+.service-health__table-head, .service-health__card { display: grid; grid-template-columns: minmax(14rem, 1.35fr) minmax(7rem, .55fr) minmax(15rem, 1fr) minmax(7rem, .45fr); align-items: center; gap: 1rem; }
+.service-health__table-head { padding: .7rem 1rem; border-bottom: 1px solid #e1dce2; color: #918793; background: #faf8fa; font-size: .65rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.service-health__grid { display: grid; }
+.service-health__card { position: relative; min-height: 4.8rem; padding: .8rem 1rem; border-bottom: 1px solid #eee9ef; background: white; transition: background .15s ease; }
+.service-health__card:last-child { border-bottom: 0; }
+.service-health__card:hover { background: #fdfbfc; }
+.service-health__card.is-unhealthy::before { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; background: #b53f51; content: ""; }
+.service-health__card-heading { display: flex; align-items: center; gap: .65rem; }
+.service-health__service-icon { display: grid; width: 2.45rem; height: 2.45rem; flex: 0 0 auto; place-items: center; border-radius: .7rem; color: var(--brand-plum); background: var(--state-lilac); }
+.service-health__service-icon svg { width: 1.25rem; height: 1.25rem; }
+.service-health__card-heading > div { min-width: 0; flex: 1; }
+.service-health__card h3, .service-health__card p { margin: 0; }
+.service-health__card h3 { overflow: hidden; font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+.service-health__card small { display: block; margin-bottom: .1rem; color: #918793; font-size: .61rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.service-health__status-cell { display: flex; align-items: center; gap: .55rem; }
+.service-health__badge { width: fit-content; padding: .25rem .48rem; border-radius: 99rem; color: #822b38; background: #f8e3e6; font-size: .64rem; font-weight: 800; }
+.service-health__card.is-healthy .service-health__badge { color: #225b43; background: #e0f1e9; }
+.service-health__card-detail { min-width: 0; }
+.service-health__card-detail p { color: var(--ink-mauve); font-size: .75rem; line-height: 1.45; }
+.service-health__indicator { width: .5rem; height: .5rem; flex: 0 0 auto; border-radius: 50%; background: #b53f51; box-shadow: 0 0 0 .2rem rgb(181 63 81 / 12%); }
+.service-health__card.is-healthy .service-health__indicator { background: #2f8b61; box-shadow: 0 0 0 .2rem rgb(47 139 97 / 12%); }
+.service-health__card-meta { color: #918793; font-size: .72rem; text-align: right; }
+.service-health__card-meta strong { color: var(--ink-charcoal); }
+.service-health__skeleton { display: block; width: 80%; height: .65rem; border-radius: 99rem; background: linear-gradient(90deg, #f0ebf0, #faf8fa, #f0ebf0); background-size: 200% 100%; animation: service-health-shimmer 1.2s linear infinite; }
+.service-health__skeleton--status { width: 4rem; }
+.service-health__skeleton--time { width: 3rem; justify-self: end; }
+@keyframes service-health-shimmer { to { background-position: -200% 0; } }
+.service-health__empty { display: flex; grid-column: 1 / -1; min-height: 10rem; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; border: 1px dashed #d9cbd8; border-radius: 1rem; color: var(--ink-mauve); background: rgb(255 255 255 / 58%); }
+.service-health__empty > span { display: grid; width: 3rem; height: 3rem; flex: 0 0 auto; place-items: center; border-radius: .85rem; color: var(--brand-plum); background: var(--state-lilac); }
+.service-health__empty svg { width: 1.4rem; height: 1.4rem; }
+.service-health__empty h3, .service-health__empty p { margin: 0; }
+.service-health__empty h3 { color: var(--ink-charcoal); font-size: .95rem; }
+.service-health__empty p { max-width: 36rem; margin-top: .3rem; font-size: .78rem; }
+@media (max-width: 900px) { .service-health__table-head, .service-health__card { grid-template-columns: minmax(12rem, 1fr) minmax(6rem, .5fr) minmax(12rem, 1fr) minmax(6rem, .4fr); } }
+@media (max-width: 620px) { .service-health__toolbar { align-items: stretch; flex-direction: column; } .service-health__toolbar .button { width: 100%; } .service-health__section-heading { align-items: flex-start; flex-direction: column; } .service-health__table-head { display: none; } .service-health__card { grid-template-columns: 1fr auto; gap: .75rem; padding: 1rem; } .service-health__card-heading { grid-column: 1 / -1; } .service-health__card-detail { grid-column: 1 / -1; } .service-health__card-meta { grid-row: 2; grid-column: 2; } .service-health__skeleton { grid-column: 1 / -1; } .service-health__skeleton--time { display: none; } }
 .admin-ai-costs { display: grid; gap: 1.75rem; }
 .admin-ai-summary { margin-top: .25rem; }
 .admin-ai-summary article { min-height: 7.5rem; }

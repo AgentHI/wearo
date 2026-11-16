@@ -43,6 +43,7 @@ from .admin_platform_controls import (
 from .admin_pricing import AdminPricingError, PostgresAdminPricing
 from .admin_realtime import AdminRealtimeError, PostgresAdminRealtime
 from .admin_revenue import AdminRevenueError, PostgresAdminRevenue
+from .admin_service_health import current_service_health
 from .admin_subscriptions import (
     AdminSubscriptionError,
     PostgresAdminSubscriptions,
@@ -1752,6 +1753,11 @@ def create_app(
             )
         except AdminOperationsError as error:
             raise ApiProblem(422, "INVALID_OPERATIONS_FILTER", str(error)) from None
+
+    @app.get("/api/v1/admin/service-health")
+    def admin_service_health(request: Request) -> dict[str, object]:
+        require_platform_admin(request)
+        return current_service_health()
 
     @app.get("/api/v1/admin/operations/controls")
     def admin_platform_control_status(request: Request) -> dict[str, object]:

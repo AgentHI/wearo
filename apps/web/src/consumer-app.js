@@ -537,15 +537,9 @@ async function buyConsumerPackage(item, button, status, auth) {
     const checkoutLogo = await razorpayCheckoutLogo();
     let checkout;
     let paymentSettled = false;
-    let statusTimer = null;
-    let statusAttempts = 0;
     const resetButton = () => {
       button.disabled = false;
       button.innerHTML = idleMarkup;
-    };
-    const stopStatusPolling = () => {
-      if (statusTimer) window.clearTimeout(statusTimer);
-      statusTimer = null;
     };
     const closeCheckout = (message, tone) => {
       sessionStorage.setItem(PAYMENT_FLASH_KEY, JSON.stringify({ message, tone }));
@@ -563,41 +557,12 @@ async function buyConsumerPackage(item, button, status, auth) {
     const showConfirmedPayment = async () => {
       if (paymentSettled) return;
       paymentSettled = true;
-      stopStatusPolling();
       const message = `${item.name} added — your tokens are ready to use.`;
       closeCheckout(message, "success");
       setStatus(status, message, "success");
       resetButton();
       if (!document.querySelector("#consumer-billing-history")?.hidden) {
         await loadConsumerBillingHistory(auth);
-      }
-    };
-    const pollPaymentStatus = async () => {
-      if (paymentSettled) return;
-      statusAttempts += 1;
-      try {
-        const latest = await api(`/me/topup-orders/${encodeURIComponent(order.payment_order_id)}`, {}, auth);
-        if (latest.state === "CONFIRMED") {
-          await showConfirmedPayment();
-          return;
-        }
-        if (latest.state === "FAILED" || latest.state === "REFUNDED") {
-          paymentSettled = true;
-          stopStatusPolling();
-          const message = `Payment ${latest.state.toLowerCase()}. No credits were added.`;
-          closeCheckout(message, "error");
-          setStatus(status, message, "error");
-          resetButton();
-          return;
-        }
-      } catch {
-        // A transient status failure must not interrupt Razorpay checkout.
-      }
-      if (statusAttempts < 120 && !paymentSettled) {
-        statusTimer = window.setTimeout(pollPaymentStatus, 2_500);
-      } else if (!paymentSettled) {
-        setStatus(status, "Payment confirmation is delayed. Check Payment history before trying again.", "error");
-        resetButton();
       }
     };
     checkout = new window.Razorpay({
@@ -638,7 +603,6 @@ async function buyConsumerPackage(item, button, status, auth) {
       },
       modal: { ondismiss: () => {
         if (paymentSettled) return;
-        stopStatusPolling();
         setStatus(status, "Checkout closed. You were not charged by Wearo.");
         resetButton();
       } },
@@ -646,14 +610,12 @@ async function buyConsumerPackage(item, button, status, auth) {
     });
     checkout.on("payment.failed", (response) => {
       paymentSettled = true;
-      stopStatusPolling();
       const message = response.error?.description || "Payment failed. Please try again.";
       closeCheckout(message, "error");
       setStatus(status, message, "error");
       resetButton();
     });
     checkout.open();
-    statusTimer = window.setTimeout(pollPaymentStatus, 1_500);
   } catch (error) {
     setStatus(status, error.message, "error");
     button.disabled = false;

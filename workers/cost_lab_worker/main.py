@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from PIL import Image, ImageOps
 from sqlalchemy import Engine, create_engine, text
 
+from apps.api.wearo_api.worker_health import start_worker_health_server
 from apps.cost_lab_api.adapters import BFLAdapter, BytePlusAdapter, OpenAICompatibleAdapter
 from apps.cost_lab_api.app import CostLab, _provider_quality_parameters
 from apps.cost_lab_api.config import Settings
@@ -403,6 +404,10 @@ def run() -> None:
     worker = CostLabWorker(
         CostLab(settings, create_engine(settings.database_url, pool_pre_ping=True))
     )
+    if not args.once:
+        start_worker_health_server(
+            "cost-lab-worker", int(os.environ.get("WEARO_COST_LAB_WORKER_HEALTH_PORT", "8023"))
+        )
     while True:
         worked = worker.process_dataset_one() or worker.process_one()
         if args.once:

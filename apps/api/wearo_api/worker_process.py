@@ -27,6 +27,7 @@ from .render_provider import (
 )
 from .render_quality import QualityAnalyzer, RenderQualityGate
 from .render_runtime import DurableRenderJob, PostgresRenderRuntime
+from .worker_health import start_worker_health_server
 
 
 def _required(name: str) -> str:
@@ -195,6 +196,9 @@ def main() -> None:
         raise SystemExit("--poll-seconds must be between 0.1 and 30")
     concurrency = worker_concurrency(args.concurrency)
     stop = threading.Event()
+    health_server = None if args.once else start_worker_health_server(
+        "render-worker", int(os.environ.get("WEARO_RENDER_WORKER_HEALTH_PORT", "8021"))
+    )
 
     def run_slot(slot: int) -> None:
         worker = build_worker(worker_slot=slot)
@@ -223,6 +227,9 @@ def main() -> None:
         stop.set()
         for thread in threads:
             thread.join()
+    finally:
+        if health_server is not None:
+            health_server.shutdown()
 
 
 if __name__ == "__main__":

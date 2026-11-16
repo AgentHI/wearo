@@ -11,6 +11,7 @@ const ADMIN_SECTIONS = [
   { slug: "billing-pricing", label: "Billing & Pricing", icon: "₹", description: "Review platform billing and pricing configuration." },
   { slug: "notifications", label: "Notifications", icon: "✉", description: "Create and publish Email, SMS, and WhatsApp communication templates." },
   { slug: "platform-operations", label: "Platform Operations", icon: "⚙", description: "Monitor the services that operate Wearo." },
+  { slug: "service-health", label: "Service Health", icon: "♥", description: "Run live health checks for every Wearo service and worker." },
   { slug: "audit-history", label: "Audit History", icon: "≡", description: "Review administrator and platform audit events." },
   { slug: "ai-models-cost", label: "AI Models & Cost", icon: "$", description: "Manage providers, models, funding, and model-level generation cost." },
 ];
@@ -101,6 +102,15 @@ function tryOnOperationsView() {
   return `<section><h2>Try-on controls</h2><div id="platform-control-status" class="admin-data-panel" aria-live="polite">Loading platform status…</div><form id="platform-control-form" class="admin-filters"><label>Scope<select name="scope"><option value="PLATFORM">Entire platform</option><option value="BUSINESS_TYPE">Business type</option><option value="ORGANIZATION">One organization</option></select></label><label>Target<select name="scopeKey"><option value="">All</option></select></label><label>Reason<input name="reason" required maxlength="500" /></label><label class="admin-confirm"><input name="confirmed" type="checkbox" required /> I confirm this control change</label><div><button name="action" value="PAUSE" class="button button--danger">Pause try-ons</button><button name="action" value="RESUME" class="button button--quiet">Resume try-ons</button></div><p class="form-status" role="status"></p></form><p class="field-help">Controls affect new try-ons only. Login, payments, history, and existing try-on results remain available.</p></section><form id="tryon-operations-filter" class="admin-dashboard-filters"><label>From<input name="dateFrom" type="date" required /></label><label>To<input name="dateTo" type="date" required /></label><label>Organization<select name="tenantId"><option value="">All organizations</option></select></label><label>Business type<select name="businessType"><option value="">All business types</option><option value="BOUTIQUE">Boutique</option><option value="CLOTHING_RETAILER">Clothing retailer</option><option value="JEWELLERY_RETAILER">Jewellery retailer</option><option value="ENTERPRISE_CHAIN">Enterprise chain</option><option value="OTHER">Other</option></select></label><button class="button button--primary">Apply filters</button></form><div id="tryon-operations-metrics" class="admin-platform-metrics" aria-live="polite">Loading try-on operations…</div><section><h2>Failure reasons</h2><div id="tryon-failure-reasons" class="admin-data-panel"></div></section><section><h2>Request status</h2><p class="field-help">Operational metadata only. Customer images are not loaded or displayed.</p><div id="tryon-operation-list" class="admin-data-panel"></div><div id="tryon-operation-detail" class="admin-data-panel" hidden></div></section>`;
 }
 
+function serviceHealthView() {
+  return `<section class="service-health">
+    <div class="service-health__toolbar"><div><p class="eyebrow">Platform monitoring</p><h2>Services and workers</h2><p>Run an on-demand check across the Wearo runtime. Results are live and are not stored.</p></div><button id="service-health-sync" class="button button--primary admin-action-with-icon" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg><span>Refresh status</span></button></div>
+    <div id="service-health-summary" class="service-health__summary is-loading" aria-live="polite"><span class="service-health__summary-icon"><i></i></span><div><small>Overall platform status</small><strong>Checking services…</strong><p>Contacting each configured health endpoint.</p></div></div>
+    <div class="service-health__section-heading"><div><h3>Runtime services</h3><p>API processes and background workers</p></div><span id="service-health-count">Checking 5 services</span></div>
+    <div class="service-health__table"><div class="service-health__table-head" aria-hidden="true"><span>Service</span><span>Status</span><span>Endpoint</span><span>Response time</span></div><div id="service-health-list" class="service-health__grid">${Array.from({ length: 5 }, () => '<article class="service-health__card is-loading"><div class="service-health__card-heading"><span class="service-health__service-icon"></span><div><small>Runtime service</small><h3>Loading service…</h3></div></div><span class="service-health__skeleton service-health__skeleton--status"></span><span class="service-health__skeleton"></span><span class="service-health__skeleton service-health__skeleton--time"></span></article>').join("")}</div></div>
+  </section>`;
+}
+
 function auditHistoryView() {
   return `<form id="admin-audit-filter" class="admin-filters"><label>Search audit history<input name="search" type="search" placeholder="Action, organization, target, or reason" /></label><label>From<input name="dateFrom" type="date" /></label><label>To<input name="dateTo" type="date" /></label><button class="button button--primary">Apply filters</button></form><p class="field-help">Audit records are immutable and cannot be edited or deleted.</p><div id="admin-audit-list" class="admin-data-panel" aria-live="polite">Loading audit history…</div>`;
 }
@@ -132,6 +142,7 @@ function sectionContent(active, pathname) {
   if (active.slug === "billing-pricing") return pricingSettingsView();
   if (active.slug === "notifications") return notificationsView();
   if (active.slug === "platform-operations") return tryOnOperationsView();
+  if (active.slug === "service-health") return serviceHealthView();
   if (active.slug === "audit-history") return auditHistoryView();
   return `<article class="admin-welcome-panel"><h2>${active.slug === "dashboard" ? "Wearo Admin home" : `${active.label} overview`}</h2><p>${active.slug === "dashboard" ? "Choose a section from the navigation to manage the Wearo platform." : "This section is ready for its dedicated administration capabilities."}</p></article>`;
 }
@@ -752,6 +763,43 @@ async function attachTryOnOperations(root) {
   loadControls();
 }
 
+function attachServiceHealth(root) {
+  const button = root.querySelector("#service-health-sync");
+  const buttonLabel = button.querySelector("span");
+  const summary = root.querySelector("#service-health-summary");
+  const list = root.querySelector("#service-health-list");
+  const count = root.querySelector("#service-health-count");
+  const sync = async () => {
+    button.disabled = true;
+    button.classList.add("is-syncing");
+    buttonLabel.textContent = "Refreshing…";
+    summary.className = "service-health__summary is-loading";
+    summary.innerHTML = '<span class="service-health__summary-icon"><i></i></span><div><small>Overall platform status</small><strong>Checking services…</strong><p>Contacting each configured health endpoint.</p></div>';
+    try {
+      const response = await fetch(`${API_ROOT}/admin/service-health`, { credentials: "same-origin", cache: "no-store" });
+      if (response.status === 401) return redirect("/admin");
+      if (!response.ok) throw new Error("Health API unavailable");
+      const data = await response.json();
+      const healthyCount = data.services.filter((service) => service.healthy).length;
+      const healthy = healthyCount === data.services.length;
+      summary.className = `service-health__summary ${healthy ? "is-healthy" : "is-unhealthy"}`;
+      summary.innerHTML = `<span class="service-health__summary-icon">${healthy ? '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>' : '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>'}</span><div><small>Overall platform status</small><strong>${healthy ? "All systems operational" : "Attention required"}</strong><p>${healthyCount} of ${data.services.length} services healthy · Checked ${escapeHtml(new Date(data.checked_at).toLocaleString())}</p></div>`;
+      count.textContent = `${healthyCount} of ${data.services.length} healthy`;
+      list.innerHTML = data.services.map((service) => `<article class="service-health__card ${service.healthy ? "is-healthy" : "is-unhealthy"}"><div class="service-health__card-heading"><span class="service-health__service-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M12 7h5M12 17h5"/></svg></span><div><small>Runtime service</small><h3>${escapeHtml(service.name)}</h3></div></div><div class="service-health__status-cell"><span class="service-health__indicator" aria-hidden="true"></span><span class="service-health__badge">${service.healthy ? "Healthy" : "Issue"}</span></div><div class="service-health__card-detail"><p>${escapeHtml(service.detail)}</p></div><div class="service-health__card-meta"><strong>${escapeHtml(service.response_time_ms)} ms</strong></div></article>`).join("");
+    } catch (_) {
+      summary.className = "service-health__summary is-unavailable";
+      summary.innerHTML = '<span class="service-health__summary-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg></span><div><small>Health check unavailable</small><strong>Could not reach the monitoring API</strong><p>Confirm the latest API version is running, then refresh the status again.</p></div>';
+      count.textContent = "Status unavailable";
+      list.innerHTML = '<div class="service-health__empty"><span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 17h16M6 17V7h12v10M9 10h6M9 13h4"/></svg></span><div><h3>No service result received</h3><p>The monitoring endpoint did not return service data. Use Refresh status after the API has restarted.</p></div></div>';
+    }
+    button.disabled = false;
+    button.classList.remove("is-syncing");
+    buttonLabel.textContent = "Refresh status";
+  };
+  button.addEventListener("click", sync);
+  sync();
+}
+
 function attachAuditHistory(root) {
   const form = root.querySelector("#admin-audit-filter");
   const load = async () => {
@@ -1118,6 +1166,7 @@ function renderAuthenticatedSection(root, pathname) {
   if (adminSection(pathname).slug === "billing-pricing") attachPricingControls(root);
   if (adminSection(pathname).slug === "notifications") attachNotificationControls(root);
   if (adminSection(pathname).slug === "platform-operations") attachTryOnOperations(root);
+  if (adminSection(pathname).slug === "service-health") attachServiceHealth(root);
   if (adminSection(pathname).slug === "audit-history") attachAuditHistory(root);
 }
 

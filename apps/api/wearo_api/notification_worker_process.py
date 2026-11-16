@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from .database import normalize_database_url
 from .environment import load_wearo_environment
 from .notification_delivery import NotificationWorker, PostgresNotificationService, SesEmailSender
+from .worker_health import start_worker_health_server
 
 
 def _required(name: str) -> str:
@@ -82,6 +83,11 @@ def main() -> None:
     if not 0.1 <= args.poll_seconds <= 30:
         raise SystemExit("--poll-seconds must be between 0.1 and 30")
     worker = build_notification_worker()
+    if not args.once:
+        start_worker_health_server(
+            "notification-worker",
+            int(os.environ.get("WEARO_NOTIFICATION_WORKER_HEALTH_PORT", "8022")),
+        )
     while True:
         claimed = worker.run_once()
         if args.once:
