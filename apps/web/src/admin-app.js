@@ -89,7 +89,9 @@ function customerDashboardView() {
 
 function pricingSettingsView() {
   const businessTypes = '<option value="">All business types</option><option value="BOUTIQUE">Boutique</option><option value="CLOTHING_RETAILER">Clothing retailer</option><option value="JEWELLERY_RETAILER">Jewellery retailer</option><option value="ENTERPRISE_CHAIN">Enterprise chain</option><option value="OTHER">Other</option>';
-  return `<section class="admin-revenue-dashboard"><h2>Platform revenue</h2><form id="admin-revenue-filter" class="admin-filters"><label>From<input name="dateFrom" type="date" required /></label><label>To<input name="dateTo" type="date" required /></label><label>Organization<select name="tenantId"><option value="">All organizations</option></select></label><button class="button button--primary">Apply filters</button></form><div id="admin-revenue-metrics" class="admin-platform-metrics" aria-live="polite">Loading revenue…</div><p class="field-help">Received revenue includes completed payments only. Pending collections are shown separately. Estimated AI cost and margin use the configured cost per generation attempt; actual recorded provider costs are shown independently.</p></section>
+  return `<section class="admin-data-panel admin-retail-pricing"><div><p class="eyebrow">Website price</p><h2>Publish retail try-on price</h2><p>Set the rupee price shown in B2C and B2B. This does not change existing action rates, wallets, plans, packages, or past transactions.</p></div><form id="retail-tryon-price-form"><label>Price per try-on (INR)<input name="price" type="number" min="0.20" max="100000" step="0.20" required placeholder="3.00" /></label><div class="admin-retail-pricing__preview"><small>Automatic conversion</small><strong id="retail-token-preview">Enter a price</strong><span>(price × 10) ÷ 2</span></div><label>Reason for publishing<input name="reason" required maxlength="500" placeholder="Approved retail price" /></label><button class="button button--primary">Publish website price</button><p class="form-status" role="status" aria-live="polite"></p></form><div id="admin-retail-pricing-current" class="admin-retail-pricing__current" aria-live="polite">Loading current website price…</div></section>
+  <section class="admin-data-panel admin-retail-package"><div><p class="eyebrow">B2C packages</p><h2 id="retail-package-form-title">Create try-on package</h2><p>The package receives 5 tokens for every ₹1 before tax. Estimated try-ons use the currently published tokens-per-try-on rate.</p></div><form id="retail-tryon-package-form"><label>Package name<input name="name" required maxlength="80" placeholder="Starter" /></label><label>Minimum amount before tax (INR)<input name="amount" type="number" min="0.20" max="10000000" step="0.20" required placeholder="100.00" /></label><label>GST rate (%)<input name="gst" type="number" min="0" max="100" step="0.01" value="18" required /></label><div class="admin-retail-pricing__preview"><small>Automatic package calculation</small><strong id="retail-package-preview">Enter a minimum amount</strong><span>5 tokens per ₹1 before tax · try-ons use the published token rate</span></div><label>Reason for change<input name="reason" required maxlength="500" placeholder="Approved B2C package" /></label><div class="form-actions"><button id="retail-package-submit" class="button button--primary admin-action-with-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Create package</span></button><button id="retail-package-cancel-edit" class="button button--quiet admin-action-with-icon" type="button" hidden><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg><span>Cancel edit</span></button></div><p class="form-status" role="status" aria-live="polite"></p></form><div id="admin-retail-package-list" class="admin-retail-pricing__current" aria-live="polite">Loading packages…</div></section>
+  <section class="admin-revenue-dashboard"><h2>Platform revenue</h2><form id="admin-revenue-filter" class="admin-filters"><label>From<input name="dateFrom" type="date" required /></label><label>To<input name="dateTo" type="date" required /></label><label>Organization<select name="tenantId"><option value="">All organizations</option></select></label><button class="button button--primary">Apply filters</button></form><div id="admin-revenue-metrics" class="admin-platform-metrics" aria-live="polite">Loading revenue…</div><p class="field-help">Received revenue includes completed payments only. Pending collections are shown separately. Estimated AI cost and margin use the configured cost per generation attempt; actual recorded provider costs are shown independently.</p></section>
   <section class="admin-payment-management"><h2>Billing and payments</h2><div id="admin-payment-summary" class="admin-stat-grid" aria-live="polite"></div><form id="admin-payment-filter" class="admin-filters"><label>Payment status<select name="status"><option value="">All payments</option><option>PAID</option><option>PENDING</option><option>FAILED</option><option>OVERDUE</option></select></label><button class="button button--primary">Apply filter</button></form><div id="admin-payment-list" class="admin-data-panel" aria-live="polite">Loading payments…</div></section>
   <div class="admin-pricing-grid"><form id="pricing-settings-form" class="admin-data-panel"><h2>Platform subscription pricing</h2><label>Plan code<input name="planCode" required maxlength="40" /></label><label>Business type<select name="businessType">${businessTypes}</select></label><label>Monthly fee (INR)<input name="monthlyFee" type="number" min="0" step="0.01" required /></label><label>Tokens per try-on<input name="tryOnCost" type="number" min="1" required /></label><label>Free trial tokens<input name="trialTokens" type="number" min="0" required /></label><label>Trial duration (days)<input name="trialDays" type="number" min="1" max="365" required /></label><label>Payment grace period (days)<input name="graceDays" type="number" min="0" max="90" required /></label><label>GST / tax rate (%)<input name="gst" type="number" min="0" max="100" step="0.01" required /></label><label>Reason for pricing change<input name="reason" required maxlength="500" /></label><button class="button button--primary">Publish pricing</button><p class="form-status" role="status"></p></form>
   <form id="token-package-form" class="admin-data-panel"><h2>Create or replace token package</h2><label>Package code<input name="code" required maxlength="40" /></label><label>Business type<select name="businessType">${businessTypes}</select></label><label>Purchased tokens<input name="purchased" type="number" min="1" required /></label><label>Bonus tokens<input name="promo" type="number" min="0" required /></label><label>Package price (INR)<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>Bulk discount (%)<input name="discount" type="number" min="0" max="100" step="0.01" required /></label><label>GST / tax rate (%)<input name="gst" type="number" min="0" max="100" step="0.01" required /></label><label>Reason for package change<input name="reason" required maxlength="500" /></label><button class="button button--primary">Publish package</button><p class="form-status" role="status"></p></form></div><section class="admin-pricing-current"><h2>Current pricing</h2><div id="admin-pricing-current" class="admin-data-panel">Loading pricing…</div></section>`;
@@ -536,6 +538,114 @@ async function loadPricing(root) {
 }
 
 function attachPricingControls(root) {
+  const retailForm = root.querySelector("#retail-tryon-price-form");
+  const retailPreview = root.querySelector("#retail-token-preview");
+  const retailCurrent = root.querySelector("#admin-retail-pricing-current");
+  const packageForm = root.querySelector("#retail-tryon-package-form");
+  const packagePreview = root.querySelector("#retail-package-preview");
+  const packageList = root.querySelector("#admin-retail-package-list");
+  let currentTokensPerTryOn = 0;
+  let retailPackages = [];
+  let editingPackageId = null;
+  const resetPackageForm = () => {
+    editingPackageId = null;
+    packageForm.reset();
+    packageForm.elements.gst.value = "18";
+    root.querySelector("#retail-package-form-title").textContent = "Create try-on package";
+    root.querySelector("#retail-package-submit").innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Create package</span>';
+    root.querySelector("#retail-package-cancel-edit").hidden = true;
+    renderPackagePreview();
+  };
+  const renderPackagePreview = () => {
+    const amount = Number(packageForm.elements.amount.value);
+    if (!(amount > 0)) return void (packagePreview.textContent = "Enter a minimum amount");
+    const gst = Number(packageForm.elements.gst.value || 0);
+    const tokens = amount * 5;
+    const finalAmount = amount * (1 + gst / 100);
+    packagePreview.textContent = currentTokensPerTryOn
+      ? `${tokens} tokens · ${Math.floor(tokens / currentTokensPerTryOn)} try-ons · ₹${finalAmount.toFixed(2)} including GST`
+      : `${tokens} tokens · ₹${finalAmount.toFixed(2)} including GST · publish a try-on price to calculate try-ons`;
+  };
+  const renderRetailPreview = () => {
+    const price = Number(retailForm.elements.price.value);
+    retailPreview.textContent = price > 0 ? `${(price * 10) / 2} tokens per try-on` : "Enter a price";
+  };
+  const loadRetailPrice = async () => {
+    const response = await fetch(`${API_ROOT}/admin/pricing/retail-tryon`, { credentials: "same-origin" });
+    if (response.status === 401) return redirect("/admin");
+    if (!response.ok) return void (retailCurrent.textContent = "Website price could not be loaded.");
+    const data = await response.json();
+    currentTokensPerTryOn = Number(data.current?.tokens_per_tryon || 0);
+    retailPackages = data.packages || [];
+    retailCurrent.innerHTML = data.current
+      ? `<small>Currently published</small><strong>₹${(Number(data.current.price_minor) / 100).toFixed(2)} · ${escapeHtml(data.current.tokens_per_tryon)} tokens per try-on</strong><span>Effective ${escapeHtml(new Date(data.current.effective_from).toLocaleString())}</span>`
+      : "No retail try-on price is currently published.";
+    packageList.innerHTML = retailPackages.length
+      ? retailPackages.map((item) => `<div class="admin-retail-package__row"><span><strong>${escapeHtml(item.name)}</strong><small>₹${(Number(item.final_amount_minor) / 100).toFixed(2)} including ${(Number(item.gst_basis_points) / 100).toFixed(2)}% GST · ${escapeHtml(item.total_tokens)} tokens · ${escapeHtml(item.number_of_tryons)} try-ons</small></span><span class="form-actions"><button class="admin-icon-action admin-icon-action--edit" type="button" data-package-edit="${escapeHtml(item.retail_package_id)}" aria-label="Edit ${escapeHtml(item.name)} package" title="Edit package"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button class="admin-icon-action admin-icon-action--delete" type="button" data-package-delete="${escapeHtml(item.retail_package_id)}" aria-label="Delete ${escapeHtml(item.name)} package" title="Delete package"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button></span></div>`).join("")
+      : "No B2C packages created yet.";
+    renderPackagePreview();
+  };
+  retailForm.elements.price.addEventListener("input", renderRetailPreview);
+  retailForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = retailForm.querySelector(".form-status");
+    const priceMinor = Math.round(Number(retailForm.elements.price.value) * 100);
+    status.textContent = "Publishing website price…";
+    const response = await fetch(`${API_ROOT}/admin/pricing/retail-tryon`, {
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ price_minor: priceMinor, reason: retailForm.elements.reason.value }),
+    });
+    const result = await response.json();
+    status.textContent = response.ok
+      ? `Published ₹${(Number(result.price_minor) / 100).toFixed(2)} as ${result.tokens_per_tryon} tokens per try-on. Existing pricing was not changed.`
+      : result.message || "Website price could not be published.";
+    if (response.ok) { retailForm.reset(); renderRetailPreview(); loadRetailPrice(); }
+  });
+  packageForm.elements.amount.addEventListener("input", renderPackagePreview);
+  packageForm.elements.gst.addEventListener("input", renderPackagePreview);
+  root.querySelector("#retail-package-cancel-edit").addEventListener("click", resetPackageForm);
+  packageList.addEventListener("click", async (event) => {
+    const edit = event.target.closest("[data-package-edit]");
+    const remove = event.target.closest("[data-package-delete]");
+    if (edit) {
+      const item = retailPackages.find((value) => value.retail_package_id === edit.dataset.packageEdit);
+      if (!item) return;
+      editingPackageId = item.retail_package_id;
+      packageForm.elements.name.value = item.name;
+      packageForm.elements.amount.value = (Number(item.minimum_amount_minor) / 100).toFixed(2);
+      packageForm.elements.gst.value = (Number(item.gst_basis_points) / 100).toFixed(2);
+      packageForm.elements.reason.value = "";
+      root.querySelector("#retail-package-form-title").textContent = `Edit ${item.name}`;
+      root.querySelector("#retail-package-submit").innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg><span>Save changes</span>';
+      root.querySelector("#retail-package-cancel-edit").hidden = false;
+      renderPackagePreview();
+      packageForm.elements.name.focus();
+      return;
+    }
+    if (!remove) return;
+    const item = retailPackages.find((value) => value.retail_package_id === remove.dataset.packageDelete);
+    if (!item || !(await wearoConfirm({ eyebrow: "B2C packages", title: `Delete ${item.name}?`, message: "This package will immediately disappear from the B2C pricing page.", note: "The audit record is retained and existing historical records are not deleted.", confirmLabel: "Delete package" }))) return;
+    const response = await fetch(`${API_ROOT}/admin/pricing/retail-tryon/packages/${encodeURIComponent(item.retail_package_id)}`, { method: "DELETE", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Deleted by super admin from the pricing console." }) });
+    const result = await response.json();
+    if (!response.ok) return void wearoAlert({ title: "Package was not deleted", message: result.message || "Try again." });
+    if (editingPackageId === item.retail_package_id) resetPackageForm();
+    await loadRetailPrice();
+  });
+  packageForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = packageForm.querySelector(".form-status");
+    status.textContent = "Creating package…";
+    const path = editingPackageId ? `/admin/pricing/retail-tryon/packages/${encodeURIComponent(editingPackageId)}` : "/admin/pricing/retail-tryon/packages";
+    const response = await fetch(`${API_ROOT}${path}`, {
+      method: editingPackageId ? "PUT" : "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: packageForm.elements.name.value, minimum_amount_minor: Math.round(Number(packageForm.elements.amount.value) * 100), gst_basis_points: Math.round(Number(packageForm.elements.gst.value) * 100), reason: packageForm.elements.reason.value }),
+    });
+    const result = await response.json();
+    status.textContent = response.ok
+      ? `${result.name} ${editingPackageId ? "updated" : "created"} with ${result.total_tokens} tokens and ${result.number_of_tryons} try-ons.`
+      : result.message || "Package could not be created.";
+    if (response.ok) { resetPackageForm(); loadRetailPrice(); }
+  });
   const revenueForm = root.querySelector("#admin-revenue-filter");
   const revenueFrom = new Date(); revenueFrom.setDate(1);
   revenueForm.elements.dateFrom.value = isoDate(revenueFrom);
@@ -577,6 +687,7 @@ function attachPricingControls(root) {
   const packages = root.querySelector("#token-package-form");
   packages?.addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(packages); postPricing(packages, "token-packages", { code: data.get("code"), business_type: data.get("businessType") || null, purchased_tokens: Number(data.get("purchased")), promo_tokens: Number(data.get("promo")), amount_minor: Math.round(Number(data.get("amount")) * 100), discount_basis_points: Math.round(Number(data.get("discount")) * 100), gst_basis_points: Math.round(Number(data.get("gst")) * 100), reason: data.get("reason") }); });
   loadPricing(root);
+  loadRetailPrice();
   loadPayments();
   loadRevenue();
 }

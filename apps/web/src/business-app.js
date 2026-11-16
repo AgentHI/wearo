@@ -1,5 +1,6 @@
 import { brandMarkup } from "./brand.js";
 import { apiError, networkError, readApiBody } from "./api-messages.js";
+import { razorpayCheckoutLogo } from "./razorpay-brand.js";
 
 const API_BASE = "/api/v1";
 const BUSINESS_AUTH_KEY = "wearo_business_auth";
@@ -484,6 +485,19 @@ function setupStores() {
 function billingView() {
   return `
     <header class="page-heading"><div><p class="eyebrow">Plans & billing</p><h1>Choose how you want to launch.</h1><p>Select a plan for evaluation. No charge occurs until a payment provider is connected and checkout is confirmed.</p></div></header>
+    <section class="business-payment-intro" aria-labelledby="business-payment-title">
+      <div><p class="eyebrow">Payment-ready information</p><h2 id="business-payment-title">Platform access and try-on usage stay separate.</h2><p>Future business pricing will combine a monthly or annual platform fee with usage-based Wearo Tokens. Final fees, taxes, renewal dates, and credit validity will be shown before an authorised owner accepts an order.</p></div>
+      <div class="business-payment-intro__facts"><span><strong>15%</strong> planned annual platform-fee discount</span><span><strong>7 days</strong> payment grace before try-on suspension</span></div>
+    </section>
+    <section class="business-policy-grid" aria-label="Business commercial policy summary">
+      <article class="panel"><span class="business-policy-card__number">01</span><h2>Platform fee</h2><p>Covers workspace access, stores, team controls, analytics, billing records, and support. Monthly and annual amounts are not yet published.</p></article>
+      <article class="panel"><span class="business-policy-card__number">02</span><h2>Usage rate</h2><p id="business-retail-tryon-rate">Loading the published website rate…</p></article>
+      <article class="panel"><span class="business-policy-card__number">03</span><h2>Estimated duration</h2><p>When sufficient usage exists, Wearo will show remaining credits, average daily successful try-ons, and an estimated number of days remaining.</p></article>
+      <article class="panel"><span class="business-policy-card__number">04</span><h2>Payment due</h2><p>Payment reminders continue during a seven-calendar-day grace period. After that, new try-ons may be suspended while billing, reports, exports, and support remain accessible.</p></article>
+      <article class="panel"><span class="business-policy-card__number">05</span><h2>Refunds and recredits</h2><p>Failed, cancelled-before-processing, and non-delivered actions are recredited. Duplicate or incorrect payments and undelivered paid services are reviewed for refund to the original payment method.</p></article>
+      <article class="panel"><span class="business-policy-card__number">06</span><h2>Service delivery</h2><p>Activation, integrations, usage rates, support levels, renewal, cancellation, data export, and retention terms will be documented in the accepted business order.</p></article>
+    </section>
+    <section class="panel business-policy-notice" role="note"><div><h2>No subscription or checkout yet</h2><p>These details explain the intended commercial rules. Selecting an evaluation option does not create a paid subscription, save a payment method, or charge the business.</p></div><span class="status-chip">Information only</span></section>
     <section class="plan-grid">
       <article class="plan-card"><p class="plan-card__name">Pilot</p><h2>₹0 <small>/ beta</small></h2><p>Validate the experience with your internal team.</p><ul><li>1 workspace</li><li>Up to 50 evaluation looks</li><li>Quality report</li></ul><button class="button button--quiet plan-select" data-plan="Pilot" type="button">Select pilot</button></article>
       <article class="plan-card plan-card--featured"><span class="plan-badge">Recommended</span><p class="plan-card__name">Launch</p><h2>Custom</h2><p>Customer-facing rollout with operational support.</p><ul><li>Production usage allowance</li><li>Team access and analytics</li><li>Launch readiness review</li></ul><button class="button button--primary plan-select" data-plan="Launch" type="button">Request checkout</button></article>
@@ -592,6 +606,17 @@ async function loadActionRates() {
   } catch (error) { target.textContent = error.message; }
 }
 
+async function loadRetailTryOnRate() {
+  const target = document.querySelector("#business-retail-tryon-rate");
+  if (!target) return;
+  try {
+    const rate = await businessApi("/public/try-on-pricing");
+    target.textContent = rate.status === "PUBLISHED"
+      ? `${Number(rate.tokens_per_tryon).toLocaleString("en-IN")} Wearo Tokens per try-on. Tokens are deducted only for successfully delivered try-ons.`
+      : "The website try-on price has not yet been published.";
+  } catch (error) { target.textContent = error.message; }
+}
+
 async function loadRecreditPolicy() {
   const target = document.querySelector("#recredit-policy");
   if (!target) return;
@@ -685,7 +710,37 @@ async function loadTopupPacks() {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ pack_id: pack.pack_id, idempotency_key: crypto.randomUUID() }),
           });
-          window.location.assign(order.checkout_url);
+          if (typeof window.Razorpay !== "function") throw new Error("Secure checkout could not be loaded. Check your connection and retry.");
+          const checkoutLogo = await razorpayCheckoutLogo();
+          const checkout = new window.Razorpay({
+            key: order.key_id, amount: order.amount_minor, currency: order.currency,
+            name: "Wearo.ai",
+            image: checkoutLogo,
+            description: `${pack.total_tokens} Wearo Tokens`,
+            order_id: order.provider_order_id,
+            handler: async (payment) => {
+              status.textContent = "Verifying payment…";
+              try {
+                await businessApi(`/business/tenants/${tenantId}/verify-payment`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(payment),
+                });
+                status.textContent = "Payment verified. Your Wearo Tokens are ready.";
+                await Promise.all([loadTopupPacks(), loadPaymentReconciliation()]);
+              } catch (error) { status.textContent = `Payment verification failed: ${error.message}`; }
+              finally { button.disabled = false; }
+            },
+            modal: { ondismiss: () => {
+              status.textContent = "Checkout cancelled. No payment was recorded.";
+              button.disabled = false;
+            } },
+            theme: { color: "#5b244f", backdrop_color: "#f4edf6" },
+          });
+          checkout.on("payment.failed", (response) => {
+            status.textContent = response.error?.description || "Payment failed. Please retry.";
+            button.disabled = false;
+          });
+          checkout.open();
         } catch (error) { status.textContent = error.message; button.disabled = false; }
       });
       row.append(label, button);
@@ -1306,6 +1361,7 @@ function attachBusinessInteractions(section) {
       document.querySelector("#try-on-control-status").textContent = error.message;
     });
     loadActionRates();
+    loadRetailTryOnRate();
     loadRecreditPolicy();
     loadTokenTransactions();
     loadTopupPacks();

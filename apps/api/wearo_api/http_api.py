@@ -153,9 +153,10 @@ from .postgres_catalog import PostgresCatalogStore
 from .postgres_retention import PostgresLifecycleStore
 from .render_preflight import BetaRenderPreflightService, RenderPreflightError
 from .render_runtime import DurableRenderError, DurableRenderJob, PostgresRenderRuntime
+from .retail_tryon_pricing import PostgresRetailTryOnPricing, RetailTryOnPricingError
 from .retention import LifecycleError, RetentionService
 from .sensitive_audit import PostgresSensitiveAudit, SensitiveAuditError
-from .sms_delivery import HttpSmsDeliveryProvider
+from .sms_delivery import AwsSmsDeliveryProvider, AwsSmsSettings, HttpSmsDeliveryProvider
 from .smtp_email import SmtpEmailDeliveryProvider, SmtpSettings
 from .sponsored_tryons import PostgresSponsoredTryOns, SponsoredTryOnError
 from .store_advertisements import (
@@ -165,7 +166,13 @@ from .store_advertisements import (
 )
 from .support_access import PostgresSupportAccess, SupportAccessError
 from .support_cases import CaseType, PostgresSupportCases, SupportCaseError
-from .topups import HttpPaymentGateway, PostgresTopUps, TopUpError, UnavailablePaymentGateway
+from .topups import (
+    HttpPaymentGateway,
+    PostgresTopUps,
+    RazorpayPaymentGateway,
+    TopUpError,
+    UnavailablePaymentGateway,
+)
 from .tryon_authorization import BusinessTryOnStatus, TryOnAuthorizationError
 from .wallet_billing import PostgresWalletBilling
 from .wallet_transactions import (
@@ -268,6 +275,21 @@ class TopUpOrderBody(BaseModel):
 
     pack_id: UUID
     idempotency_key: str = Field(min_length=8, max_length=100)
+
+
+class ConsumerTopUpOrderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    retail_package_id: UUID
+    idempotency_key: str = Field(min_length=8, max_length=100)
+
+
+class RazorpayVerificationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    razorpay_payment_id: str | None = Field(default=None, max_length=100)
+    razorpay_order_id: str | None = Field(default=None, max_length=100)
+    razorpay_signature: str | None = Field(default=None, max_length=256)
 
 
 class OperatingProfileChangeBody(BaseModel):
@@ -590,6 +612,28 @@ class AdminTokenPackageBody(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class AdminRetailTryOnPriceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    price_minor: int = Field(ge=20, le=10_000_000, multiple_of=20)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminRetailTryOnPackageBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    minimum_amount_minor: int = Field(ge=20, le=1_000_000_000, multiple_of=20)
+    gst_basis_points: int = Field(ge=0, le=10_000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminRetailTryOnPackageDeleteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class AdminAiProviderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(min_length=1, max_length=40)
@@ -881,6 +925,7 @@ def create_app(
         container.engine
     )
     admin_pricing = container.admin_pricing or PostgresAdminPricing(container.engine)
+    retail_tryon_pricing = PostgresRetailTryOnPricing(container.engine)
     admin_billing = container.admin_billing or PostgresAdminBilling(container.engine)
     admin_revenue = container.admin_revenue or PostgresAdminRevenue(
         container.engine, int(os.environ.get("WEARO_ESTIMATED_AI_COST_MINOR", "0"))
@@ -1028,6 +1073,12 @@ def create_app(
             "TRY_ON_STATUS_CONFLICT",
         }:
             status = 409
+        elif code == "INVALID_PAYMENT_SIGNATURE":
+            status = 400
+        elif code == "PAYMENT_GATEWAY_AUTH_FAILED":
+            status = 401
+        elif code == "PAYMENT_GATEWAY_UNAVAILABLE":
+            status = 500
         else:
             status = 422
         return _problem(status, code, str(error), _request_id(request))
@@ -1615,6 +1666,56 @@ def create_app(
         except AdminPricingError as error:
             raise ApiProblem(422, "TOKEN_PACKAGE_REJECTED", str(error)) from None
 
+    @app.get("/api/v1/admin/pricing/retail-tryon")
+    def admin_retail_tryon_price(request: Request) -> dict[str, object]:
+        require_platform_admin(request)
+        return retail_tryon_pricing.history()
+
+    @app.post("/api/v1/admin/pricing/retail-tryon", status_code=201)
+    def admin_publish_retail_tryon_price(
+        request: Request, body: AdminRetailTryOnPriceBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return retail_tryon_pricing.publish(body.price_minor, body.reason)
+        except RetailTryOnPricingError as error:
+            raise ApiProblem(422, "RETAIL_TRYON_PRICE_REJECTED", str(error)) from None
+
+    @app.post("/api/v1/admin/pricing/retail-tryon/packages", status_code=201)
+    def admin_create_retail_tryon_package(
+        request: Request, body: AdminRetailTryOnPackageBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return retail_tryon_pricing.create_package(
+                body.name, body.minimum_amount_minor, body.gst_basis_points, body.reason
+            )
+        except RetailTryOnPricingError as error:
+            raise ApiProblem(422, "RETAIL_TRYON_PACKAGE_REJECTED", str(error)) from None
+
+    @app.put("/api/v1/admin/pricing/retail-tryon/packages/{package_id}")
+    def admin_update_retail_tryon_package(
+        request: Request, package_id: UUID, body: AdminRetailTryOnPackageBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return retail_tryon_pricing.update_package(
+                package_id, body.name, body.minimum_amount_minor,
+                body.gst_basis_points, body.reason
+            )
+        except RetailTryOnPricingError as error:
+            raise ApiProblem(422, "RETAIL_TRYON_PACKAGE_REJECTED", str(error)) from None
+
+    @app.delete("/api/v1/admin/pricing/retail-tryon/packages/{package_id}")
+    def admin_delete_retail_tryon_package(
+        request: Request, package_id: UUID, body: AdminRetailTryOnPackageDeleteBody
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return retail_tryon_pricing.delete_package(package_id, body.reason)
+        except RetailTryOnPricingError as error:
+            raise ApiProblem(422, "RETAIL_TRYON_PACKAGE_REJECTED", str(error)) from None
+
     @app.get("/api/v1/admin/billing")
     def admin_billing_list(request: Request, status: str | None = None) -> dict[str, object]:
         require_platform_admin(request)
@@ -1792,6 +1893,22 @@ def create_app(
             ),
         }
 
+    @app.get("/api/v1/public/try-on-pricing")
+    def public_tryon_pricing() -> dict[str, object]:
+        current = retail_tryon_pricing.current()
+        if current is None:
+            return {"status": "UNPUBLISHED", "action_code": "TRY_ON"}
+        return {
+            "status": "PUBLISHED",
+            "action_code": "TRY_ON",
+            "price_minor": current["price_minor"],
+            "currency": current["currency"],
+            "tokens_per_tryon": current["tokens_per_tryon"],
+            "effective_from": current["effective_from"],
+            "formula": "(try-on price in INR × 10) ÷ 2",
+            "packages": retail_tryon_pricing.packages(),
+        }
+
     @app.get("/api/v1/platform/recredit-policy")
     def recredit_policy() -> dict[str, Any]:
         return {
@@ -1866,6 +1983,55 @@ def create_app(
             )
         lifecycle = container.account_lifecycle.cancel(session.account_id, session.principal_id)
         return asdict(lifecycle)
+
+    @app.post("/api/v1/me/topup-orders")
+    def create_consumer_topup(
+        body: ConsumerTopUpOrderBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Payments are unavailable.")
+        return container.topups.create_consumer_order(
+            session.account_id, body.retail_package_id, body.idempotency_key
+        )
+
+    @app.post("/api/v1/me/verify-payment")
+    def verify_consumer_payment(
+        body: RazorpayVerificationBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Payments are unavailable.")
+        if (
+            not body.razorpay_order_id
+            or not body.razorpay_payment_id
+            or not body.razorpay_signature
+        ):
+            raise ApiProblem(400, "INVALID_PAYMENT_SIGNATURE", "Payment fields are required.")
+        return container.topups.verify_consumer_checkout_payment(
+            session.account_id,
+            body.razorpay_order_id,
+            body.razorpay_payment_id,
+            body.razorpay_signature,
+        )
+
+    @app.get("/api/v1/me/billing-history")
+    def consumer_billing_history(request: Request) -> dict[str, object]:
+        session = _authenticate(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_HISTORY_UNAVAILABLE", "Billing history is unavailable.")
+        return container.topups.consumer_billing_history(session.account_id)
+
+    @app.get("/api/v1/me/topup-orders/{payment_order_id}")
+    def consumer_topup_status(payment_order_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_STATUS_UNAVAILABLE", "Payment status is unavailable.")
+        return container.topups.consumer_order_status(session.account_id, payment_order_id)
 
     @app.get("/api/v1/business/tenants/{tenant_id}/overview")
     def business_overview(tenant_id: UUID, request: Request) -> dict[str, object]:
@@ -2811,11 +2977,42 @@ def create_app(
     @app.post("/api/v1/payments/webhook")
     async def payment_webhook(
         request: Request,
-        x_payment_signature: Annotated[str | None, Header(alias="X-Payment-Signature")] = None,
+        x_razorpay_signature: Annotated[
+            str | None, Header(alias="X-Razorpay-Signature")
+        ] = None,
+        x_razorpay_event_id: Annotated[
+            str | None, Header(alias="X-Razorpay-Event-Id")
+        ] = None,
     ) -> dict[str, object]:
         if container.topups is None:
             raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Payments are unavailable.")
-        return container.topups.accept_webhook(await request.body(), x_payment_signature)
+        return container.topups.accept_webhook(
+            await request.body(), x_razorpay_signature, x_razorpay_event_id
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/verify-payment")
+    def verify_business_payment(
+        tenant_id: UUID,
+        body: RazorpayVerificationBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_GATEWAY_UNAVAILABLE", "Payments are unavailable.")
+        if (
+            not body.razorpay_order_id
+            or not body.razorpay_payment_id
+            or not body.razorpay_signature
+        ):
+            raise ApiProblem(400, "INVALID_PAYMENT_SIGNATURE", "Payment fields are required.")
+        return container.topups.verify_checkout_payment(
+            session.principal_id,
+            tenant_id,
+            body.razorpay_order_id,
+            body.razorpay_payment_id,
+            body.razorpay_signature,
+        )
 
     @app.get("/api/v1/business/tenants/{tenant_id}/payment-receipts/{receipt_id}")
     def business_payment_receipt(
@@ -3830,7 +4027,23 @@ def create_app_from_env() -> FastAPI:
             pepper=pepper,
             fixed_test_code=fixed_test_code,
             sms_provider=(
-                HttpSmsDeliveryProvider(
+                AwsSmsDeliveryProvider(
+                    AwsSmsSettings(
+                        region=os.environ.get(
+                            "WEARO_SMS_AWS_REGION", os.environ.get("AWS_REGION", "")
+                        ),
+                        origination_identity=os.environ["WEARO_SMS_ORIGINATION_IDENTITY"],
+                        configuration_set=os.environ.get("WEARO_SMS_CONFIGURATION_SET", ""),
+                        entity_id=os.environ.get("WEARO_SMS_ENTITY_ID", ""),
+                        template_id=os.environ.get("WEARO_SMS_TEMPLATE_ID", ""),
+                        message_template=os.environ.get(
+                            "WEARO_SMS_MESSAGE_TEMPLATE",
+                            "Your Wearo OTP is {code}. Do not share it with anyone.",
+                        ),
+                    )
+                )
+                if os.environ.get("WEARO_SMS_ORIGINATION_IDENTITY")
+                else HttpSmsDeliveryProvider(
                     os.environ["WEARO_SMS_ENDPOINT"],
                     os.environ["WEARO_SMS_API_KEY"],
                     os.environ["WEARO_SMS_SENDER"],
@@ -3861,14 +4074,23 @@ def create_app_from_env() -> FastAPI:
         wallet_transactions=PostgresWalletTransactions(engine),
         topups=PostgresTopUps(
             engine,
-            HttpPaymentGateway(
+            RazorpayPaymentGateway(
+                os.environ["RAZORPAY_KEY_ID"],
+                os.environ["RAZORPAY_KEY_SECRET"],
+            )
+            if os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET")
+            else HttpPaymentGateway(
                 os.environ["WEARO_PAYMENT_ORDER_ENDPOINT"],
                 os.environ["WEARO_PAYMENT_API_KEY"],
             )
             if os.environ.get("WEARO_PAYMENT_ORDER_ENDPOINT")
             and os.environ.get("WEARO_PAYMENT_API_KEY")
             else UnavailablePaymentGateway(),
-            os.environ.get("WEARO_PAYMENT_WEBHOOK_SECRET", "").encode(),
+            (
+                os.environ.get("RAZORPAY_WEBHOOK_SECRET")
+                or os.environ.get("WEARO_PAYMENT_WEBHOOK_SECRET", "")
+            ).encode(),
+            os.environ.get("RAZORPAY_KEY_SECRET", "").encode(),
         ),
         sensitive_audit=PostgresSensitiveAudit(engine),
         business_agents=PostgresBusinessAgents(engine),

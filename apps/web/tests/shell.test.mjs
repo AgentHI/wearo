@@ -105,7 +105,7 @@ test("public marketing site is isolated and links into existing apps", () => {
   assert.match(publicSite, /\/api\/v1\/public\/contact-enquiries/);
   assert.match(publicSite, /VITE_WEARO_CONTACT_FORM_TOKEN/);
   assert.match(publicSite, /X-Wearo-Contact-Token/);
-  assert.match(publicSite, /© 2026 All rights reserved/);
+  assert.match(publicSite, /Wearo\.ai · A product of Bitadd Labs India Private Limited/);
   assert.match(publicSite, /bitaddlabs\.com/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /\.public-hero/);
@@ -475,6 +475,50 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /<h1>Wearo\.ai<\/h1>/);
   assert.match(consumer, /shop-welcome__wearo-logo/);
   assert.doesNotMatch(consumer, /<h1>\$\{escapeHtml\(shopName\)\}<\/h1>/);
+});
+
+test("B2C checkout and B2B payment information stay backend-priced", () => {
+  assert.match(consumer, /\/app\/payments/);
+  assert.match(consumer, /Clear before you pay/);
+  assert.match(consumer, /api\("\/public\/try-on-pricing"\)/);
+  assert.match(consumer, /tryOn\.tokens_per_tryon/);
+  assert.doesNotMatch(consumer, /Equivalent to ₹/);
+  assert.match(consumer, /data-retail-package-id/);
+  assert.match(consumer, /\/me\/topup-orders/);
+  assert.match(consumer, /\/me\/verify-payment/);
+  assert.match(consumer, /window\.Razorpay/);
+  assert.match(consumer, /razorpayCheckoutLogo/);
+  assert.match(consumer, /backdrop_color: "#f4edf6"/);
+  assert.match(consumer, /<span>Buy<\/span>/);
+  assert.doesNotMatch(consumer, /₹3(?:\.00)?\b/);
+  assert.match(business, /Platform access and try-on usage stay separate/);
+  assert.match(business, /15%/);
+  assert.match(business, /seven-calendar-day grace period/);
+  assert.match(business, /No subscription or checkout yet/);
+  assert.doesNotMatch(business, /tokens_per_tryon[^\n]*price_minor/);
+  assert.match(admin, /Publish retail try-on price/);
+  assert.match(admin, /admin\/pricing\/retail-tryon/);
+  assert.match(admin, /Create try-on package/);
+  assert.match(admin, /retail-tryon\/packages/);
+  assert.match(admin, /data-package-edit/);
+  assert.match(admin, /data-package-delete/);
+  assert.match(admin, /admin-icon-action--edit/);
+  assert.match(admin, /admin-icon-action--delete/);
+  assert.match(admin, /aria-label="Edit/);
+  assert.match(admin, /aria-label="Delete/);
+  assert.match(admin, /method: editingPackageId \? "PUT" : "POST"/);
+  assert.match(admin, /method: "DELETE"/);
+  assert.match(admin, /<span>Save changes<\/span>/);
+  assert.match(admin, /<span>Cancel edit<\/span>/);
+  assert.match(admin, /admin-action-with-icon/);
+  assert.match(consumer, /consumer-package-list/);
+  assert.match(consumer, /item\.number_of_tryons/);
+  assert.match(consumer, /item\.final_amount_minor/);
+  assert.match(consumer, /Including GST/);
+  assert.match(admin, /gst_basis_points/);
+  assert.match(consumer, /consumer-package-card--\$\{tier\}/);
+  assert.match(css, /consumer-package-card--silver/);
+  assert.match(css, /consumer-package-card--gold/);
 });
 
 test("authenticated B2C and B2B2C users get an own-account cancellation entry point", () => {

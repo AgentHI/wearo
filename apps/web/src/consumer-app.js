@@ -2,6 +2,7 @@ import { compactBrandMarkup } from "./brand.js";
 import { wearoConfirm } from "./wearo-dialog.js";
 import { apiError, networkError, readApiBody } from "./api-messages.js";
 import { optimizeImageForUpload } from "./image-optimizer.js";
+import { razorpayCheckoutLogo } from "./razorpay-brand.js";
 
 const API_BASE = "/api/v1";
 const AUTH_KEY = "wearo_consumer_auth";
@@ -10,6 +11,7 @@ const SHOP_CONTEXT_KEY = "wearo_shop_context";
 const SHOP_DETAILS_KEY = "wearo_shop_details";
 const SHOP_DETAILS_VERSION = 6;
 const SPONSORED_SESSION_KEY = "wearo_sponsored_session";
+const PAYMENT_FLASH_KEY = "wearo_payment_flash";
 const TRY_ON_COMPLETE_SOUND = "/wearo-tryon-complete.wav";
 
 function captureShopContext(pathname) {
@@ -166,6 +168,7 @@ function clearAuth() {
 function consumerRoute(pathname) {
   if (pathname.startsWith("/app/sign-in")) return "sign-in";
   if (pathname.startsWith("/app/account-status")) return "account-status";
+  if (pathname.startsWith("/app/payments")) return "payments";
   if (pathname.startsWith("/app/history")) return "history";
   if (pathname.startsWith("/app/profile")) return "profile";
   if (pathname === "/shop" || pathname.startsWith("/shop/") || pathname.startsWith("/app/try-on")) return "home";
@@ -182,6 +185,7 @@ function resolvedRoute(pathname, auth) {
     "sign-in": "/app/sign-in",
     home: "/app/",
     history: "/app/history",
+    payments: "/app/payments",
     profile: "/app/profile",
     "account-status": "/app/account-status",
   }[route];
@@ -202,7 +206,8 @@ async function api(path, options = {}, auth = readAuth()) {
       ...options,
       headers,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw networkError();
   }
   const body = response.status === 204 ? {} : await readApiBody(response);
@@ -214,6 +219,7 @@ function consumerFrame(route, content, authenticated, shopDetails = null) {
   const nav = [
     ["home", "/app/", "✦", "Try on"],
     ["history", "/app/history", "◫", "Looks"],
+    ["payments", "/app/payments", "₹", "Pricing"],
     ["profile", "/app/profile", "○", "Profile"],
   ]
     .map(
@@ -443,6 +449,308 @@ function historyView() {
     </section>
     <p id="looks-status" class="form-status status-panel" role="status" aria-live="polite">Loading your private previews…</p>
     <section id="looks-gallery" class="looks-gallery" aria-busy="true"></section>`;
+}
+
+function paymentsView() {
+  return `
+    <header class="mobile-title payment-readiness-heading">
+      <p class="eyebrow">Clear before you pay</p>
+      <h1>Try-on pricing</h1>
+      <p>Choose a package, pay securely with Razorpay, and use your balance for future try-ons.</p>
+    </header>
+    <section class="consumer-pricing-hero" aria-labelledby="consumer-current-rate-title">
+      <div>
+        <p class="eyebrow">Current published rate</p>
+        <h2 id="consumer-current-rate-title"><span id="consumer-tryon-rate">Loading…</span></h2>
+        <p id="consumer-rate-detail">Checking the latest backend-published try-on rate.</p>
+      </div>
+      <span class="consumer-pricing-hero__mark" aria-hidden="true">✦</span>
+    </section>
+    <section class="consumer-package-section" aria-labelledby="consumer-packages-title">
+      <div class="section-heading"><p class="eyebrow">Choose your balance</p><h2 id="consumer-packages-title">Try-on packages</h2><p>Package values are calculated from the current published token rate. Razorpay keeps payment details off Wearo servers.</p></div>
+      <div id="consumer-package-list" class="consumer-package-grid" aria-live="polite">Loading available packages…</div>
+      <p id="consumer-payment-status" class="form-status status-panel consumer-payment-status" role="status" aria-live="polite"></p>
+    </section>
+    <div class="consumer-billing-history-action">
+      <button id="consumer-billing-history-toggle" class="button button--primary consumer-billing-history-toggle" type="button" aria-expanded="false" aria-controls="consumer-billing-history">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+        <span>Payment history</span>
+      </button>
+    </div>
+    <section id="consumer-billing-history" class="consumer-billing-history" aria-labelledby="consumer-billing-history-title" hidden>
+      <div class="section-heading"><p class="eyebrow">Your payments</p><h2 id="consumer-billing-history-title">Billing history</h2><p>Completed, failed, pending, and refunded purchases appear here.</p></div>
+      <div id="consumer-billing-history-list" class="consumer-billing-history__list" aria-live="polite"></div>
+    </section>
+    <section class="consumer-policy-grid" aria-label="Consumer pricing and policy summary">
+      <article class="consumer-policy-card consumer-policy-card--highlight">
+        <span aria-hidden="true">05</span><div><h2>First five free</h2><p>Each eligible new individual account receives five free try-ons. Free credits have no cash value and cannot be transferred.</p></div>
+      </article>
+      <article class="consumer-policy-card">
+        <span aria-hidden="true">✓</span><div><h2>Charged on delivery</h2><p>A credit is used only when a try-on is successfully delivered. Failures, pre-processing cancellations, and non-delivered results are automatically recredited.</p></div>
+      </article>
+      <article class="consumer-policy-card">
+        <span aria-hidden="true">◷</span><div><h2>Credit validity</h2><p>Purchased credits do not expire while the account remains active. Any promotional expiry date will be shown before acceptance and in the wallet.</p></div>
+      </article>
+      <article class="consumer-policy-card">
+        <span aria-hidden="true">↺</span><div><h2>Cancellation and refunds</h2><p>You can leave checkout before payment. Duplicate or incorrect payments and paid services Wearo cannot deliver are eligible for review. Approved cash refunds return to the original payment method.</p></div>
+      </article>
+      <article class="consumer-policy-card">
+        <span aria-hidden="true">◇</span><div><h2>Digital service delivery</h2><p>Processing starts after images and consent are submitted. AI results are visual previews—not guarantees of fit, size, colour, material, or purchase outcome.</p></div>
+      </article>
+      <article class="consumer-policy-card">
+        <span aria-hidden="true">?</span><div><h2>Support and complaints</h2><p>Payment, credit, privacy, and quality issues will receive a trackable support reference. Consumer complaints are acknowledged within 48 hours and targeted for resolution within one month.</p></div>
+      </article>
+    </section>
+    <section class="privacy-card consumer-payment-privacy" role="note"><span aria-hidden="true">⌾</span><div><strong>Private by design</strong><p>Personal images are used to provide the try-on and are not authorised for model training. Payment details are entered only in Razorpay's secure checkout.</p></div></section>`;
+}
+
+const purchaseIcon = `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 8.5h11l-1 11h-9z"/><path d="M9 9V6.5a3 3 0 0 1 6 0V9"/><path d="m18.2 3 .5 1.3L20 4.8l-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z"/></svg>`;
+
+function livePaymentOriginIsApproved(keyId) {
+  if (!String(keyId).startsWith("rzp_live_")) return true;
+  const host = window.location.hostname.toLowerCase();
+  return host === "wearo.ai" || host.endsWith(".wearo.ai");
+}
+
+async function buyConsumerPackage(item, button, status, auth) {
+  const idleMarkup = `${purchaseIcon}<span>Buy</span>`;
+  button.disabled = true;
+  button.innerHTML = '<span class="consumer-buy-button__spinner" aria-hidden="true"></span><span>Preparing checkout…</span>';
+  setStatus(status, "Creating your secure Razorpay checkout…");
+  try {
+    if (typeof window.Razorpay !== "function") {
+      throw new Error("Secure checkout could not be loaded. Check your connection and retry.");
+    }
+    const order = await api("/me/topup-orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        retail_package_id: item.retail_package_id,
+        idempotency_key: crypto.randomUUID(),
+      }),
+    }, auth);
+    if (!livePaymentOriginIsApproved(order.key_id)) {
+      throw new Error(
+        "Live payments must be opened from the Razorpay-approved wearo.ai website. Use Test Mode locally or deploy this build to wearo.ai.",
+      );
+    }
+    const checkoutLogo = await razorpayCheckoutLogo();
+    let checkout;
+    let paymentSettled = false;
+    let statusTimer = null;
+    let statusAttempts = 0;
+    const resetButton = () => {
+      button.disabled = false;
+      button.innerHTML = idleMarkup;
+    };
+    const stopStatusPolling = () => {
+      if (statusTimer) window.clearTimeout(statusTimer);
+      statusTimer = null;
+    };
+    const closeCheckout = (message, tone) => {
+      sessionStorage.setItem(PAYMENT_FLASH_KEY, JSON.stringify({ message, tone }));
+      window.setTimeout(() => {
+        checkout?.close();
+        window.setTimeout(() => {
+          const checkoutStillOpen = document.querySelector(
+            '.razorpay-container, iframe[src*="razorpay.com"]',
+          );
+          if (checkoutStillOpen) window.location.reload();
+          else sessionStorage.removeItem(PAYMENT_FLASH_KEY);
+        }, 700);
+      }, 150);
+    };
+    const showConfirmedPayment = async () => {
+      if (paymentSettled) return;
+      paymentSettled = true;
+      stopStatusPolling();
+      const message = `${item.name} added — your tokens are ready to use.`;
+      closeCheckout(message, "success");
+      setStatus(status, message, "success");
+      resetButton();
+      if (!document.querySelector("#consumer-billing-history")?.hidden) {
+        await loadConsumerBillingHistory(auth);
+      }
+    };
+    const pollPaymentStatus = async () => {
+      if (paymentSettled) return;
+      statusAttempts += 1;
+      try {
+        const latest = await api(`/me/topup-orders/${encodeURIComponent(order.payment_order_id)}`, {}, auth);
+        if (latest.state === "CONFIRMED") {
+          await showConfirmedPayment();
+          return;
+        }
+        if (latest.state === "FAILED" || latest.state === "REFUNDED") {
+          paymentSettled = true;
+          stopStatusPolling();
+          const message = `Payment ${latest.state.toLowerCase()}. No credits were added.`;
+          closeCheckout(message, "error");
+          setStatus(status, message, "error");
+          resetButton();
+          return;
+        }
+      } catch {
+        // A transient status failure must not interrupt Razorpay checkout.
+      }
+      if (statusAttempts < 120 && !paymentSettled) {
+        statusTimer = window.setTimeout(pollPaymentStatus, 2_500);
+      } else if (!paymentSettled) {
+        setStatus(status, "Payment confirmation is delayed. Check Payment history before trying again.", "error");
+        resetButton();
+      }
+    };
+    checkout = new window.Razorpay({
+      key: order.key_id,
+      amount: order.amount_minor,
+      currency: order.currency,
+      name: "Wearo.ai",
+      image: checkoutLogo,
+      description: `${item.name} · ${Number(item.total_tokens).toLocaleString("en-IN")} tokens`,
+      order_id: order.provider_order_id,
+      handler: async (payment) => {
+        setStatus(status, "Payment received. Verifying it securely…");
+        const verificationController = new AbortController();
+        const verificationTimeout = window.setTimeout(
+          () => verificationController.abort(),
+          20_000,
+        );
+        try {
+          const verification = await api("/me/verify-payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payment),
+            signal: verificationController.signal,
+          }, auth);
+          if (verification.pending) {
+            setStatus(status, "Payment authorised. We are waiting for Razorpay to confirm capture.");
+          } else {
+            await showConfirmedPayment();
+          }
+        } catch (error) {
+          const message = error.name === "AbortError"
+            ? "Payment was received, but confirmation is taking longer than expected. Check Payment history shortly; do not pay again."
+            : `Payment verification failed: ${error.message}`;
+          setStatus(status, message, "error");
+        } finally {
+          window.clearTimeout(verificationTimeout);
+        }
+      },
+      modal: { ondismiss: () => {
+        if (paymentSettled) return;
+        stopStatusPolling();
+        setStatus(status, "Checkout closed. You were not charged by Wearo.");
+        resetButton();
+      } },
+      theme: { color: "#5b244f", backdrop_color: "#f4edf6" },
+    });
+    checkout.on("payment.failed", (response) => {
+      paymentSettled = true;
+      stopStatusPolling();
+      const message = response.error?.description || "Payment failed. Please try again.";
+      closeCheckout(message, "error");
+      setStatus(status, message, "error");
+      resetButton();
+    });
+    checkout.open();
+    statusTimer = window.setTimeout(pollPaymentStatus, 1_500);
+  } catch (error) {
+    setStatus(status, error.message, "error");
+    button.disabled = false;
+    button.innerHTML = idleMarkup;
+  }
+}
+
+async function loadConsumerBillingHistory(auth) {
+  const list = document.querySelector("#consumer-billing-history-list");
+  if (!list) return;
+  list.textContent = "Loading billing history…";
+  try {
+    const history = await api("/me/billing-history", {}, auth);
+    list.innerHTML = history.items?.length
+      ? history.items.map((item) => {
+        const amount = new Intl.NumberFormat("en-IN", {
+          style: "currency", currency: item.currency || "INR",
+        }).format(Number(item.amount_minor) / 100);
+        const state = String(item.state || "PENDING").toLowerCase();
+        const date = new Date(item.paid_at || item.created_at).toLocaleString("en-IN", {
+          dateStyle: "medium", timeStyle: "short",
+        });
+        const reference = item.receipt_number
+          ? `<span>Receipt ${escapeHtml(item.receipt_number)}</span>`
+          : "<span>Receipt issued after successful capture</span>";
+        return `<article class="consumer-billing-row"><div><strong>${escapeHtml(item.package_name || "Try-on credits")}</strong><span>${escapeHtml(date)}</span>${reference}</div><div><strong>${escapeHtml(amount)}</strong><span>${Number(item.tokens || 0).toLocaleString("en-IN")} tokens</span><b class="consumer-payment-state consumer-payment-state--${escapeHtml(state)}">${escapeHtml(state)}</b></div></article>`;
+      }).join("")
+      : '<p class="consumer-billing-history__empty">No payments yet. Your first purchase will appear here.</p>';
+  } catch (error) {
+    list.innerHTML = `<p class="consumer-billing-history__empty">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function attachConsumerBillingHistory(auth) {
+  const button = document.querySelector("#consumer-billing-history-toggle");
+  const section = document.querySelector("#consumer-billing-history");
+  if (!button || !section) return;
+  let loaded = false;
+  button.addEventListener("click", async () => {
+    const opening = section.hidden;
+    section.hidden = !opening;
+    button.setAttribute("aria-expanded", String(opening));
+    const label = button.querySelector("span");
+    if (label) label.textContent = opening ? "Hide payment history" : "Payment history";
+    if (opening && !loaded) {
+      loaded = true;
+      await loadConsumerBillingHistory(auth);
+    }
+  });
+}
+
+async function loadConsumerPricing(auth) {
+  const rate = document.querySelector("#consumer-tryon-rate");
+  const detail = document.querySelector("#consumer-rate-detail");
+  const packages = document.querySelector("#consumer-package-list");
+  if (!rate || !detail || !packages) return;
+  try {
+    const tryOn = await api("/public/try-on-pricing");
+    if (tryOn.status !== "PUBLISHED") {
+      rate.textContent = "Not yet published";
+      detail.textContent = "The price will appear here before paid try-ons are enabled.";
+      packages.textContent = "Packages will appear after the try-on rate is published.";
+      return;
+    }
+    rate.textContent = `${Number(tryOn.tokens_per_tryon).toLocaleString("en-IN")} Wearo Tokens`;
+    detail.textContent = `Per successfully delivered try-on · Effective ${new Date(tryOn.effective_from).toLocaleDateString("en-IN")}. The current token rate is shown before confirmation.`;
+    packages.innerHTML = tryOn.packages?.length
+      ? tryOn.packages.map((item) => {
+        const tier = String(item.name).trim().toLowerCase();
+        const tierClass = tier === "silver" || tier === "gold" ? ` consumer-package-card--${tier}` : "";
+        return `<article class="consumer-package-card${tierClass}"><p>${escapeHtml(item.name)}</p><strong>₹${(Number(item.final_amount_minor) / 100).toFixed(2)}</strong><span>Including GST ${(Number(item.gst_basis_points) / 100).toFixed(0)}%</span><b>${Number(item.total_tokens).toLocaleString("en-IN")} tokens · About ${Number(item.number_of_tryons).toLocaleString("en-IN")} try-ons</b><button class="consumer-buy-button" type="button" data-retail-package-id="${escapeHtml(item.retail_package_id)}">${purchaseIcon}<span>Buy</span></button></article>`;
+      }).join("")
+      : '<p class="consumer-package-empty">No packages are currently published.</p>';
+    const items = new Map(tryOn.packages.map((item) => [String(item.retail_package_id), item]));
+    const status = document.querySelector("#consumer-payment-status");
+    const paymentFlash = sessionStorage.getItem(PAYMENT_FLASH_KEY);
+    if (status && paymentFlash) {
+      sessionStorage.removeItem(PAYMENT_FLASH_KEY);
+      try {
+        const flash = JSON.parse(paymentFlash);
+        setStatus(status, flash.message, flash.tone);
+      } catch {
+        // Ignore invalid transient UI state.
+      }
+    }
+    packages.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-retail-package-id]")
+        : null;
+      const item = button ? items.get(button.dataset.retailPackageId) : null;
+      if (button && item && status) buyConsumerPackage(item, button, status, auth);
+    });
+  } catch (error) {
+    rate.textContent = "Temporarily unavailable";
+    detail.textContent = `${error.message} No payment or credit deduction has been attempted.`;
+    packages.textContent = "Packages are temporarily unavailable.";
+  }
 }
 
 function setButtonBusy(button, busy, busyLabel, idleLabel) {
@@ -1840,10 +2148,11 @@ export function renderConsumerApp(root, pathname) {
     "sign-in": () => signInView(shopDetails),
     home: homeView,
     history: historyView,
+    payments: paymentsView,
     profile: () => profileView(auth),
     "account-status": pendingDeletionView,
   };
-  const titles = { "sign-in": "Sign in", home: "Try on", history: "Looks", profile: "Profile", "account-status": "Account status" };
+  const titles = { "sign-in": "Sign in", home: "Try on", history: "Looks", payments: "Pricing", profile: "Profile", "account-status": "Account status" };
   document.title = `${titles[route]} · Wearo`;
   root.innerHTML = consumerFrame(route, views[route](), Boolean(auth), shopDetails);
   attachInstallButton();
@@ -1851,6 +2160,10 @@ export function renderConsumerApp(root, pathname) {
   if (route === "profile") attachProfileFlow(auth);
   if (route === "home") attachHomeFlow(auth);
   if (route === "history") attachHistoryFlow(auth);
+  if (route === "payments") {
+    loadConsumerPricing(auth);
+    attachConsumerBillingHistory(auth);
+  }
   if (route === "account-status") attachPendingDeletionFlow(auth);
   if (auth && shopContext && route !== "home") {
     ensureSponsoredSession(auth).catch(() => { /* The home screen will show actionable errors. */ });

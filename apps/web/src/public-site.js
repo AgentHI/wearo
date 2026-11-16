@@ -126,7 +126,7 @@ export function renderPublicSite(root) {
           </a>
         </section>
       </main>
-      <footer class="about-footer">© 2026 All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+      <footer class="about-footer">© 2026 Wearo.ai · A product of Bitadd Labs India Private Limited · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
   const heroSlides = [...root.querySelectorAll(".hero-media__slide")];
@@ -232,7 +232,7 @@ export function renderExperiencesSite(root) {
           <a class="luxury-button" href="/app/">Experience Wearo ${star("gold-star--button")}</a>
         </section>
       </main>
-      <footer class="business-footer">© 2026 All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+      <footer class="business-footer">© 2026 Wearo.ai · A product of Bitadd Labs India Private Limited · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
   const jewellerySelection = root.querySelector("[data-jewellery-selection]");
@@ -376,7 +376,7 @@ export function renderForBusinessSite(root) {
           <a class="luxury-button" href="/contact">Talk to Wearo ${star("gold-star--button")}</a>
         </section>
       </main>
-      <footer class="business-footer">© 2026 Wearo.ai · All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+      <footer class="business-footer">© 2026 Wearo.ai · A product of Bitadd Labs India Private Limited · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
   wirePublicHeader(root);
@@ -439,7 +439,7 @@ export function renderAboutSite(root) {
           <a class="luxury-button" href="/app/">Try Wearo ${star("gold-star--button")}</a>
         </section>
       </main>
-      <footer class="about-footer">© 2026 Wearo.ai · All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+      <footer class="about-footer">© 2026 Wearo.ai · A product of Bitadd Labs India Private Limited · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
   wirePublicHeader(root);
@@ -515,7 +515,7 @@ export function renderContactSite(root) {
           </div>
         </section>
       </main>
-      <footer class="about-footer">© 2026 Wearo.ai · All rights reserved · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
+      <footer class="about-footer">© 2026 Wearo.ai · A product of Bitadd Labs India Private Limited · <a href="https://bitaddlabs.com" target="_blank" rel="noopener noreferrer">bitaddlabs.com</a></footer>
     </div>`;
 
   wirePublicHeader(root);

@@ -1031,6 +1031,18 @@ pil = [
 ]
 
 [[package]]
+name = "razorpay"
+version = "1.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/97/fb/14d5baeffc5b812775bc34cb7d416aa090be6f5779c04aaf45d2ba17458b/razorpay-1.4.2.tar.gz", hash = "sha256:0d812030ba29e776e66d1ceaacc31635810fde18b66ff2591e582eb651bb5131", size = 194335, upload-time = "2024-03-19T12:12:08.904Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/3d/07a25e3c6f3d65a319da30300f055d946860e90f705c05bb39524dc46f30/razorpay-1.4.2-py3-none-any.whl", hash = "sha256:aaf525baebc5001e5c54ae317a372c3c17c81314cedcbbf71aa0a2d3419a9757", size = 174302, upload-time = "2024-03-19T12:12:06.883Z" },
+]
+
+[[package]]
 name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1093,6 +1105,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/49/c5/0a5ce655109cb96b8dfad36908a4e108d15f5dc2eff8fbc3146c4312e704/s3transfer-0.19.3.tar.gz", hash = "sha256:8326acc3d056d7f7b8a37110c7d2aea41f67e83f6ae79cd3b5fbcca34c726406", size = 166087, upload-time = "2026-10-19T19:19:49.751Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e2/a4/88f9e10498759121060b8050a1554753dfc04df39bbbcc7aad9ecc8d9440/s3transfer-0.19.3-py3-none-any.whl", hash = "sha256:24eb7535804306355e31c952a90022bf5b2f9d760f9a11062c7493a217c08553", size = 90252, upload-time = "2026-10-19T19:19:48.309Z" },
+]
+
+[[package]]
+name = "setuptools"
+version = "80.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/95/faf61eb8363f26aa7e1d762267a8d602a1b26d4f3a1e758e92cb3cb8b054/setuptools-80.10.2.tar.gz", hash = "sha256:8b0e9d10c784bf7d262c4e5ec5d4ec94127ce206e8738f29a437945fbc219b70", size = 1200343, upload-time = "2026-01-25T22:38:17.252Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/b8/f1f62a5e3c0ad2ff1d189590bfa4c46b4f3b6e49cef6f26c6ee4e575394d/setuptools-80.10.2-py3-none-any.whl", hash = "sha256:95b30ddfb717250edb492926c92b5221f7ef3fbcc2b07579bcd4a27da21d0173", size = 1064234, upload-time = "2026-01-25T22:38:15.216Z" },
 ]
 
 [[package]]
@@ -1320,7 +1341,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "qrcode", extra = ["pil"] },
+    { name = "razorpay" },
     { name = "requests" },
+    { name = "setuptools" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1350,8 +1373,10 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
     { name = "qrcode", extras = ["pil"], specifier = ">=8.2,<9" },
+    { name = "razorpay", specifier = ">=1.4,<2" },
     { name = "requests", specifier = ">=2.32,<3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1" },
+    { name = "setuptools", specifier = ">=70,<81" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]

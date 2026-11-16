@@ -3,7 +3,12 @@ import hmac
 
 import pytest
 
-from apps.api.wearo_api.topups import TopUpError, estimate_try_ons, verify_webhook_signature
+from apps.api.wearo_api.topups import (
+    TopUpError,
+    estimate_try_ons,
+    verify_payment_signature,
+    verify_webhook_signature,
+)
 
 
 def test_valid_gateway_signature_is_accepted() -> None:
@@ -34,3 +39,20 @@ def test_try_on_estimates_prefer_offering_rate_and_fallback_to_general_rate() ->
 
 def test_try_on_estimate_is_unknown_without_a_published_rate() -> None:
     assert estimate_try_ons(100, ("BUSINESS",), {})[0]["estimated_try_ons"] is None
+
+
+def test_valid_razorpay_checkout_signature_is_accepted() -> None:
+    signature = hmac.new(b"secret", b"order_1|pay_1", hashlib.sha256).hexdigest()
+    verify_payment_signature("order_1", "pay_1", signature, b"secret")
+
+
+@pytest.mark.parametrize(
+    "order_id,payment_id,signature",
+    [("", "pay_1", "x"), ("order_1", "", "x"), ("order_1", "pay_1", "wrong")],
+)
+def test_missing_or_invalid_razorpay_signature_is_rejected(
+    order_id: str, payment_id: str, signature: str
+) -> None:
+    with pytest.raises(TopUpError) as raised:
+        verify_payment_signature(order_id, payment_id, signature, b"secret")
+    assert raised.value.code == "INVALID_PAYMENT_SIGNATURE"
