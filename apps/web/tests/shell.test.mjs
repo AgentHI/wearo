@@ -146,7 +146,9 @@ test("consumer try-on restores an active render before the previous result", () 
   assert.match(consumer, /result\.queue\?\.find\(\(item\) => \["QUEUED", "PROCESSING"\]\.includes\(item\.status\)\)/);
   assert.ok(consumer.indexOf("if (activeRender)") < consumer.indexOf("const latest = result.items?.[0]"));
   assert.match(consumer, /waitForRender\(activeRender\.render_id\)/);
-  assert.match(consumer, /submit\.disabled = generationActive \|\| !businessTryOnsAllowed/);
+  assert.match(consumer, /updateSubmitAvailability/);
+  assert.match(consumer, /\|\| !selectedItemFile/);
+  assert.match(consumer, /\|\| !selectedPersonAssetId/);
 });
 
 test("consumer authentication persists for the backend session lifetime", () => {
@@ -358,19 +360,22 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
     "I am at least 18",
     "not authorised for model training",
     "Wearable item",
+    "Choose what you want to wear",
     "Generate try-on",
+    "See It On You",
     "not a fit",
     "Full-body photo",
     "Close-up face photo",
     "Use person photo",
-    "Upload image",
+    "Add wearable",
+    "Upload",
     "Take photo",
     "Take full-body photo",
     "Take close-up photo",
     "Your photo library",
     "0 of 10 photos",
     "Choose a photo",
-    "3 successful previews per day",
+    "Checking your available balance",
     "Refresh try-on balance",
     "Allotted",
     "Available",
@@ -397,8 +402,18 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /id="open-cancellation"/);
   assert.match(consumer, /id="cancellation-dialog"/);
   assert.match(consumer, /preview\.dataset\.advertisement = "true"/);
+  assert.match(consumer, /<section id="tryon-composer" class="tryon-studio tryon-composer--reference"/);
+  assert.doesNotMatch(consumer, /<dialog id="tryon-composer"|id="open-tryon-composer"|id="close-tryon-composer"/);
+  assert.doesNotMatch(consumer, /openComposerButton|closeComposerButton|composer\.showModal/);
+  assert.doesNotMatch(consumer, /recent-tryons|loadRecentTryOns|recentTryOnsList/);
+  assert.doesNotMatch(consumer, /Camera permission is controlled by your browser or device/);
+  assert.doesNotMatch(css, /recent-tryons|recent-tryon-card/);
   assert.match(css, /mobile-preview__canvas\[data-advertisement="true"\][^{]*\{[^}]*aspect-ratio:\s*3\s*\/\s*4/s);
   assert.match(css, /\.sponsored-advertisement-progress img[^}]*object-fit:\s*contain/s);
+  assert.match(css, /\.tryon-composer--reference \.mobile-preview__canvas \.tryon-result-image[^}]*width:\s*auto\s*!important[^}]*height:\s*auto\s*!important[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s);
+  assert.match(css, /\.tryon-composer--reference \.tryon-workspace[^}]*grid-template-columns:\s*minmax\(0,\s*1\.7fr\)\s*minmax\(9\.25rem,\s*\.68fr\)/s);
+  assert.match(css, /\.tryon-composer--reference \.wearable-dock[^}]*grid-template-rows:\s*minmax\(6rem,\s*\.7fr\)\s*minmax\(11rem,\s*1\.35fr\)\s*auto\s*auto/s);
+  assert.match(css, /\.tryon-composer--reference \.mobile-preview__canvas[^}]*aspect-ratio:\s*2\s*\/\s*3/s);
   assert.match(consumer, /open-cancellation"\)\.addEventListener\("click", \(\) => \{/);
   assert.match(consumer, /cancellationDialog\.showModal\(\)/);
   assert.match(consumer, /confirmCancellation\.addEventListener\("click", async \(\) => \{/);
@@ -454,10 +469,21 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /navigator\.canShare/);
   assert.match(consumer, /data-share-look/);
   assert.match(consumer, /data-download-look/);
+  assert.match(consumer, /id="look-preview-dialog"/);
+  assert.match(consumer, /previewDialog\.showModal\(\)/);
+  assert.doesNotMatch(consumer, /class="look-card__image"[^>]*target="_blank"/);
+  assert.match(css, /\.look-preview-dialog::backdrop/);
   assert.match(consumer, /Saved look downloaded/);
   assert.match(consumer, /data-delete-look/);
   assert.match(consumer, /\/result/);
   assert.match(css, /\.looks-gallery/);
+  assert.match(consumer, /class="mobile-title looks-title"/);
+  assert.match(css, /\.looks-title h1[^}]*font-size:\s*1\.75rem/s);
+  assert.match(css, /\.looks-title h1::selection[^}]*background:\s*var\(--state-lilac\)/s);
+  assert.match(css, /\.looks-gallery\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(consumer, /lookPlaceholders\(Math\.max\(0, 6 - result\.items\.length\)\)/);
+  assert.match(consumer, /look-card--placeholder/);
+  assert.match(css, /\.look-placeholder__image img/);
   assert.match(css, /\.look-card__image/);
   assert.match(css, /\.queue-card/);
   assert.match(css, /\.queue-card__remove/);
@@ -465,6 +491,15 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.selected-person-photo/);
   assert.match(css, /\.photo-picker-dialog/);
   assert.match(css, /\.profile-library__grid/);
+  assert.match(css, /\.profile-title h1[^}]*font-size:\s*1\.75rem/s);
+  assert.match(css, /\.profile-photo-slot[^}]*grid-template-rows:\s*12rem\s+9\.5rem\s+auto/s);
+  assert.match(css, /\.profile-photo-card \.person-preview[^}]*height:\s*12rem/s);
+  assert.match(css, /\.profile-photo-card \.person-preview img[^}]*object-fit:\s*contain\s*!important/s);
+  assert.match(css, /\.profile-photo-card \.person-preview img[^}]*width:\s*auto\s*!important[^}]*height:\s*auto\s*!important/s);
+  assert.match(css, /\.profile-library__item img[^}]*object-fit:\s*contain/s);
+  assert.match(consumer, /profile-library__note/);
+  assert.match(css, /\.profile-library__note[^}]*font-size:\s*\.68rem/s);
+  assert.match(css, /\.photo-picker-option img[^}]*object-fit:\s*contain/s);
   assert.match(css, /\.profile-photo-grid/);
   assert.match(css, /\.profile-camera-button/);
   assert.match(css, /\.wearable-source-actions/);
@@ -479,9 +514,11 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
 
 test("B2C checkout and B2B payment information stay backend-priced", () => {
   assert.match(consumer, /\/app\/payments/);
-  assert.match(consumer, /Clear before you pay/);
+  assert.doesNotMatch(consumer, /consumer-header__price/);
+  assert.doesNotMatch(consumer, /consumer-tryon-rate/);
+  assert.doesNotMatch(consumer, /consumer-pricing-hero/);
+  assert.doesNotMatch(consumer, /consumer-rate-detail/);
   assert.match(consumer, /api\("\/public\/try-on-pricing"\)/);
-  assert.match(consumer, /tryOn\.tokens_per_tryon/);
   assert.doesNotMatch(consumer, /Equivalent to ₹/);
   assert.match(consumer, /data-retail-package-id/);
   assert.match(consumer, /\/me\/topup-orders/);
@@ -697,7 +734,7 @@ test("business status blocks only new B2B2C try-ons and preserves end-user reads
   assert.match(consumer, /SUBSCRIPTION_CANCELLED/);
   assert.match(consumer, /Your profile, photos, saved data, and previous results remain available in Profile and Looks\./);
   assert.match(consumer, /\/sponsored-sessions\/\$\{encodeURIComponent\(existing\.session_id\)\}/);
-  assert.match(consumer, /submit\.disabled = !businessTryOnsAllowed/);
+  assert.match(consumer, /updateSubmitAvailability\(\)/);
   assert.match(consumer, />Try on your app<\/button>/);
   assert.match(consumer, /leaveBusinessExperience/);
   assert.match(consumer, /sessionStorage\.removeItem\(SHOP_CONTEXT_KEY\)/);

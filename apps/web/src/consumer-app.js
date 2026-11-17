@@ -216,6 +216,13 @@ async function api(path, options = {}, auth = readAuth()) {
 }
 
 function consumerFrame(route, content, authenticated, shopDetails = null) {
+  const headerTitle = {
+    home: "See It On You",
+    history: "Your Style Gallery",
+    payments: "Choose Your Balance",
+    profile: "Make It Yours",
+    "account-status": "Your Account",
+  }[route];
   const nav = [
     ["home", "/app/", "✦", "Try on"],
     ["history", "/app/history", "◫", "Looks"],
@@ -233,6 +240,7 @@ function consumerFrame(route, content, authenticated, shopDetails = null) {
     <div class="consumer-app consumer-app--${route}${shopDetails ? " consumer-app--shop" : ""}">
       <header class="consumer-header">
         ${shopDetails ? `<div class="shop-brand">${shopDetails.logo_data_url ? `<img src="${escapeHtml(shopDetails.logo_data_url)}" alt="${escapeHtml(shopDetails.display_name)} logo" />` : `<span>${escapeHtml(shopDetails.display_name).slice(0, 1)}</span>`}<strong>${escapeHtml(shopDetails.display_name)}</strong><small>with Wearo.ai</small></div>` : compactBrandMarkup(authenticated ? "/app/" : "/app/sign-in")}
+        ${authenticated && headerTitle ? `<span class="consumer-header__title" aria-hidden="true">${headerTitle}</span>` : ""}
         <div class="consumer-header__actions">
           <button id="install-app" class="icon-button install-button" type="button" hidden aria-label="Install Wearo app">↓</button>
           ${authenticated ? '<a class="avatar-button" href="/app/profile" aria-label="Open profile">M</a>' : ""}
@@ -275,44 +283,41 @@ function signInView(shopDetails = null) {
 
 function homeView() {
   return `
-    <header class="home-heading">
-      <div><p class="eyebrow">Your private fitting room</p><h1>Try it on</h1><p>Upload or photograph a wearable and see it with your saved person profile.</p></div>
-      <a class="profile-shortcut" href="/app/profile"><span>○</span> Edit profile</a>
+    <header class="home-heading home-heading--modern">
+      <div><h1>Good morning</h1><p>What would you like to try on today?</p></div>
     </header>
     <section id="sponsored-session-card" class="notice sponsored-session-card" hidden aria-live="polite"></section>
-    <section class="allowance-card" aria-label="Daily beta allowance"><div><span id="allowance-count" class="allowance-ring">—</span><div><strong><span id="allowance-copy">Loading</span> previews available</strong><p id="allowance-note">Beta testing · 3 successful previews per day.</p></div></div><div class="allowance-actions"><span>Beta · Today</span><button id="refresh-allowance" class="allowance-refresh" type="button" aria-label="Refresh try-on balance" title="Refresh try-on balance">↻</button></div></section>
-    <section class="tryon-studio" aria-labelledby="tryon-title">
+    <section class="allowance-card allowance-card--modern" aria-label="Try-on balance"><div><span aria-hidden="true" class="allowance-sparkle">✦</span><div><strong><span id="allowance-copy">Loading</span> try-ons</strong><p id="allowance-note">Checking your available balance…</p></div></div><div class="allowance-actions"><span id="allowance-count" class="allowance-count">—</span><button id="refresh-allowance" class="allowance-refresh" type="button" aria-label="Refresh try-on balance" title="Refresh try-on balance">↻</button></div></section>
+    <section id="tryon-composer" class="tryon-studio tryon-composer--reference" aria-labelledby="tryon-title">
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
       <div class="tryon-workspace">
-        <div id="preview-canvas" class="mobile-preview__canvas" role="img" aria-label="Generated preview will appear here">
-          <span aria-hidden="true">✦</span><strong>Your result appears here</strong><small>Choose the best saved photo for this wearable</small>
+        <div id="preview-canvas" class="mobile-preview__canvas" role="img" aria-label="Generated try-on will appear here">
+          <div class="tryon-placeholder">
+            <img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="" aria-hidden="true" />
+            <span aria-hidden="true">✦</span>
+            <strong>Your try-on will appear here</strong>
+            <small>Add a wearable and use your selected person photo</small>
+          </div>
         </div>
         <form id="try-on-form" class="wearable-dock" novalidate>
-          <fieldset id="person-photo-selector" class="person-photo-selector" aria-label="Person photo">
-            <legend>Use person photo</legend>
-            <p>Loading your saved photos…</p>
-          </fieldset>
+          <div class="person-photo-control">
+            <fieldset id="person-photo-selector" class="person-photo-selector" aria-label="Person photo"><legend>Use person photo</legend><p>Loading your saved photos…</p></fieldset>
+            <button id="open-photo-picker" class="model-choose-button" type="button" disabled>Choose</button>
+          </div>
           <div class="wearable-picker">
             <span id="item-thumb" class="wearable-picker__thumb" aria-hidden="true">＋</span>
             <strong>Add wearable</strong>
-            <small>Shirt, saree, blouse, necklace, earrings, or a contextual photo where the intended item is visible</small>
+            <small>Shirt, saree, blouse, necklace, earrings, or another wearable</small>
             <div class="wearable-source-actions">
-              <label class="wearable-source">
-                <span aria-hidden="true">↑</span> Upload image
-                <input name="item_upload" type="file" accept="image/jpeg,image/png,image/webp" />
-              </label>
-              <button id="open-camera" class="wearable-source wearable-source--camera" type="button">
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
-                Take photo
-              </button>
+              <label class="wearable-source"><span aria-hidden="true">↑</span> Upload image<input name="item_upload" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+              <button id="open-camera" class="wearable-source wearable-source--camera" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>Take photo</button>
             </div>
-            <small class="camera-permission-note">Camera permission is controlled and remembered by your browser or device.</small>
           </div>
-          <button id="generate-button" class="button button--primary button--full" type="submit"><span aria-hidden="true">✦</span> Generate try-on</button>
+          <button id="generate-button" class="button button--primary button--full start-tryon-button" type="submit" disabled><span aria-hidden="true">✦</span> Generate try-on</button>
+          <p id="tryon-status" class="form-status status-panel" role="status" aria-live="polite"></p>
         </form>
       </div>
-      <p id="tryon-status" class="form-status status-panel" role="status" aria-live="polite"></p>
-      <div class="notice" role="note"><strong>Visual preview only.</strong> This is not a fit, size, measurement, material, or purchase guarantee.</div>
+      <details class="tryon-disclaimer"><summary>About visual try-ons</summary><p>This is not a fit, size, measurement, material, or purchase guarantee.</p></details>
     </section>
     <dialog id="photo-picker-dialog" class="photo-picker-dialog" aria-labelledby="photo-picker-title">
       <div class="photo-picker-dialog__panel">
@@ -380,8 +385,7 @@ function profileView(auth) {
           </div>
           <div id="profile-photo-library" class="profile-library__grid" aria-live="polite"></div>
         </div>
-        <p class="field-help">Store up to 10 JPEG, PNG or WebP photos · Maximum 7 MB each. Originals remain private.</p>
-        <p class="field-help">Used only as visual guidance, never for sizing or measurements.</p>
+        <p class="field-help profile-library__note">Up to 10 JPEG, PNG or WebP photos · 7 MB maximum each · Private visual guidance only, never used for sizing or measurements.</p>
       </section>
       <fieldset id="consent-fields" class="consent-card" ${setup ? "" : "hidden"}>
         <legend>Photo consent</legend>
@@ -442,32 +446,23 @@ function pendingDeletionView() {
 
 function historyView() {
   return `
-    <header class="mobile-title"><p class="eyebrow">Your wardrobe</p><h1>Saved looks</h1><p>Accepted previews remain available for up to 30 days.</p></header>
+    <header class="mobile-title looks-title"><p class="eyebrow">Your wardrobe</p><h1 class="sr-only">Your try-ons</h1><p>Completed try-ons remain available for up to 30 days.</p></header>
     <section id="queue-panel" class="queue-panel" hidden>
       <div class="queue-panel__heading"><div><p class="eyebrow">Generation activity</p><h2>Queue details</h2></div><span id="queue-count" class="status-chip"></span></div>
       <div id="queue-list" class="queue-list"></div>
     </section>
-    <p id="looks-status" class="form-status status-panel" role="status" aria-live="polite">Loading your private previews…</p>
-    <section id="looks-gallery" class="looks-gallery" aria-busy="true"></section>`;
+    <p id="looks-status" class="form-status status-panel" role="status" aria-live="polite">Loading your private try-ons…</p>
+    <section id="looks-gallery" class="looks-gallery" aria-busy="true"></section>
+    <dialog id="look-preview-dialog" class="look-preview-dialog" aria-labelledby="look-preview-title">
+      <div class="look-preview-dialog__header"><div><p class="eyebrow">Saved look</p><h2 id="look-preview-title">Try-on preview</h2></div><button id="close-look-preview" type="button" aria-label="Close try-on preview">×</button></div>
+      <img id="look-preview-image" alt="Selected AI-generated try-on" />
+    </dialog>`;
 }
 
 function paymentsView() {
   return `
-    <header class="mobile-title payment-readiness-heading">
-      <p class="eyebrow">Clear before you pay</p>
-      <h1>Try-on pricing</h1>
-      <p>Choose a package, pay securely with Razorpay, and use your balance for future try-ons.</p>
-    </header>
-    <section class="consumer-pricing-hero" aria-labelledby="consumer-current-rate-title">
-      <div>
-        <p class="eyebrow">Current published rate</p>
-        <h2 id="consumer-current-rate-title"><span id="consumer-tryon-rate">Loading…</span></h2>
-        <p id="consumer-rate-detail">Checking the latest backend-published try-on rate.</p>
-      </div>
-      <span class="consumer-pricing-hero__mark" aria-hidden="true">✦</span>
-    </section>
     <section class="consumer-package-section" aria-labelledby="consumer-packages-title">
-      <div class="section-heading"><p class="eyebrow">Choose your balance</p><h2 id="consumer-packages-title">Try-on packages</h2><p>Package values are calculated from the current published token rate. Razorpay keeps payment details off Wearo servers.</p></div>
+      <div class="section-heading"><h2 id="consumer-packages-title">Try-on packages</h2></div>
       <div id="consumer-package-list" class="consumer-package-grid" aria-live="polite">Loading available packages…</div>
       <p id="consumer-payment-status" class="form-status status-panel consumer-payment-status" role="status" aria-live="polite"></p>
     </section>
@@ -495,7 +490,7 @@ function paymentsView() {
         <span aria-hidden="true">↺</span><div><h2>Cancellation and refunds</h2><p>You can leave checkout before payment. Duplicate or incorrect payments and paid services Wearo cannot deliver are eligible for review. Approved cash refunds return to the original payment method.</p></div>
       </article>
       <article class="consumer-policy-card">
-        <span aria-hidden="true">◇</span><div><h2>Digital service delivery</h2><p>Processing starts after images and consent are submitted. AI results are visual previews—not guarantees of fit, size, colour, material, or purchase outcome.</p></div>
+        <span aria-hidden="true">◇</span><div><h2>Digital service delivery</h2><p>Processing starts after images and consent are submitted. AI try-ons are visual representations—not guarantees of fit, size, colour, material, or purchase outcome.</p></div>
       </article>
       <article class="consumer-policy-card">
         <span aria-hidden="true">?</span><div><h2>Support and complaints</h2><p>Payment, credit, privacy, and quality issues will receive a trackable support reference. Consumer complaints are acknowledged within 48 hours and targeted for resolution within one month.</p></div>
@@ -691,20 +686,14 @@ function attachConsumerBillingHistory(auth) {
 }
 
 async function loadConsumerPricing(auth) {
-  const rate = document.querySelector("#consumer-tryon-rate");
-  const detail = document.querySelector("#consumer-rate-detail");
   const packages = document.querySelector("#consumer-package-list");
-  if (!rate || !detail || !packages) return;
+  if (!packages) return;
   try {
     const tryOn = await api("/public/try-on-pricing");
     if (tryOn.status !== "PUBLISHED") {
-      rate.textContent = "Not yet published";
-      detail.textContent = "The price will appear here before paid try-ons are enabled.";
       packages.textContent = "Packages will appear after the try-on rate is published.";
       return;
     }
-    rate.textContent = `${Number(tryOn.tokens_per_tryon).toLocaleString("en-IN")} Wearo Tokens`;
-    detail.textContent = `Per successfully delivered try-on · Effective ${new Date(tryOn.effective_from).toLocaleDateString("en-IN")}. The current token rate is shown before confirmation.`;
     packages.innerHTML = tryOn.packages?.length
       ? tryOn.packages.map((item) => {
         const tier = String(item.name).trim().toLowerCase();
@@ -733,7 +722,6 @@ async function loadConsumerPricing(auth) {
     });
   } catch (error) {
     rate.textContent = "Temporarily unavailable";
-    detail.textContent = `${error.message} No payment or credit deduction has been attempted.`;
     packages.textContent = "Packages are temporarily unavailable.";
   }
 }
@@ -1429,6 +1417,7 @@ function attachHomeFlow(auth) {
   const itemThumb = document.querySelector("#item-thumb");
   const personPhotoSelector = document.querySelector("#person-photo-selector");
   const photoPickerDialog = document.querySelector("#photo-picker-dialog");
+  const openPhotoPickerButton = document.querySelector("#open-photo-picker");
   const photoPickerGrid = document.querySelector("#photo-picker-grid");
   const closePhotoPicker = document.querySelector("#close-photo-picker");
   const preview = document.querySelector("#preview-canvas");
@@ -1459,6 +1448,19 @@ function attachHomeFlow(auth) {
       .catch(() => null)
     : Promise.resolve(null);
 
+  const updateSubmitAvailability = () => {
+    const sponsoredLimitReached = sponsoredSession && sponsoredSession.try_ons_remaining <= 0;
+    submit.disabled = Boolean(
+      generationActive
+      || !businessTryOnsAllowed
+      || !selectedItemFile
+      || !selectedPersonAssetId
+      || sponsoredLimitReached,
+    );
+  };
+
+  openPhotoPickerButton.addEventListener("click", () => photoPickerDialog.showModal());
+
   const unlockCompletionSound = () => {
     completionAudioContext?.resume().catch(() => {});
   };
@@ -1482,12 +1484,13 @@ function attachHomeFlow(auth) {
   const setBusinessAvailability = (businessStatus) => {
     businessTryOnsAllowed = businessStatus === "ACTIVE";
     const card = document.querySelector("#sponsored-session-card");
-    const studio = document.querySelector(".tryon-studio");
+    const studio = document.querySelector("#tryon-composer");
     const allowancePanel = allowanceCount.closest(".allowance-card");
     if (businessTryOnsAllowed) {
       card.hidden = true;
       studio.hidden = false;
       allowancePanel.hidden = false;
+      updateSubmitAvailability();
       return;
     }
     const businessName = readShopDetails()?.display_name || "This business";
@@ -1502,7 +1505,7 @@ function attachHomeFlow(auth) {
     allowanceCount.textContent = "—";
     allowanceCopy.textContent = "Unavailable";
     allowanceNote.textContent = message;
-    submit.disabled = true;
+    updateSubmitAvailability();
   };
 
   const refreshSponsoredSession = async () => {
@@ -1529,7 +1532,7 @@ function attachHomeFlow(auth) {
     allowanceCount.textContent = sponsoredSession.try_ons_remaining;
     allowanceCopy.textContent = sponsoredSession.try_ons_remaining;
     allowanceNote.textContent = `Sponsored by ${sponsoredSession.business_name} · Valid until ${new Date(sponsoredSession.expires_at).toLocaleString()}.`;
-    submit.disabled = generationActive || unavailable || sponsoredSession.try_ons_remaining <= 0;
+    updateSubmitAvailability();
     try {
       const advertisement = await fetch(
         `${API_BASE}/sponsored-sessions/${encodeURIComponent(sponsoredSession.session_id)}/advertisement`,
@@ -1571,8 +1574,8 @@ function attachHomeFlow(auth) {
       const renderSelectedPhoto = () => {
         const current = images.find((image) => image.person_asset_id === selectedPersonAssetId) || images[0];
         const label = escapeHtml(photoLabel(current));
-        personPhotoSelector.innerHTML = `<legend>Use person photo</legend><div class="selected-person-photo"><img src="${API_BASE}/assets/${encodeURIComponent(current.person_asset_id)}" alt="${label} profile photo" /><div><small>Selected photo</small><strong>${label}</strong><span>${images.length} saved photo${images.length === 1 ? "" : "s"}</span></div><button id="open-photo-picker" type="button">Choose</button></div>`;
-        personPhotoSelector.querySelector("#open-photo-picker").addEventListener("click", () => photoPickerDialog.showModal());
+        personPhotoSelector.innerHTML = `<legend>Use person photo</legend><div class="selected-person-photo"><img src="${API_BASE}/assets/${encodeURIComponent(current.person_asset_id)}" alt="${label} profile photo" /><div><small>Selected photo</small><strong>${label}</strong><span>${images.length} saved photo${images.length === 1 ? "" : "s"}</span></div></div>`;
+        openPhotoPickerButton.disabled = false;
       };
       photoPickerGrid.innerHTML = images.map((image) => {
         const assetId = escapeHtml(image.person_asset_id);
@@ -1589,11 +1592,12 @@ function attachHomeFlow(auth) {
           });
           renderSelectedPhoto();
           photoPickerDialog.close();
+          updateSubmitAvailability();
           setStatus(status, "Person photo selected. Add a wearable when ready.", "success");
         });
       });
       renderSelectedPhoto();
-      submit.disabled = generationActive || !businessTryOnsAllowed;
+      updateSubmitAvailability();
     } catch (error) {
       setStatus(status, error.message, "error");
       if (error.code === "PROFILE_NOT_FOUND") {
@@ -1614,8 +1618,8 @@ function attachHomeFlow(auth) {
     delete preview.dataset.state;
     delete preview.dataset.partial;
     delete preview.dataset.advertisement;
-    preview.setAttribute("aria-label", "AI-generated try-on preview");
-    preview.innerHTML = `<img src="${API_BASE}/assets/${encodeURIComponent(assetId)}" alt="AI-generated try-on preview" />`;
+    preview.setAttribute("aria-label", "AI-generated try-on");
+    preview.innerHTML = `<img class="tryon-result-image" src="${API_BASE}/assets/${encodeURIComponent(assetId)}" alt="AI-generated try-on" />`;
   };
 
   const showGeneratingPreview = () => {
@@ -1623,7 +1627,7 @@ function attachHomeFlow(auth) {
     preview.dataset.state = "generating";
     if (sponsoredAdvertisementUrl) preview.dataset.advertisement = "true";
     else delete preview.dataset.advertisement;
-    preview.setAttribute("aria-label", "Wearo is creating your try-on preview");
+    preview.setAttribute("aria-label", "Wearo is creating your try-on");
     preview.innerHTML = sponsoredAdvertisementUrl
       ? `<div class="sponsored-advertisement-progress" role="status"><img src="${sponsoredAdvertisementUrl}" alt="Advertisement from ${escapeHtml(sponsoredSession?.business_name || "this store")}" /><div class="sponsored-advertisement-progress__shade"></div><strong>Try-on in progress…</strong></div>`
       : `<div class="tryon-generation" role="status"><div class="tryon-generation__sky" aria-hidden="true"><i class="tryon-generation__twinkle tryon-generation__twinkle--one">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--two">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--three">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--four">✧</i><i class="tryon-generation__twinkle tryon-generation__twinkle--five">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--six">✦</i><i class="tryon-generation__twinkle tryon-generation__twinkle--seven">✧</i></div><strong>Creating your Wearo look</strong><small>Fitting your selected wearable to your photo…</small><div class="tryon-generation__progress" aria-hidden="true"><i></i></div></div>`;
@@ -1637,8 +1641,8 @@ function attachHomeFlow(auth) {
     delete preview.dataset.partial;
     delete preview.dataset.advertisement;
     preview.dataset.state = "failed";
-    preview.setAttribute("aria-label", "Try-on preview could not be created");
-    preview.innerHTML = `<span aria-hidden="true">✦</span><strong>Preview not created</strong><small>Review the message below and try again</small>`;
+    preview.setAttribute("aria-label", "Try-on could not be created");
+    preview.innerHTML = `<span aria-hidden="true">✦</span><strong>Try-on not created</strong><small>Review the message below and try again</small>`;
   };
 
   const loadLatestPreview = async () => {
@@ -1648,21 +1652,21 @@ function attachHomeFlow(auth) {
       if (activeRender) {
         generationActive = true;
         showGeneratingPreview();
-        setButtonBusy(submit, true, "Creating preview…", "Generate try-on");
-        setStatus(status, `Creating your preview… ${activeRender.status.toLowerCase()}`);
+        setButtonBusy(submit, true, "Creating try-on…", "Generate try-on");
+        setStatus(status, `Creating your try-on… ${activeRender.status.toLowerCase()}`);
         try {
           const completed = await waitForRender(activeRender.render_id);
           showGeneratedPreview(completed.result_asset_id);
           playCompletionSound();
-          setStatus(status, "Your private try-on preview is ready.", "success");
+          setStatus(status, "Your private try-on is ready.", "success");
           await refreshAllowance();
         } catch (error) {
           showGenerationFailure();
           setStatus(status, error.message, "error");
         } finally {
           generationActive = false;
-          setButtonBusy(submit, false, "Creating preview…", "Generate try-on");
-          submit.disabled = !businessTryOnsAllowed;
+          setButtonBusy(submit, false, "Creating try-on…", "Generate try-on");
+          updateSubmitAvailability();
         }
         return;
       }
@@ -1725,7 +1729,7 @@ function attachHomeFlow(auth) {
       if (["FAILED", "CANCELLED"].includes(job.status)) {
         throw new Error(`Generation stopped: ${job.error_code || "UNKNOWN"}.`);
       }
-      setStatus(status, `Creating your preview… ${job.status.toLowerCase()}`);
+      setStatus(status, `Creating your try-on… ${job.status.toLowerCase()}`);
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     throw new Error("Generation did not finish within 5 minutes. Please try again.");
@@ -1736,6 +1740,7 @@ function attachHomeFlow(auth) {
     if (itemPreviewUrl) URL.revokeObjectURL(itemPreviewUrl);
     itemPreviewUrl = URL.createObjectURL(file);
     itemThumb.innerHTML = `<img src="${itemPreviewUrl}" alt="Selected wearable" />`;
+    updateSubmitAvailability();
     setStatus(status, `${sourceLabel} selected. Press Generate try-on when ready.`, "success");
   };
 
@@ -1800,7 +1805,7 @@ function attachHomeFlow(auth) {
         },
         auth,
       );
-      setButtonBusy(submit, true, "Creating preview…", "Generate try-on");
+      setButtonBusy(submit, true, "Creating try-on…", "Generate try-on");
       const generationKey = crypto.randomUUID();
       if (sponsoredSession) {
         sponsoredSession = {
@@ -1829,15 +1834,15 @@ function attachHomeFlow(auth) {
       const result = await waitForRender(job.render_id);
       showGeneratedPreview(result.result_asset_id);
       playCompletionSound();
-      setStatus(status, "Your private try-on preview is ready.", "success");
+      setStatus(status, "Your private try-on is ready.", "success");
       await refreshAllowance();
     } catch (error) {
       showGenerationFailure();
       setStatus(status, error.message, "error");
     } finally {
       generationActive = false;
-      setButtonBusy(submit, false, "Creating preview…", "Generate try-on");
-      submit.disabled = !businessTryOnsAllowed;
+      setButtonBusy(submit, false, "Creating try-on…", "Generate try-on");
+      updateSubmitAvailability();
     }
   });
 
@@ -1869,7 +1874,7 @@ function escapeHtml(value) {
 function queueMarkup(items) {
   const labels = {
     QUEUED: ["Queued", "Waiting for the render worker"],
-    PROCESSING: ["Processing", "Creating and checking your preview"],
+    PROCESSING: ["Processing", "Creating and checking your try-on"],
     FAILED: ["Failed", "Generation did not complete"],
     CANCELLED: ["Cancelled", "Generation was cancelled"],
   };
@@ -1905,9 +1910,20 @@ function emptyLooksMarkup() {
     <section class="mobile-empty looks-empty">
       <span aria-hidden="true">✦</span>
       <h2>No looks yet</h2>
-      <p>Create a preview from Home. Successful results will appear here automatically.</p>
+      <p>Create a try-on from Home. Successful results will appear here automatically.</p>
       <a class="button button--primary" href="/app/">Try on a wearable</a>
     </section>`;
+}
+
+function lookPlaceholders(count) {
+  return Array.from({ length: count }, (_, index) => `
+    <article class="look-card look-card--placeholder" aria-hidden="true">
+      <div class="look-placeholder__image">
+        <img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="" />
+        <span>Future look ${index + 1}</span>
+      </div>
+      <div class="look-placeholder__meta"><i></i><i></i><i></i></div>
+    </article>`).join("");
 }
 
 function attachHistoryFlow(auth) {
@@ -1916,6 +1932,14 @@ function attachHistoryFlow(auth) {
   const queuePanel = document.querySelector("#queue-panel");
   const queueList = document.querySelector("#queue-list");
   const queueCount = document.querySelector("#queue-count");
+  const previewDialog = document.querySelector("#look-preview-dialog");
+  const previewImage = document.querySelector("#look-preview-image");
+  const previewTitle = document.querySelector("#look-preview-title");
+
+  document.querySelector("#close-look-preview").addEventListener("click", () => previewDialog.close());
+  previewDialog.addEventListener("click", (event) => {
+    if (event.target === previewDialog) previewDialog.close();
+  });
 
   const prepareLookFile = async (assetId, createdAt) => {
     const response = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetId)}`, {
@@ -1974,6 +1998,14 @@ function attachHistoryFlow(auth) {
 
   gallery.addEventListener("click", async (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    const previewLink = target?.closest(".look-card__image");
+    if (previewLink) {
+      event.preventDefault();
+      previewImage.src = previewLink.href;
+      previewTitle.textContent = previewLink.dataset.previewTitle || "Try-on preview";
+      previewDialog.showModal();
+      return;
+    }
     const downloadButton = target?.closest("[data-download-look]");
     if (downloadButton) {
       setButtonBusy(downloadButton, true, "Preparing…", "Download");
@@ -2044,17 +2076,17 @@ function attachHistoryFlow(auth) {
       queueCount.textContent = activeQueue.length ? `${activeQueue.length} active` : "Recent activity";
       queueList.innerHTML = queueMarkup(activeQueue);
       if (!result.items.length) {
-        gallery.innerHTML = emptyLooksMarkup();
-        setStatus(status, activeQueue.length ? "Your previews will appear here when ready." : "You have no saved previews yet.");
+        gallery.innerHTML = lookPlaceholders(6);
+        setStatus(status, activeQueue.length ? "Your try-ons will appear here when ready." : "You have no saved try-ons yet.");
       } else {
-        gallery.innerHTML = result.items
+        const savedLooks = result.items
           .map((look) => {
             const assetId = encodeURIComponent(look.result_asset_id);
             const assetUrl = `${API_BASE}/assets/${assetId}`;
             return `
               <article class="look-card">
-                <a class="look-card__image" href="${assetUrl}" target="_blank" rel="noopener" aria-label="Open generated preview from ${formatLookDate(look.created_at)}">
-                  <img src="${assetUrl}" alt="AI-generated try-on preview" loading="lazy" />
+                <a class="look-card__image" href="${assetUrl}" data-preview-title="Try-on from ${formatLookDate(look.created_at)}" aria-label="Preview generated try-on from ${formatLookDate(look.created_at)}">
+                  <img src="${assetUrl}" alt="AI-generated try-on" loading="lazy" />
                 </a>
                 <div class="look-card__meta">
                   <strong>${formatLookDate(look.created_at)}</strong>
@@ -2068,6 +2100,7 @@ function attachHistoryFlow(auth) {
               </article>`;
           })
           .join("");
+        gallery.innerHTML = `${savedLooks}${lookPlaceholders(Math.max(0, 6 - result.items.length))}`;
         setStatus(status, `${result.items.length} saved ${result.items.length === 1 ? "look" : "looks"}.`, "success");
       }
       if (activeQueue.length) window.setTimeout(loadLooks, 3000);
@@ -2081,7 +2114,7 @@ function attachHistoryFlow(auth) {
         <section class="mobile-empty looks-empty">
           <span aria-hidden="true">!</span>
           <h2>Looks unavailable</h2>
-          <p>Your previews are still private. Try opening this page again.</p>
+          <p>Your try-ons are still private. Try opening this page again.</p>
         </section>`;
       setStatus(status, error.message, "error");
     } finally {
