@@ -11,10 +11,10 @@
   "theme_color": "#3b1746",
   "icons": [
     {
-      "src": "/wearo-brand.png",
+      "src": "/wearo-brand_white_bg.png?v=20261117-pwa-1",
       "sizes": "1254x1254",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
   "shortcuts": [

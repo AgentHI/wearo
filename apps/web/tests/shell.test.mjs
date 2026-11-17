@@ -36,7 +36,7 @@ test("brand and typography tokens remain explicit", () => {
   }
   assert.match(css, /h1[^}]*font-size:\s*2rem/s);
   assert.match(css, /\.button[^}]*font-size:\s*1rem/s);
-  assert.match(html, /wearo-brand\.png/);
+  assert.match(html, /wearo-(?:brand|checkout-logo)\.png/);
   assert.match(css, /\.wordmark img[^}]*object-fit:\s*contain/s);
   assert.match(css, /\.app-brand img[^}]*object-fit:\s*contain/s);
   assert.doesNotMatch(css, /\.wordmark__symbol img/);
@@ -625,9 +625,11 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
   assert.equal(manifest.short_name, "Wearo");
   assert.ok(
     manifest.icons.some(
-      (icon) => icon.src === "/wearo-brand.png" && icon.purpose.includes("maskable"),
+      (icon) => icon.src.startsWith("/wearo-brand_white_bg.png") && icon.purpose === "any",
     ),
   );
+  assert.equal(manifest.icons.some((icon) => icon.purpose.includes("maskable")), false);
+  assert.match(html, /apple-touch-icon" href="\/wearo-brand_white_bg\.png\?v=20261117-pwa-1/);
   assert.match(worker, /wearo-shell-v\d+/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);

@@ -11,8 +11,7 @@
   "theme_color": "#3b1746",
   "categories": ["business", "productivity"],
   "icons": [
-    { "src": "/wearo-brand.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any" },
-    { "src": "/wearo-brand.png", "sizes": "1254x1254", "type": "image/png", "purpose": "maskable" }
+    { "src": "/wearo-brand_white_bg.png?v=20261117-pwa-1", "sizes": "1254x1254", "type": "image/png", "purpose": "any" }
   ],
   "shortcuts": [
     { "name": "Customer try-ons", "short_name": "Try-ons", "url": "/agent/#customer" }
