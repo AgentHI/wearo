@@ -506,13 +506,16 @@ function paymentsView() {
   return `
     <section class="consumer-package-section" aria-labelledby="consumer-packages-title">
       <div class="section-heading"><h2 id="consumer-packages-title">Try-on packages</h2></div>
-      <div id="consumer-package-list" class="consumer-package-grid" aria-live="polite">Loading available packages…</div>
+      <div id="consumer-package-list" class="consumer-package-grid" aria-live="polite" aria-label="Available try-on packages">Loading available packages…</div>
+      <div id="consumer-package-purchase" class="consumer-package-purchase" hidden>
+        <p id="consumer-package-selection-hint">Select one package to enable Buy.</p>
+        <button id="consumer-buy-button" class="consumer-buy-button" type="button" disabled aria-describedby="consumer-package-selection-hint" aria-busy="false">${purchaseIcon}<span>Buy</span></button>
+      </div>
       <p id="consumer-payment-status" class="form-status status-panel consumer-payment-status" role="status" aria-live="polite"></p>
     </section>
     <div class="consumer-billing-history-action">
-      <button id="consumer-billing-history-toggle" class="button button--primary consumer-billing-history-toggle" type="button" aria-expanded="false" aria-controls="consumer-billing-history">
+      <button id="consumer-billing-history-toggle" class="consumer-billing-history-toggle" type="button" aria-label="View payment history" title="View payment history" aria-expanded="false" aria-controls="consumer-billing-history">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
-        <span>Payment history</span>
       </button>
     </div>
     <section id="consumer-billing-history" class="consumer-billing-history" aria-labelledby="consumer-billing-history-title" hidden>
@@ -575,6 +578,7 @@ function razorpayCustomerOptions(auth) {
 async function buyConsumerPackage(item, button, status, auth) {
   const idleMarkup = `${purchaseIcon}<span>Buy</span>`;
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
   button.innerHTML = '<span class="consumer-buy-button__spinner" aria-hidden="true"></span><span>Preparing checkout…</span>';
   setStatus(status, "Creating your secure Razorpay checkout…");
   try {
@@ -599,6 +603,7 @@ async function buyConsumerPackage(item, button, status, auth) {
     let paymentSettled = false;
     const resetButton = () => {
       button.disabled = false;
+      button.setAttribute("aria-busy", "false");
       button.innerHTML = idleMarkup;
     };
     const closeCheckout = (message, tone) => {
@@ -680,6 +685,7 @@ async function buyConsumerPackage(item, button, status, auth) {
   } catch (error) {
     setStatus(status, error.message, "error");
     button.disabled = false;
+    button.setAttribute("aria-busy", "false");
     button.innerHTML = idleMarkup;
   }
 }
@@ -719,8 +725,10 @@ function attachConsumerBillingHistory(auth) {
     const opening = section.hidden;
     section.hidden = !opening;
     button.setAttribute("aria-expanded", String(opening));
-    const label = button.querySelector("span");
-    if (label) label.textContent = opening ? "Hide payment history" : "Payment history";
+    const label = opening ? "Hide payment history" : "View payment history";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.classList.toggle("is-active", opening);
     if (opening && !loaded) {
       loaded = true;
       await loadConsumerBillingHistory(auth);
@@ -730,6 +738,9 @@ function attachConsumerBillingHistory(auth) {
 
 async function loadConsumerPricing(auth) {
   const packages = document.querySelector("#consumer-package-list");
+  const purchase = document.querySelector("#consumer-package-purchase");
+  const purchaseButton = document.querySelector("#consumer-buy-button");
+  const selectionHint = document.querySelector("#consumer-package-selection-hint");
   if (!packages) return;
   try {
     const tryOn = await api("/public/try-on-pricing");
@@ -737,15 +748,18 @@ async function loadConsumerPricing(auth) {
       packages.textContent = "Packages will appear after the try-on rate is published.";
       return;
     }
-    packages.innerHTML = tryOn.packages?.length
-      ? tryOn.packages.map((item) => {
+    const availablePackages = Array.isArray(tryOn.packages) ? tryOn.packages : [];
+    packages.innerHTML = availablePackages.length
+      ? availablePackages.map((item) => {
         const tier = String(item.name).trim().toLowerCase();
         const tierClass = tier === "silver" || tier === "gold" ? ` consumer-package-card--${tier}` : "";
-        return `<article class="consumer-package-card${tierClass}"><p>${escapeHtml(item.name)}</p><strong>₹${(Number(item.final_amount_minor) / 100).toFixed(2)}</strong><span>Including GST ${(Number(item.gst_basis_points) / 100).toFixed(0)}%</span><b>${Number(item.total_tokens).toLocaleString("en-IN")} tokens · About ${Number(item.number_of_tryons).toLocaleString("en-IN")} try-ons</b><button class="consumer-buy-button" type="button" data-retail-package-id="${escapeHtml(item.retail_package_id)}">${purchaseIcon}<span>Buy</span></button></article>`;
+        return `<button class="consumer-package-card${tierClass}" type="button" data-retail-package-id="${escapeHtml(item.retail_package_id)}" aria-pressed="false"><span class="consumer-package-card__name">${escapeHtml(item.name)}</span><strong>₹${(Number(item.final_amount_minor) / 100).toFixed(2)}</strong><span class="consumer-package-card__tax">Including GST ${(Number(item.gst_basis_points) / 100).toFixed(0)}%</span><b>${Number(item.total_tokens).toLocaleString("en-IN")} tokens · About ${Number(item.number_of_tryons).toLocaleString("en-IN")} try-ons</b><span class="consumer-package-card__selected" aria-hidden="true">✓</span></button>`;
       }).join("")
       : '<p class="consumer-package-empty">No packages are currently published.</p>';
-    const items = new Map(tryOn.packages.map((item) => [String(item.retail_package_id), item]));
+    const items = new Map(availablePackages.map((item) => [String(item.retail_package_id), item]));
     const status = document.querySelector("#consumer-payment-status");
+    let selectedItem = null;
+    if (purchase && availablePackages.length) purchase.hidden = false;
     const paymentFlash = sessionStorage.getItem(PAYMENT_FLASH_KEY);
     if (status && paymentFlash) {
       sessionStorage.removeItem(PAYMENT_FLASH_KEY);
@@ -757,14 +771,25 @@ async function loadConsumerPricing(auth) {
       }
     }
     packages.addEventListener("click", (event) => {
-      const button = event.target instanceof Element
+      const card = event.target instanceof Element
         ? event.target.closest("[data-retail-package-id]")
         : null;
-      const item = button ? items.get(button.dataset.retailPackageId) : null;
-      if (button && item && status) buyConsumerPackage(item, button, status, auth);
+      const item = card ? items.get(card.dataset.retailPackageId) : null;
+      if (!card || !item || !purchaseButton) return;
+      if (purchaseButton.getAttribute("aria-busy") === "true") return;
+      packages.querySelectorAll("[data-retail-package-id]").forEach((packageCard) => {
+        const selected = packageCard === card;
+        packageCard.classList.toggle("is-selected", selected);
+        packageCard.setAttribute("aria-pressed", String(selected));
+      });
+      selectedItem = item;
+      purchaseButton.disabled = false;
+      if (selectionHint) selectionHint.textContent = `${item.name} selected.`;
+    });
+    purchaseButton?.addEventListener("click", () => {
+      if (selectedItem && status) buyConsumerPackage(selectedItem, purchaseButton, status, auth);
     });
   } catch (error) {
-    rate.textContent = "Temporarily unavailable";
     packages.textContent = "Packages are temporarily unavailable.";
   }
 }

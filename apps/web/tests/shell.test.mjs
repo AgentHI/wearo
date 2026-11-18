@@ -534,6 +534,12 @@ test("B2C checkout and B2B payment information stay backend-priced", () => {
   assert.match(consumer, /api\("\/public\/try-on-pricing"\)/);
   assert.doesNotMatch(consumer, /Equivalent to ₹/);
   assert.match(consumer, /data-retail-package-id/);
+  assert.match(consumer, /id="consumer-buy-button"[^>]*disabled/);
+  assert.match(consumer, /id="consumer-billing-history-toggle"[^>]*aria-label="View payment history"/);
+  assert.doesNotMatch(consumer, /consumer-billing-history-toggle[^>]*>[\s\S]*?<span>Payment history<\/span>/);
+  assert.match(consumer, /purchaseButton\.disabled = false/);
+  assert.match(consumer, /classList\.toggle\("is-selected", selected\)/);
+  assert.match(consumer, /setAttribute\("aria-pressed", String\(selected\)\)/);
   assert.match(consumer, /\/me\/topup-orders/);
   assert.match(consumer, /\/me\/verify-payment/);
   assert.match(consumer, /window\.Razorpay/);
@@ -573,6 +579,9 @@ test("B2C checkout and B2B payment information stay backend-priced", () => {
   assert.match(consumer, /consumer-package-card--\$\{tier\}/);
   assert.match(css, /consumer-package-card--silver/);
   assert.match(css, /consumer-package-card--gold/);
+  assert.match(css, /\.consumer-package-grid[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.consumer-package-card\.is-selected[^}]*animation:\s*consumer-package-focus/s);
+  assert.match(css, /@keyframes consumer-package-focus/);
 });
 
 test("authenticated B2C and B2B2C users get an own-account cancellation entry point", () => {
