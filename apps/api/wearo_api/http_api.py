@@ -59,6 +59,7 @@ from .beta_profile import (
     ProfileError,
     ProfileImage,
 )
+from .billing_history_pdf import billing_history_pdf
 from .browser_sessions import (
     BrowserSession,
     BrowserSessionService,
@@ -2060,11 +2061,29 @@ def create_app(
         )
 
     @app.get("/api/v1/me/billing-history")
-    def consumer_billing_history(request: Request) -> dict[str, object]:
+    def consumer_billing_history(
+        request: Request, page: int = 1, page_size: int = 10
+    ) -> dict[str, object]:
         session = _authenticate(request, container)
         if container.topups is None:
             raise ApiProblem(503, "PAYMENT_HISTORY_UNAVAILABLE", "Billing history is unavailable.")
-        return container.topups.consumer_billing_history(session.account_id)
+        return container.topups.consumer_billing_history(
+            session.account_id, page=page, page_size=page_size
+        )
+
+    @app.get("/api/v1/me/billing-history.pdf")
+    def download_consumer_billing_history(request: Request) -> Response:
+        session = _authenticate(request, container)
+        if container.topups is None:
+            raise ApiProblem(503, "PAYMENT_HISTORY_UNAVAILABLE", "Billing history is unavailable.")
+        rows = container.topups.consumer_billing_report(session.account_id)
+        return Response(
+            billing_history_pdf(rows),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="wearo-billing-history.pdf"'
+            },
+        )
 
     @app.get("/api/v1/me/topup-orders/{payment_order_id}")
     def consumer_topup_status(payment_order_id: UUID, request: Request) -> dict[str, object]:

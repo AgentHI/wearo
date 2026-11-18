@@ -536,7 +536,12 @@ test("B2C checkout and B2B payment information stay backend-priced", () => {
   assert.match(consumer, /data-retail-package-id/);
   assert.match(consumer, /id="consumer-buy-button"[^>]*disabled/);
   assert.match(consumer, /id="consumer-billing-history-toggle"[^>]*aria-label="View payment history"/);
+  assert.match(consumer, /id="consumer-billing-history-more"[^>]*hidden>Load more<\/button>/);
+  assert.match(consumer, /href="\/api\/v1\/me\/billing-history\.pdf"[^>]*download="wearo-billing-history\.pdf"/);
   assert.doesNotMatch(consumer, /consumer-billing-history-toggle[^>]*>[\s\S]*?<span>Payment history<\/span>/);
+  assert.match(consumer, /page_size:\s*"10"/);
+  assert.match(consumer, /loadConsumerBillingHistory\(auth, \{ page, append: true \}\)/);
+  assert.doesNotMatch(consumer, /Receipt issued after successful capture/);
   assert.match(consumer, /purchaseButton\.disabled = false/);
   assert.match(consumer, /classList\.toggle\("is-selected", selected\)/);
   assert.match(consumer, /setAttribute\("aria-pressed", String\(selected\)\)/);

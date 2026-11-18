@@ -519,8 +519,9 @@ function paymentsView() {
       </button>
     </div>
     <section id="consumer-billing-history" class="consumer-billing-history" aria-labelledby="consumer-billing-history-title" hidden>
-      <div class="section-heading"><p class="eyebrow">Your payments</p><h2 id="consumer-billing-history-title">Billing history</h2><p>Completed, failed, pending, and refunded purchases appear here.</p></div>
+      <div class="section-heading consumer-billing-history__heading"><div><p class="eyebrow">Your payments</p><h2 id="consumer-billing-history-title">Billing history</h2><p>Completed, failed, pending, and refunded purchases appear here.</p></div><a class="consumer-billing-history__download" href="/api/v1/me/billing-history.pdf" download="wearo-billing-history.pdf" aria-label="Download complete billing history as PDF" title="Download complete billing history as PDF"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 18v3h14v-3"/></svg></a></div>
       <div id="consumer-billing-history-list" class="consumer-billing-history__list" aria-live="polite"></div>
+      <button id="consumer-billing-history-more" class="consumer-billing-history__more" type="button" hidden>Load more</button>
     </section>
     <section class="consumer-policy-grid" aria-label="Consumer pricing and policy summary">
       <article class="consumer-policy-card consumer-policy-card--highlight">
@@ -690,13 +691,20 @@ async function buyConsumerPackage(item, button, status, auth) {
   }
 }
 
-async function loadConsumerBillingHistory(auth) {
+async function loadConsumerBillingHistory(auth, { page = 1, append = false } = {}) {
   const list = document.querySelector("#consumer-billing-history-list");
+  const loadMore = document.querySelector("#consumer-billing-history-more");
   if (!list) return;
-  list.textContent = "Loading billing history…";
+  if (append && loadMore) {
+    loadMore.disabled = true;
+    loadMore.textContent = "Loading…";
+  } else {
+    list.textContent = "Loading billing history…";
+  }
   try {
-    const history = await api("/me/billing-history", {}, auth);
-    list.innerHTML = history.items?.length
+    const query = new URLSearchParams({ page: String(page), page_size: "10" });
+    const history = await api(`/me/billing-history?${query}`, {}, auth);
+    const markup = history.items?.length
       ? history.items.map((item) => {
         const amount = new Intl.NumberFormat("en-IN", {
           style: "currency", currency: item.currency || "INR",
@@ -707,18 +715,34 @@ async function loadConsumerBillingHistory(auth) {
         });
         const reference = item.receipt_number
           ? `<span>Receipt ${escapeHtml(item.receipt_number)}</span>`
-          : "<span>Receipt issued after successful capture</span>";
+          : "";
         return `<article class="consumer-billing-row"><div><strong>${escapeHtml(item.package_name || "Try-on credits")}</strong><span>${escapeHtml(date)}</span>${reference}</div><div><strong>${escapeHtml(amount)}</strong><span>${Number(item.tokens || 0).toLocaleString("en-IN")} tokens</span><b class="consumer-payment-state consumer-payment-state--${escapeHtml(state)}">${escapeHtml(state)}</b></div></article>`;
       }).join("")
-      : '<p class="consumer-billing-history__empty">No payments yet. Your first purchase will appear here.</p>';
+      : append
+        ? ""
+        : '<p class="consumer-billing-history__empty">No payments yet. Your first purchase will appear here.</p>';
+    if (append) list.insertAdjacentHTML("beforeend", markup);
+    else list.innerHTML = markup;
+    if (loadMore) {
+      loadMore.hidden = !history.has_next;
+      loadMore.disabled = false;
+      loadMore.textContent = "Load more";
+      loadMore.dataset.nextPage = String(Number(history.page || page) + 1);
+    }
   } catch (error) {
-    list.innerHTML = `<p class="consumer-billing-history__empty">${escapeHtml(error.message)}</p>`;
+    if (append && loadMore) {
+      loadMore.disabled = false;
+      loadMore.textContent = "Try again";
+    } else {
+      list.innerHTML = `<p class="consumer-billing-history__empty">${escapeHtml(error.message)}</p>`;
+    }
   }
 }
 
 function attachConsumerBillingHistory(auth) {
   const button = document.querySelector("#consumer-billing-history-toggle");
   const section = document.querySelector("#consumer-billing-history");
+  const loadMore = document.querySelector("#consumer-billing-history-more");
   if (!button || !section) return;
   let loaded = false;
   button.addEventListener("click", async () => {
@@ -733,6 +757,10 @@ function attachConsumerBillingHistory(auth) {
       loaded = true;
       await loadConsumerBillingHistory(auth);
     }
+  });
+  loadMore?.addEventListener("click", async () => {
+    const page = Number(loadMore.dataset.nextPage || "2");
+    await loadConsumerBillingHistory(auth, { page, append: true });
   });
 }
 

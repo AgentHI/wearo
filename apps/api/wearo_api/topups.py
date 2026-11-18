@@ -958,11 +958,14 @@ class PostgresTopUps:
         )
         return {"accepted": True, "refunded": True, "tokens_reversed": reversed_tokens}
 
-    def consumer_billing_history(self, account_id: UUID) -> dict[str, object]:
+    def _consumer_billing_rows(
+        self, account_id: UUID, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[dict[str, object], ...]:
         with self.engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    """SELECT o.payment_order_id, o.state, o.amount_minor, o.currency,
+            rows = (
+                connection.execute(
+                    text(
+                        """SELECT o.payment_order_id, o.state, o.amount_minor, o.currency,
                               o.purchased_tokens + o.promo_tokens AS tokens,
                               o.created_at, o.updated_at, p.name AS package_name,
                               r.receipt_id, r.receipt_number, r.provider_payment_id,
@@ -976,12 +979,34 @@ class PostgresTopUps:
                        LEFT JOIN payment_refunds f
                          ON f.payment_order_id=o.payment_order_id
                        WHERE o.account_id=:account AND o.tenant_id IS NULL
-                       ORDER BY o.created_at DESC
-                       LIMIT 100"""
-                ),
-                {"account": account_id},
-            ).mappings()
-            return {"items": tuple(dict(row) for row in rows)}
+                       ORDER BY o.created_at DESC, o.payment_order_id DESC
+                       LIMIT :limit OFFSET :offset"""
+                    ),
+                    {"account": account_id, "limit": limit, "offset": offset},
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(dict(row) for row in rows)
+
+    def consumer_billing_history(
+        self, account_id: UUID, *, page: int = 1, page_size: int = 10
+    ) -> dict[str, object]:
+        if page < 1 or not 1 <= page_size <= 50:
+            raise TopUpError("INVALID_PAGE", "Invalid billing history page requested.")
+        offset = (page - 1) * page_size
+        rows = self._consumer_billing_rows(account_id, limit=page_size + 1, offset=offset)
+        has_next = len(rows) > page_size
+        return {
+            "items": rows[:page_size],
+            "page": page,
+            "page_size": page_size,
+            "has_previous": page > 1,
+            "has_next": has_next,
+        }
+
+    def consumer_billing_report(self, account_id: UUID) -> tuple[dict[str, object], ...]:
+        return self._consumer_billing_rows(account_id)
 
     def consumer_order_status(self, account_id: UUID, payment_order_id: UUID) -> dict[str, object]:
         def read_order() -> dict[str, object] | None:

@@ -1467,9 +1467,22 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .consumer-billing-history-toggle:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 3px; }
 .consumer-billing-history-toggle svg { width: 1.25rem; height: 1.25rem; }
 .consumer-billing-history { margin-top: 1rem; }
+.consumer-billing-history__heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.consumer-billing-history__heading > div { min-width: 0; }
 .consumer-billing-history .section-heading > p:last-child { margin-top: .3rem; color: var(--ink-mauve); font-size: .8rem; }
+.consumer-billing-history__heading > div > p:last-child { margin: .3rem 0 0; color: var(--ink-mauve); font-size: .8rem; }
+.consumer-billing-history__download { display: grid; width: 2.6rem; height: 2.6rem; flex: 0 0 auto; place-items: center; border: 1px solid var(--border-mauve); border-radius: 50%; color: var(--brand-plum); background: white; box-shadow: 0 .3rem .8rem rgb(92 11 80 / 10%); transition: color .18s ease, background .18s ease, transform .18s ease; }
+.consumer-billing-history__download:hover { color: white; background: var(--brand-plum); transform: translateY(-1px); }
+.consumer-billing-history__download:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 3px; }
+.consumer-billing-history__download svg { width: 1.2rem; height: 1.2rem; }
 .consumer-billing-history__list { display: grid; gap: .65rem; margin-top: .8rem; }
-.consumer-billing-row { display: flex; justify-content: space-between; gap: 1rem; padding: 1rem; border: 1px solid var(--border-mauve); border-radius: 1rem; background: white; box-shadow: var(--shadow-sm); }
+.consumer-billing-history__more { display: block; min-height: 2.65rem; margin: .8rem auto 0; padding: .55rem 1.2rem; border: 1px solid var(--brand-plum); border-radius: 999px; color: var(--brand-plum); background: white; font: inherit; font-size: .75rem; font-weight: 800; cursor: pointer; }
+.consumer-billing-history__more[hidden] { display: none; }
+.consumer-billing-history__more:hover { color: white; background: var(--brand-plum); }
+.consumer-billing-history__more:disabled { cursor: wait; opacity: .55; }
+.consumer-billing-history__more:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 3px; }
+.consumer-billing-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem .15rem; border-bottom: 1px solid var(--border-mauve); background: transparent; }
+.consumer-billing-row:last-child { border-bottom: 0; }
 .consumer-billing-row > div { display: grid; align-content: start; gap: .2rem; }
 .consumer-billing-row > div:last-child { justify-items: end; text-align: right; }
 .consumer-billing-row strong { color: var(--brand-plum); }
