@@ -127,6 +127,7 @@ from .external_runtime import (
     HttpAnalysisClient,
     OpenAIAnalysisClient,
 )
+from .home_captions import HomeCaptionService
 from .image_preflight import ImagePreflightService, VisionAnalyzer
 from .media_runtime import MediaRuntimeError, PostgresMediaRuntime, private_blob_store_from_env
 from .notification_delivery import (
@@ -252,6 +253,7 @@ class ApiContainer:
     admin_audit: PostgresAdminAudit | None = None
     admin_ai_costs: PostgresAdminAiCosts | None = None
     contact_enquiries: PostgresContactEnquiries | None = None
+    home_captions: HomeCaptionService | None = None
     contact_form_token: bytes = b""
 
 
@@ -949,6 +951,10 @@ def create_app(
     template_generator = OpenAITemplateGenerator(
         os.environ.get("WEARO_OPENAI_API_KEY", ""),
         os.environ.get("WEARO_NOTIFICATION_AI_MODEL", "gpt-5-mini"),
+    )
+    home_captions = container.home_captions or HomeCaptionService(
+        os.environ.get("WEARO_OPENAI_API_KEY", ""),
+        os.environ.get("WEARO_HOME_CAPTION_MODEL", "gpt-5-mini"),
     )
     admin_email = os.environ.get("WEARO_ADMIN_EMAIL", "")
     admin_password = os.environ.get("WEARO_ADMIN_PASSWORD", "")
@@ -3777,6 +3783,11 @@ def create_app(
             raise ApiProblem(404, "PROFILE_NOT_FOUND", "No active person profile exists.") from None
         container.profiles.delete(profile.profile_id, session.account_id)
         return {"ok": True}
+
+    @app.get("/api/v1/me/home-caption")
+    def home_caption(request: Request) -> dict[str, str]:
+        _authenticate(request, container)
+        return {"caption": home_captions.random_caption()}
 
     @app.get("/api/v1/me/daily-allowance")
     def daily_allowance(request: Request) -> dict[str, Any]:

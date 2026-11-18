@@ -728,6 +728,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/home-caption": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Select a two-word home caption from the server-cached caption library */
+        get: operations["get__me_home_caption"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/payment-orders": {
         parameters: {
             query?: never;
@@ -1091,6 +1108,9 @@ export interface components {
             resets_at: string;
             /** Format: uuid */
             active_job_id?: string | null;
+        };
+        HomeCaption: {
+            caption: string;
         };
         OtpRequest: {
             destination: string;
@@ -4980,6 +5000,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DailyAllowance"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get__me_home_caption: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Random confidence and style caption */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeCaption"];
                 };
             };
             /** @description Authentication required */

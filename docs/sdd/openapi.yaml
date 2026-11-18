@@ -2692,6 +2692,23 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
       security: [{sessionCookie: []}]
+  /me/home-caption:
+    get:
+      tags: [Rendering]
+      summary: Select a two-word home caption from the server-cached caption library
+      operationId: get__me_home_caption
+      responses:
+        '200':
+          description: Random confidence and style caption
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HomeCaption'}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      security: [{sessionCookie: []}]
   /payment-orders:
     post:
       tags:
@@ -3943,6 +3960,15 @@ components:
         resets_at: {type: string, format: date-time}
         active_job_id: {type: [string, 'null'], format: uuid}
       required: [successful_limit, successful_used, remaining, resets_at]
+      additionalProperties: false
+    HomeCaption:
+      type: object
+      properties:
+        caption:
+          type: string
+          pattern: "^[A-Za-z][A-Za-z'’\\-]* [A-Za-z][A-Za-z'’\\-]*$"
+          maxLength: 49
+      required: [caption]
       additionalProperties: false
     OtpRequest:
       type: object

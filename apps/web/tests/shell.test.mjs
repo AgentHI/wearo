@@ -448,6 +448,12 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /savePhoto\(closeUpFile, "CLOSE_UP"/);
   assert.match(consumer, /Local testing mode/);
   assert.match(consumer, /allowance\.unlimited/);
+  assert.match(consumer, /id="home-caption"/);
+  assert.match(consumer, /HOME_CAPTION_FALLBACKS/);
+  assert.match(consumer, /randomLocalHomeCaption\(previousHomeCaption\)/);
+  assert.match(consumer, /api\("\/me\/home-caption", \{ cache: "no-store" \}, auth\)/);
+  assert.match(consumer, /homeCaption\.textContent = caption/);
+  assert.match(css, /\.consumer-app--home \.home-caption[^}]*linear-gradient/s);
   assert.doesNotMatch(consumer, /actual LLM tokens/i);
   assert.match(consumer, /Saving profile/);
   assert.match(consumer, /\/quotes/);

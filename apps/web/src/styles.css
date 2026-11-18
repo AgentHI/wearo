@@ -1160,6 +1160,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .consumer-app--home .home-heading--modern { padding: 0; }
 .consumer-app--home .home-heading--modern .eyebrow { margin-bottom: .2rem; font-size: .65rem; }
 .consumer-app--home .home-heading--modern h1 { margin: 0; font-size: clamp(1.75rem, 7vw, 2.2rem); }
+.consumer-app--home .home-caption { width: fit-content; color: var(--brand-plum); background: linear-gradient(110deg, var(--brand-plum) 0%, #8f3e75 48%, #c18b42 100%); background-clip: text; filter: drop-shadow(0 .2rem .45rem rgb(91 36 79 / 10%)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .consumer-app--home .home-heading--modern p:last-child { margin-top: .2rem; font-size: .8rem; }
 .consumer-app--home .allowance-card--modern { min-height: 3.75rem; margin: 0; padding: .65rem .8rem; border-radius: 1rem; }
 .consumer-app--home .allowance-card--modern > div { gap: .55rem; }

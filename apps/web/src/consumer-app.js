@@ -13,6 +13,47 @@ const SHOP_DETAILS_VERSION = 6;
 const SPONSORED_SESSION_KEY = "wearo_sponsored_session";
 const PAYMENT_FLASH_KEY = "wearo_payment_flash";
 const TRY_ON_COMPLETE_SOUND = "/wearo-tryon-complete.wav";
+const LAST_HOME_CAPTION_KEY = "wearo_last_home_caption";
+const HOME_CAPTION_FALLBACKS = [
+  "Wear Confidence",
+  "Radiate Elegance",
+  "Own Beauty",
+  "Feel Remarkable",
+  "Look Limitless",
+  "Glow Confidently",
+  "Styled Boldly",
+  "Beautifully You",
+  "Confidence Shines",
+  "Elegance Awaits",
+  "Unapologetically You",
+  "Own Today",
+  "Shine Naturally",
+  "Feel Fabulous",
+  "Look Radiant",
+  "Embrace Elegance",
+  "Choose Confidence",
+  "Boldly Beautiful",
+  "Gracefully Confident",
+  "Simply Stunning",
+  "Endlessly Elegant",
+  "Naturally Radiant",
+  "Confidently You",
+];
+
+function readLastHomeCaption() {
+  try { return sessionStorage.getItem(LAST_HOME_CAPTION_KEY) || ""; }
+  catch { return ""; }
+}
+
+function saveLastHomeCaption(caption) {
+  try { sessionStorage.setItem(LAST_HOME_CAPTION_KEY, caption); }
+  catch { /* The caption still works when browser storage is unavailable. */ }
+}
+
+function randomLocalHomeCaption(previousCaption = readLastHomeCaption()) {
+  const choices = HOME_CAPTION_FALLBACKS.filter((caption) => caption !== previousCaption);
+  return choices[Math.floor(Math.random() * choices.length)];
+}
 
 function captureShopContext(pathname) {
   const match = pathname.match(/^\/shop\/([^/]+)(?:\/([^/]+))?\/?$/);
@@ -283,7 +324,7 @@ function signInView(shopDetails = null) {
 function homeView() {
   return `
     <header class="home-heading home-heading--modern">
-      <div><h1>Good morning</h1><p>What would you like to try on today?</p></div>
+      <div><h1 id="home-caption" class="home-caption" aria-live="polite">Wear Confidence</h1><p>What would you like to try on today?</p></div>
     </header>
     <section id="sponsored-session-card" class="notice sponsored-session-card" hidden aria-live="polite"></section>
     <section class="allowance-card allowance-card--modern" aria-label="Try-on balance"><div><span aria-hidden="true" class="allowance-sparkle">✦</span><div><strong><span id="allowance-copy">Loading</span> try-ons</strong><p id="allowance-note">Checking your available balance…</p></div></div><div class="allowance-actions"><span id="allowance-count" class="allowance-count">—</span><button id="refresh-allowance" class="allowance-refresh" type="button" aria-label="Refresh try-on balance" title="Refresh try-on balance">↻</button></div></section>
@@ -1432,6 +1473,7 @@ function attachHomeFlow(auth) {
   const allowanceCopy = document.querySelector("#allowance-copy");
   const allowanceNote = document.querySelector("#allowance-note");
   const allowanceRefresh = document.querySelector("#refresh-allowance");
+  const homeCaption = document.querySelector("#home-caption");
   let itemPreviewUrl = null;
   let selectedItemFile = null;
   let generationActive = false;
@@ -1453,6 +1495,11 @@ function attachHomeFlow(auth) {
       .catch(() => null)
     : Promise.resolve(null);
 
+  const previousHomeCaption = readLastHomeCaption();
+  const localHomeCaption = randomLocalHomeCaption(previousHomeCaption);
+  homeCaption.textContent = localHomeCaption;
+  saveLastHomeCaption(localHomeCaption);
+
   const updateSubmitAvailability = () => {
     const sponsoredLimitReached = sponsoredSession && sponsoredSession.try_ons_remaining <= 0;
     submit.disabled = Boolean(
@@ -1462,6 +1509,22 @@ function attachHomeFlow(auth) {
       || !selectedPersonAssetId
       || sponsoredLimitReached,
     );
+  };
+
+  const loadHomeCaption = async () => {
+    try {
+      const result = await api("/me/home-caption", { cache: "no-store" }, auth);
+      const caption = String(result.caption || "").trim();
+      if (
+        /^[A-Za-z][A-Za-z'’\-]* [A-Za-z][A-Za-z'’\-]*$/.test(caption)
+        && caption !== previousHomeCaption
+      ) {
+        homeCaption.textContent = caption;
+        saveLastHomeCaption(caption);
+      }
+    } catch {
+      // Keep the randomized local fallback when the caption service is unavailable.
+    }
   };
 
   openPhotoPickerButton.addEventListener("click", () => photoPickerDialog.showModal());
@@ -1882,6 +1945,7 @@ function attachHomeFlow(auth) {
     }
   });
 
+  loadHomeCaption();
   loadLatestPreview();
   loadProfilePhotos().then(refreshAllowance);
 }
