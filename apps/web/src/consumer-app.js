@@ -256,8 +256,7 @@ function signInView(shopDetails = null) {
   return `
     <section class="consumer-auth">
       ${shopName ? `<div class="shop-welcome"><img class="shop-welcome__wearo-logo brand-white-bg" src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="Wearo.ai" /><p class="eyebrow">Private virtual try-on</p><h1>Wearo.ai</h1><p>${escapeHtml(shopDetails.caption || "Try before you buy with your private Wearo profile.")}</p></div>` : ""}
-      <div class="flow-progress" aria-label="Account setup progress"><span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span></div>
-      <p class="eyebrow">Step 1 of 3</p>
+      <p class="eyebrow">Private account</p>
       <h1>${shopName ? "Start your try-on" : "Sign up or sign in"}</h1>
       <p id="consumer-auth-intro" class="lede">Use your email or mobile number. New accounts are created automatically.</p>
       <form id="auth-form" class="consumer-card">
@@ -342,8 +341,7 @@ function profileView(auth) {
   const setup = !auth.hasProfile;
   return `
     <header class="mobile-title profile-title">
-      <div class="flow-progress" aria-label="Account setup progress"><span>1</span><i class="is-complete"></i><span class="is-active">2</span><i></i><span>3</span></div>
-      <p class="eyebrow">${setup ? "Step 2 of 3" : "Personal profile"}</p>
+      <p class="eyebrow">Personal profile</p>
       <h1>${setup ? "Create your profile" : "Update your profile"}</h1>
       <p>Add at least one photo. Use full-body for clothing and close-up for necklaces or earrings; adding both is optional.</p>
     </header>

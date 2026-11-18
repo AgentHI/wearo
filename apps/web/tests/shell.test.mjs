@@ -662,11 +662,11 @@ test("PWA is scoped to the consumer app and never caches private API traffic", (
   assert.equal(manifest.short_name, "Wearo");
   assert.ok(
     manifest.icons.some(
-      (icon) => icon.src.startsWith("/wearo-brand_white_bg.png") && icon.purpose === "any",
+      (icon) => icon.src.startsWith("/pwa-icon-512.png") && icon.purpose === "any",
     ),
   );
   assert.equal(manifest.icons.some((icon) => icon.purpose.includes("maskable")), false);
-  assert.match(html, /apple-touch-icon" href="\/wearo-brand_white_bg\.png\?v=20261117-pwa-1/);
+  assert.match(html, /apple-touch-icon" href="\/pwa-icon-512\.png\?v=20261118-pwa-2/);
   assert.match(worker, /wearo-shell-v\d+/);
   assert.match(main, /updateViaCache: "none"/);
   assert.match(main, /registration\.update\(\)/);
@@ -765,7 +765,7 @@ test("platform support can find every customer realm and add audited tokens", ()
 test("consumer PWA has a three-second animated branded launch splash", () => {
   assert.match(main, /showConsumerSplash/);
   assert.match(main, /wearo_consumer_splash_seen/);
-  assert.match(main, /launch-splash__logo"><img src="\/wearo-brand\.png\?v=20261108-transparent"/);
+  assert.match(main, /launch-splash__logo"><img src="\/wearo-mark\.png\?v=20261118-pwa-2"/);
   assert.doesNotMatch(main, /launch-splash__logo"><img src="\/wearo-brand_white_bg\.png"/);
   assert.match(main, /Private AI-powered virtual try-on/);
   assert.match(main, /setTimeout\(\(\) => splash\.remove\(\), 3000\)/);
