@@ -39,6 +39,7 @@ test("brand and typography tokens remain explicit", () => {
   assert.match(html, /wearo-(?:brand|checkout-logo)\.png/);
   assert.match(css, /\.wordmark img[^}]*object-fit:\s*contain/s);
   assert.match(css, /\.app-brand img[^}]*object-fit:\s*contain/s);
+  assert.match(css, /\.app-brand[^}]*width:\s*6rem/s);
   assert.doesNotMatch(css, /\.wordmark__symbol img/);
   assert.doesNotMatch(css, /\.app-brand__crop/);
 });
