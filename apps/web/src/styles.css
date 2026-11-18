@@ -1304,9 +1304,40 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-composer--reference .status-panel { padding: .5rem .6rem; font-size: .65rem; }
 .tryon-composer--reference .tryon-disclaimer { margin: 0; }
 @media (max-width: 28rem) {
-  .tryon-composer--reference .tryon-workspace { grid-template-columns: 1fr; }
-  .tryon-composer--reference .mobile-preview__canvas { aspect-ratio: 3 / 4; }
-  .tryon-composer--reference .wearable-dock { grid-template-rows: auto; }
+  .consumer-main--home { padding-inline: .55rem; }
+  .tryon-composer--reference { gap: .45rem; padding: .5rem; border-radius: .9rem; }
+  .tryon-composer--reference .tryon-studio__heading { gap: .35rem; }
+  .tryon-composer--reference .tryon-studio__heading .eyebrow { margin-bottom: .08rem; font-size: .48rem; line-height: .7rem; }
+  .tryon-composer--reference .tryon-studio__heading h2 { margin-top: 0; font-size: .9rem; line-height: 1.15; }
+  .tryon-composer--reference .tryon-studio__heading > span { padding: .22rem .35rem; font-size: .48rem; white-space: nowrap; }
+  .tryon-composer--reference .tryon-workspace { grid-template-columns: minmax(0, 1.72fr) minmax(5.75rem, .78fr); gap: .35rem; }
+  .tryon-composer--reference .mobile-preview__canvas { aspect-ratio: 2 / 3; border-radius: .65rem; }
+  .tryon-composer--reference .tryon-placeholder { gap: .12rem; padding: .45rem; }
+  .tryon-composer--reference .tryon-placeholder::after { width: 5rem; height: 5rem; }
+  .tryon-composer--reference .tryon-placeholder img { width: 4.5rem !important; }
+  .tryon-composer--reference .tryon-placeholder > span { font-size: .8rem; }
+  .tryon-composer--reference .tryon-placeholder > strong { font-size: .58rem; }
+  .tryon-composer--reference .tryon-placeholder > small { font-size: .46rem; line-height: 1.25; }
+  .tryon-composer--reference .wearable-dock { grid-template-rows: minmax(4.25rem, .7fr) minmax(7.35rem, 1.35fr) auto auto; gap: .3rem; }
+  .tryon-composer--reference .person-photo-control { gap: .18rem; padding: .28rem; border-radius: .6rem; }
+  .tryon-composer--reference .person-photo-selector legend { font-size: .54rem; line-height: 1.1; }
+  .tryon-composer--reference .person-photo-selector > p { font-size: .48rem; line-height: 1.2; text-align: center; }
+  .tryon-composer--reference .selected-person-photo { grid-template-columns: 1.75rem minmax(0, 1fr); gap: .22rem; }
+  .tryon-composer--reference .selected-person-photo img { width: 1.75rem; border-radius: .4rem; }
+  .tryon-composer--reference .selected-person-photo small,
+  .tryon-composer--reference .selected-person-photo span { font-size: .44rem; line-height: 1.15; }
+  .tryon-composer--reference .selected-person-photo strong { max-width: 100%; font-size: .53rem; }
+  .tryon-composer--reference .model-choose-button { min-height: 1.55rem; padding: .16rem .25rem; border-radius: .45rem; font-size: .5rem; }
+  .tryon-composer--reference .wearable-picker { grid-template-rows: minmax(3.5rem, 1fr) auto auto auto; gap: .18rem; padding: .28rem; border-radius: .6rem; }
+  .tryon-composer--reference .wearable-picker__thumb { min-height: 3.5rem; border-radius: .45rem; font-size: 1.2rem; }
+  .tryon-composer--reference .wearable-picker > strong { font-size: .6rem; line-height: 1.1; }
+  .tryon-composer--reference .wearable-picker > small { font-size: .46rem; line-height: 1.2; }
+  .tryon-composer--reference .wearable-source-actions { gap: .18rem; }
+  .tryon-composer--reference .wearable-source { min-height: 1.85rem; gap: .1rem; padding: .18rem .1rem; border-radius: .42rem; font-size: .46rem; }
+  .tryon-composer--reference .wearable-source svg { width: .75rem; height: .75rem; }
+  .tryon-composer--reference .start-tryon-button { min-height: 2.25rem; padding: .3rem .15rem; border-radius: .55rem; font-size: .56rem; line-height: 1.1; }
+  .tryon-composer--reference .status-panel { padding: .32rem .38rem; font-size: .48rem; line-height: 1.25; }
+  .tryon-composer--reference .tryon-disclaimer { font-size: .52rem; }
 }
 .camera-dialog { width: min(calc(100% - 1.5rem), 30rem); max-height: calc(100dvh - 1.5rem); padding: 0; overflow: hidden; border: 0; border-radius: 1.2rem; color: var(--ink-charcoal); background: white; box-shadow: var(--shadow-lg); }
 .camera-dialog::backdrop { background: rgb(37 17 41 / 72%); backdrop-filter: blur(.2rem); }

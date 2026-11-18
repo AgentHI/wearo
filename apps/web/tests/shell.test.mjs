@@ -414,6 +414,8 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.tryon-composer--reference \.tryon-workspace[^}]*grid-template-columns:\s*minmax\(0,\s*1\.7fr\)\s*minmax\(9\.25rem,\s*\.68fr\)/s);
   assert.match(css, /\.tryon-composer--reference \.wearable-dock[^}]*grid-template-rows:\s*minmax\(6rem,\s*\.7fr\)\s*minmax\(11rem,\s*1\.35fr\)\s*auto\s*auto/s);
   assert.match(css, /\.tryon-composer--reference \.mobile-preview__canvas[^}]*aspect-ratio:\s*2\s*\/\s*3/s);
+  assert.match(css, /@media \(max-width:\s*28rem\)[\s\S]*?\.tryon-composer--reference \.tryon-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.72fr\)\s*minmax\(5\.75rem,\s*\.78fr\)/s);
+  assert.doesNotMatch(css, /\.tryon-composer--reference \.tryon-workspace\s*\{\s*grid-template-columns:\s*1fr/);
   assert.match(consumer, /open-cancellation"\)\.addEventListener\("click", \(\) => \{/);
   assert.match(consumer, /cancellationDialog\.showModal\(\)/);
   assert.match(consumer, /confirmCancellation\.addEventListener\("click", async \(\) => \{/);
