@@ -318,6 +318,10 @@ function homeView() {
       </div>
       <details class="tryon-disclaimer"><summary>About visual try-ons</summary><p>This is not a fit, size, measurement, material, or purchase guarantee.</p></details>
     </section>
+    <dialog id="tryon-preview-dialog" class="look-preview-dialog" aria-labelledby="tryon-preview-title">
+      <div class="look-preview-dialog__header"><div><p class="eyebrow">Generated look</p><h2 id="tryon-preview-title">Try-on preview</h2></div><button id="close-tryon-preview" type="button" aria-label="Close try-on preview">×</button></div>
+      <img id="tryon-preview-image" alt="AI-generated try-on preview" />
+    </dialog>
     <dialog id="photo-picker-dialog" class="photo-picker-dialog" aria-labelledby="photo-picker-title">
       <div class="photo-picker-dialog__panel">
         <header><div><p class="eyebrow">Your photo library</p><h2 id="photo-picker-title">Choose a photo</h2><p>Pick the angle that best matches this wearable.</p></div><button id="close-photo-picker" class="camera-dialog__close" type="button" aria-label="Close photo picker">×</button></header>
@@ -1419,6 +1423,9 @@ function attachHomeFlow(auth) {
   const photoPickerGrid = document.querySelector("#photo-picker-grid");
   const closePhotoPicker = document.querySelector("#close-photo-picker");
   const preview = document.querySelector("#preview-canvas");
+  const resultPreviewDialog = document.querySelector("#tryon-preview-dialog");
+  const resultPreviewImage = document.querySelector("#tryon-preview-image");
+  const closeResultPreview = document.querySelector("#close-tryon-preview");
   const submit = document.querySelector("#generate-button");
   const status = document.querySelector("#tryon-status");
   const allowanceCount = document.querySelector("#allowance-count");
@@ -1611,16 +1618,46 @@ function attachHomeFlow(auth) {
     if (event.target === photoPickerDialog) photoPickerDialog.close();
   });
 
+  const openResultPreview = () => {
+    if (!preview.dataset.previewUrl) return;
+    resultPreviewImage.src = preview.dataset.previewUrl;
+    resultPreviewDialog.showModal();
+  };
+
+  closeResultPreview.addEventListener("click", () => resultPreviewDialog.close());
+  resultPreviewDialog.addEventListener("click", (event) => {
+    if (event.target === resultPreviewDialog) resultPreviewDialog.close();
+  });
+  preview.addEventListener("click", openResultPreview);
+  preview.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key) || !preview.dataset.previewUrl) return;
+    event.preventDefault();
+    openResultPreview();
+  });
+
+  const resetPreviewInteraction = () => {
+    delete preview.dataset.previewUrl;
+    preview.removeAttribute("tabindex");
+    preview.setAttribute("role", "img");
+    if (resultPreviewDialog.open) resultPreviewDialog.close();
+    resultPreviewImage.removeAttribute("src");
+  };
+
   const showGeneratedPreview = (assetId) => {
     if (!assetId) return;
+    const assetUrl = `${API_BASE}/assets/${encodeURIComponent(assetId)}`;
     delete preview.dataset.state;
     delete preview.dataset.partial;
     delete preview.dataset.advertisement;
-    preview.setAttribute("aria-label", "AI-generated try-on");
-    preview.innerHTML = `<img class="tryon-result-image" src="${API_BASE}/assets/${encodeURIComponent(assetId)}" alt="AI-generated try-on" />`;
+    preview.dataset.previewUrl = assetUrl;
+    preview.setAttribute("role", "button");
+    preview.setAttribute("tabindex", "0");
+    preview.setAttribute("aria-label", "Open AI-generated try-on preview");
+    preview.innerHTML = `<img class="tryon-result-image" src="${assetUrl}" alt="AI-generated try-on" />`;
   };
 
   const showGeneratingPreview = () => {
+    resetPreviewInteraction();
     delete preview.dataset.partial;
     preview.dataset.state = "generating";
     if (sponsoredAdvertisementUrl) preview.dataset.advertisement = "true";
@@ -1636,6 +1673,7 @@ function attachHomeFlow(auth) {
   });
 
   const showGenerationFailure = () => {
+    resetPreviewInteraction();
     delete preview.dataset.partial;
     delete preview.dataset.advertisement;
     preview.dataset.state = "failed";

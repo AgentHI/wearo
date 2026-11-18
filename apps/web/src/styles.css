@@ -1179,6 +1179,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-composer .mobile-preview__canvas { position: relative; width: 100%; height: clamp(8rem, 16dvh, 10rem); min-height: 0; margin-bottom: .5rem; overflow: hidden; border: 1px solid rgb(92 11 80 / 8%); border-radius: .85rem; background: linear-gradient(145deg, #fbf3f9, #f4e6f2); }
 .tryon-composer .mobile-preview__canvas img { width: 100%; height: 100%; max-height: none; border-radius: 0; object-fit: contain; }
 .tryon-composer .mobile-preview__canvas .tryon-result-image { position: absolute; display: block; width: auto !important; height: auto !important; max-width: 100%; max-height: 100%; margin: auto; object-fit: contain !important; object-position: center; aspect-ratio: auto; inset: 0; }
+.tryon-composer .mobile-preview__canvas[data-preview-url] { cursor: zoom-in; }
+.tryon-composer .mobile-preview__canvas[data-preview-url]:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 3px; }
 .tryon-placeholder { position: relative; display: grid; width: 100%; height: 100%; place-items: center; align-content: center; gap: .2rem; overflow: hidden; padding: 1.25rem; text-align: center; }
 .tryon-placeholder::after { position: absolute; width: 10rem; height: 10rem; border: 1px solid rgb(213 166 56 / 18%); border-radius: 50%; content: ""; inset: 50% auto auto 50%; transform: translate(-50%, -50%); }
 .tryon-placeholder img { position: absolute; width: 8rem !important; height: auto !important; opacity: .055; filter: saturate(.65); transform: rotate(-8deg) scale(1.25); }
