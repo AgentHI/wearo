@@ -321,6 +321,16 @@ function signInView(shopDetails = null) {
     </section>`;
 }
 
+function emptyTryOnPlaceholderMarkup() {
+  return `
+    <div class="tryon-placeholder tryon-placeholder--empty">
+      <img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="" aria-hidden="true" />
+      <span aria-hidden="true">✦</span>
+      <strong>Your try-on will appear here</strong>
+      <small>Available try-ons are shown automatically</small>
+    </div>`;
+}
+
 function homeView() {
   return `
     <header class="home-heading home-heading--modern">
@@ -332,12 +342,7 @@ function homeView() {
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
       <div class="tryon-workspace">
         <div id="preview-canvas" class="mobile-preview__canvas" role="img" aria-label="Generated try-on will appear here">
-          <div class="tryon-placeholder">
-            <img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="" aria-hidden="true" />
-            <span aria-hidden="true">✦</span>
-            <strong>Your try-on will appear here</strong>
-            <small>Add a wearable and use your selected person photo</small>
-          </div>
+          ${emptyTryOnPlaceholderMarkup()}
         </div>
         <form id="try-on-form" class="wearable-dock" novalidate>
           <div class="person-photo-control">
@@ -1759,6 +1764,15 @@ function attachHomeFlow(auth) {
     resultPreviewImage.removeAttribute("src");
   };
 
+  const showEmptyPreview = () => {
+    resetPreviewInteraction();
+    delete preview.dataset.state;
+    delete preview.dataset.partial;
+    delete preview.dataset.advertisement;
+    preview.setAttribute("aria-label", "No saved try-on is available");
+    preview.innerHTML = emptyTryOnPlaceholderMarkup();
+  };
+
   const showGeneratedPreview = (assetId) => {
     if (!assetId) return;
     const assetUrl = `${API_BASE}/assets/${encodeURIComponent(assetId)}`;
@@ -1825,9 +1839,11 @@ function attachHomeFlow(auth) {
       const latest = result.items?.[0];
       if (!generationActive && latest?.result_asset_id) {
         showGeneratedPreview(latest.result_asset_id);
+      } else if (!generationActive) {
+        showEmptyPreview();
       }
     } catch {
-      // Saved-preview restoration must not block the try-on form.
+      if (!generationActive) showEmptyPreview();
     }
   };
 
@@ -2009,6 +2025,15 @@ function formatLookDate(value) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
 }
 
+function formatRetentionCountdown(value, now = Date.now()) {
+  const expiresAt = new Date(value).getTime();
+  if (Number.isNaN(expiresAt)) return "Automatic deletion date unavailable";
+  const daysRemaining = Math.max(0, Math.ceil((expiresAt - now) / (24 * 60 * 60 * 1000)));
+  if (daysRemaining === 0) return "Auto-deletes today";
+  if (daysRemaining === 1) return "Auto-deletes in 1 day";
+  return `Auto-deletes in ${daysRemaining} days`;
+}
+
 function formatQueueTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Time unavailable";
@@ -2058,22 +2083,11 @@ function queueMarkup(items) {
     .join("");
 }
 
-function emptyLooksMarkup() {
-  return `
-    <section class="mobile-empty looks-empty">
-      <span aria-hidden="true">✦</span>
-      <h2>No looks yet</h2>
-      <p>Create a try-on from Home. Successful results will appear here automatically.</p>
-      <a class="button button--primary" href="/app/">Try on a wearable</a>
-    </section>`;
-}
-
 function lookPlaceholders(count) {
-  return Array.from({ length: count }, (_, index) => `
+  return Array.from({ length: count }, () => `
     <article class="look-card look-card--placeholder" aria-hidden="true">
       <div class="look-placeholder__image">
-        <img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="" />
-        <span>Future look ${index + 1}</span>
+        ${emptyTryOnPlaceholderMarkup()}
       </div>
       <div class="look-placeholder__meta"><i></i><i></i><i></i></div>
     </article>`).join("");
@@ -2243,9 +2257,12 @@ function attachHistoryFlow(auth) {
                 </a>
                 <div class="look-card__meta">
                   <strong>${formatLookDate(look.created_at)}</strong>
-                  <small>Available until ${formatLookDate(look.expires_at)}</small>
+                  <div class="look-card__retention">
+                    <span>${formatRetentionCountdown(look.expires_at)}</span>
+                    <small>Download before ${formatLookDate(look.expires_at)}</small>
+                  </div>
                   <div class="look-card__actions">
-                    <button class="icon-button" type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download" title="Download"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg></button>
+                    <button class="icon-button" type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download before automatic deletion" title="Download before automatic deletion"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg></button>
                     <button class="icon-button" type="button" data-share-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Share" title="Share"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" /></svg></button>
                     <button class="icon-button" type="button" data-delete-look data-render-id="${escapeHtml(look.render_id)}" aria-label="Delete" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-2 4 1 14h8l1-14M10 11v6m4-6v6" /></svg></button>
                   </div>

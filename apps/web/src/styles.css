@@ -1087,6 +1087,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .look-card__meta { display: grid; gap: .2rem; padding: .75rem; }
 .look-card__meta strong { color: var(--brand-plum); font-size: .82rem; }
 .look-card__meta small { color: var(--ink-mauve); font-size: .68rem; line-height: 1.35; }
+.look-card__retention { display: grid; gap: .1rem; margin-top: .15rem; }
+.look-card__retention span { color: #8f2d3b; font-size: .7rem; font-weight: 750; }
 .look-card__actions { display: flex; gap: .45rem; justify-content: flex-end; margin-top: .45rem; }
 .look-card__actions button { min-height: 2.5rem; padding: .35rem; border: 1px solid var(--border-mauve); border-radius: .65rem; color: var(--brand-plum); background: white; font-size: .7rem; font-weight: 700; }
 .look-card__actions .icon-button { display: grid; width: 2.5rem; flex: 0 0 2.5rem; place-items: center; cursor: pointer; }
@@ -1099,8 +1101,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .look-placeholder__image::before, .look-placeholder__image::after { position: absolute; width: 8rem; height: 8rem; border: 1px solid rgb(92 11 80 / 10%); border-radius: 50%; content: ""; }
 .look-placeholder__image::before { top: -3.5rem; right: -3rem; }
 .look-placeholder__image::after { bottom: -4rem; left: -3rem; }
-.look-placeholder__image img { width: 68%; mix-blend-mode: multiply; filter: grayscale(1); opacity: .13; transform: rotate(-8deg) scale(1.15); }
-.look-placeholder__image span { position: absolute; bottom: .7rem; color: var(--ink-mauve); font-size: .58rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.look-placeholder__image .tryon-placeholder { z-index: 1; }
 .look-placeholder__meta { display: grid; gap: .45rem; padding: .75rem; }
 .look-placeholder__meta i { display: block; height: .45rem; border-radius: 999px; background: rgb(92 11 80 / 8%); }
 .look-placeholder__meta i:nth-child(1) { width: 62%; }
@@ -1189,6 +1190,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-placeholder > span { color: var(--brand-gold); font-size: 1.35rem; }
 .tryon-placeholder > strong { color: var(--brand-plum); font-size: .9rem; }
 .tryon-placeholder > small { max-width: 18rem; color: var(--ink-mauve); font-size: .68rem; }
+.tryon-placeholder--empty img { filter: grayscale(1) saturate(.4); opacity: .075; }
 .tryon-composer .mobile-preview__canvas[data-state="generating"] { height: clamp(8rem, 16dvh, 10rem); }
 .tryon-composer .tryon-generation { height: 100%; align-content: center; gap: .25rem; padding: .55rem 1rem; }
 .tryon-composer .tryon-generation__sky { width: 7rem; height: 3.3rem; margin-bottom: 0; transform: scale(.7); }
