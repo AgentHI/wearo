@@ -488,7 +488,11 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /id="tryon-preview-dialog"/);
   assert.match(consumer, /preview\.dataset\.previewUrl = assetUrl/);
   assert.match(consumer, /resultPreviewDialog\.showModal\(\)/);
-  assert.match(consumer, /Open AI-generated try-on preview/);
+  assert.match(consumer, /Open try-on preview/);
+  assert.doesNotMatch(consumer, /AI-generated try-on/i);
+  assert.match(consumer, /data-look-image/);
+  assert.match(consumer, /gallery\.addEventListener\("error"/);
+  assert.match(consumer, /gallery\.append\(card\)/);
   assert.doesNotMatch(consumer, /class="look-card__image"[^>]*target="_blank"/);
   assert.match(css, /\.look-preview-dialog::backdrop/);
   assert.match(css, /\.mobile-preview__canvas\[data-preview-url\][^}]*cursor:\s*zoom-in/s);

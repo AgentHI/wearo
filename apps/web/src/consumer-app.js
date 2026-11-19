@@ -341,7 +341,7 @@ function homeView() {
     <section id="tryon-composer" class="tryon-studio tryon-composer--reference" aria-labelledby="tryon-title">
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
       <div class="tryon-workspace">
-        <div id="preview-canvas" class="mobile-preview__canvas" role="img" aria-label="Generated try-on will appear here">
+        <div id="preview-canvas" class="mobile-preview__canvas" role="img" aria-label="Try-on preview will appear here">
           ${emptyTryOnPlaceholderMarkup()}
         </div>
         <form id="try-on-form" class="wearable-dock" novalidate>
@@ -366,7 +366,7 @@ function homeView() {
     </section>
     <dialog id="tryon-preview-dialog" class="look-preview-dialog" aria-labelledby="tryon-preview-title">
       <div class="look-preview-dialog__header"><div><p class="eyebrow">Generated look</p><h2 id="tryon-preview-title">Try-on preview</h2></div><button id="close-tryon-preview" type="button" aria-label="Close try-on preview">×</button></div>
-      <img id="tryon-preview-image" alt="AI-generated try-on preview" />
+      <img id="tryon-preview-image" alt="" />
     </dialog>
     <dialog id="photo-picker-dialog" class="photo-picker-dialog" aria-labelledby="photo-picker-title">
       <div class="photo-picker-dialog__panel">
@@ -503,7 +503,7 @@ function historyView() {
     <section id="looks-gallery" class="looks-gallery" aria-busy="true"></section>
     <dialog id="look-preview-dialog" class="look-preview-dialog" aria-labelledby="look-preview-title">
       <div class="look-preview-dialog__header"><div><p class="eyebrow">Saved look</p><h2 id="look-preview-title">Try-on preview</h2></div><button id="close-look-preview" type="button" aria-label="Close try-on preview">×</button></div>
-      <img id="look-preview-image" alt="Selected AI-generated try-on" />
+      <img id="look-preview-image" alt="" />
     </dialog>`;
 }
 
@@ -1773,6 +1773,11 @@ function attachHomeFlow(auth) {
     preview.innerHTML = emptyTryOnPlaceholderMarkup();
   };
 
+  preview.addEventListener("error", (event) => {
+    if (event.target?.classList?.contains("tryon-result-image")) showEmptyPreview();
+  }, true);
+  resultPreviewImage.addEventListener("error", showEmptyPreview);
+
   const showGeneratedPreview = (assetId) => {
     if (!assetId) return;
     const assetUrl = `${API_BASE}/assets/${encodeURIComponent(assetId)}`;
@@ -1782,8 +1787,8 @@ function attachHomeFlow(auth) {
     preview.dataset.previewUrl = assetUrl;
     preview.setAttribute("role", "button");
     preview.setAttribute("tabindex", "0");
-    preview.setAttribute("aria-label", "Open AI-generated try-on preview");
-    preview.innerHTML = `<img class="tryon-result-image" src="${assetUrl}" alt="AI-generated try-on" />`;
+    preview.setAttribute("aria-label", "Open try-on preview");
+    preview.innerHTML = `<img class="tryon-result-image" src="${assetUrl}" alt="" />`;
   };
 
   const showGeneratingPreview = () => {
@@ -2103,6 +2108,16 @@ function attachHistoryFlow(auth) {
   const previewImage = document.querySelector("#look-preview-image");
   const previewTitle = document.querySelector("#look-preview-title");
 
+  gallery.addEventListener("error", (event) => {
+    if (!event.target?.matches?.("[data-look-image]")) return;
+    const card = event.target.closest(".look-card");
+    if (!card || card.classList.contains("look-card--placeholder")) return;
+    card.className = "look-card look-card--placeholder";
+    card.setAttribute("aria-hidden", "true");
+    card.innerHTML = `<div class="look-placeholder__image">${emptyTryOnPlaceholderMarkup()}</div><div class="look-placeholder__meta"><i></i><i></i><i></i></div>`;
+    gallery.append(card);
+  }, true);
+
   document.querySelector("#close-look-preview").addEventListener("click", () => previewDialog.close());
   previewDialog.addEventListener("click", (event) => {
     if (event.target === previewDialog) previewDialog.close();
@@ -2252,8 +2267,8 @@ function attachHistoryFlow(auth) {
             const assetUrl = `${API_BASE}/assets/${assetId}`;
             return `
               <article class="look-card">
-                <a class="look-card__image" href="${assetUrl}" data-preview-title="Try-on from ${formatLookDate(look.created_at)}" aria-label="Preview generated try-on from ${formatLookDate(look.created_at)}">
-                  <img src="${assetUrl}" alt="AI-generated try-on" loading="lazy" />
+                <a class="look-card__image" href="${assetUrl}" data-preview-title="Try-on from ${formatLookDate(look.created_at)}" aria-label="Preview try-on from ${formatLookDate(look.created_at)}">
+                  <img src="${assetUrl}" alt="" loading="lazy" data-look-image />
                 </a>
                 <div class="look-card__meta">
                   <strong>${formatLookDate(look.created_at)}</strong>
