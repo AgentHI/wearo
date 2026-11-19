@@ -854,7 +854,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List owned recent render jobs */
+        /** List owned saved looks and recent render activity */
         get: operations["get__renders"];
         put?: never;
         /** Create render after explicit quote approval */
@@ -1239,6 +1239,41 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
             status_url?: string;
+        };
+        RenderGalleryItem: {
+            /** Format: uuid */
+            result_id: string;
+            /** Format: uuid */
+            render_id: string;
+            /** Format: uuid */
+            result_asset_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        RenderQueueItem: {
+            /** Format: uuid */
+            render_id: string;
+            status: string;
+            attempts: number;
+            error_code: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            cancel_after: string | null;
+            can_cancel: boolean;
+        };
+        RenderGalleryPage: {
+            items: components["schemas"]["RenderGalleryItem"][];
+            queue: components["schemas"]["RenderQueueItem"][];
+            saved_look_count: number;
+            page: number;
+            page_size: number;
+            has_next: boolean;
+            retention_days: number;
         };
         RenderAssets: {
             /** Format: uri */
@@ -5517,7 +5552,10 @@ export interface operations {
     };
     get__renders: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5530,7 +5568,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RenderJob"][];
+                    "application/json": components["schemas"]["RenderGalleryPage"];
                 };
             };
             /** @description Malformed request */

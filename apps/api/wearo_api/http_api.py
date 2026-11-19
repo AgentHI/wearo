@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, File, Form, Header, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
@@ -3925,9 +3925,17 @@ def create_app(
         return _job_json(job)
 
     @app.get("/api/v1/renders")
-    def list_renders(request: Request) -> dict[str, Any]:
+    def list_renders(
+        request: Request,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=50)] = 12,
+    ) -> dict[str, Any]:
         session = _authenticate(request, container)
-        items = container.renders.list_gallery(session.account_id)
+        gallery = container.renders.list_gallery_page(
+            session.account_id,
+            page=page,
+            page_size=page_size,
+        )
         queue = container.renders.list_queue_activity(session.account_id)
         return {
             "items": [
@@ -3938,7 +3946,7 @@ def create_app(
                     "created_at": item.created_at,
                     "expires_at": item.expires_at,
                 }
-                for item in items
+                for item in gallery.items
             ],
             "queue": [
                 {
@@ -3953,6 +3961,10 @@ def create_app(
                 }
                 for item in queue
             ],
+            "saved_look_count": gallery.saved_look_count,
+            "page": gallery.page,
+            "page_size": gallery.page_size,
+            "has_next": gallery.has_next,
             "retention_days": 30,
         }
 

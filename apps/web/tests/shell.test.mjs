@@ -144,8 +144,8 @@ test("business and consumer route families are separated", () => {
 });
 
 test("consumer try-on restores an active render before the previous result", () => {
-  assert.match(consumer, /result\.queue\?\.find\(\(item\) => \["QUEUED", "PROCESSING"\]\.includes\(item\.status\)\)/);
-  assert.ok(consumer.indexOf("if (activeRender)") < consumer.indexOf("const latest = result.items?.[0]"));
+  assert.match(consumer, /galleryResponse\.queue\.find\(\(item\) => \["QUEUED", "PROCESSING"\]\.includes\(item\.status\)\)/);
+  assert.ok(consumer.indexOf("if (activeRender)") < consumer.indexOf("const latest = galleryResponse.items[0]"));
   assert.match(consumer, /waitForRender\(activeRender\.render_id\)/);
   assert.match(consumer, /updateSubmitAvailability/);
   assert.match(consumer, /\|\| !selectedItemFile/);
@@ -471,7 +471,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /method: "DELETE"/);
   assert.match(consumer, /\["QUEUED", "PROCESSING"\]\.includes\(item\.status\)/);
   assert.match(consumer, /loadLatestPreview/);
-  assert.match(consumer, /result\.items\?\.\[0\]/);
+  assert.match(consumer, /galleryResponse\.items\[0\]/);
   assert.match(consumer, /showEmptyPreview\(\)/);
   assert.match(consumer, /emptyTryOnPlaceholderMarkup\(\)/);
   assert.match(consumer, /result_asset_id/);
@@ -493,9 +493,14 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /data-look-image/);
   assert.match(consumer, /gallery\.addEventListener\("error"/);
   assert.match(consumer, /gallery\.append\(card\)/);
-  assert.match(consumer, /updateSavedLookStatus/);
-  assert.match(consumer, /No saved looks are currently available/);
-  assert.match(consumer, /\.look-card:not\(\.look-card--placeholder\) \[data-look-image\]/);
+  assert.match(consumer, /showSavedLookCount/);
+  assert.match(consumer, /No saved looks\./);
+  assert.doesNotMatch(consumer, /Saved looks available\./);
+  assert.match(consumer, /normalizeGalleryResponse\(result\)/);
+  assert.match(consumer, /id="looks-more"/);
+  assert.match(consumer, /page_size: String\(pageSize\)/);
+  assert.match(consumer, /loadLooks\(\{ page: Number\(loadMore\.dataset\.nextPage/);
+  assert.match(consumer, /galleryResponse\.hasNext/);
   assert.doesNotMatch(consumer, /class="look-card__image"[^>]*target="_blank"/);
   assert.match(css, /\.look-preview-dialog::backdrop/);
   assert.match(css, /\.mobile-preview__canvas\[data-preview-url\][^}]*cursor:\s*zoom-in/s);
@@ -507,9 +512,10 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.looks-title h1[^}]*font-size:\s*1\.75rem/s);
   assert.match(css, /\.looks-title h1::selection[^}]*background:\s*var\(--state-lilac\)/s);
   assert.match(css, /\.looks-gallery\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(consumer, /lookPlaceholders\(Math\.max\(0, 6 - result\.items\.length\)\)/);
-  assert.match(consumer, /gallery\.innerHTML = `\$\{savedLooks\}\$\{lookPlaceholders/);
+  assert.match(consumer, /lookCardsMarkup\(galleryResponse\.items\)/);
+  assert.match(consumer, /gallery\.insertAdjacentHTML\("beforeend", savedLooks\)/);
   assert.match(consumer, /look-card--placeholder/);
+  assert.match(css, /\.looks-more/);
   assert.match(css, /\.tryon-placeholder--empty img/);
   assert.match(css, /\.look-card__image/);
   assert.match(css, /\.queue-card/);
@@ -788,7 +794,8 @@ test("business status blocks only new B2B2C try-ons and preserves end-user reads
   assert.match(consumer, /studio\.hidden = true/);
   assert.match(consumer, /allowancePanel\.hidden = true/);
   assert.match(consumer, /api\("\/me\/person-profile", \{\}, auth\)/);
-  assert.match(consumer, /api\("\/renders", \{\}, auth\)/);
+  assert.match(consumer, /api\("\/renders\?page=1&page_size=1", \{\}, auth\)/);
+  assert.match(consumer, /api\(`\/renders\?\$\{query\}`, \{\}, auth\)/);
 });
 
 test("B2B2C shoppers can reuse an email or mobile consumer account", () => {

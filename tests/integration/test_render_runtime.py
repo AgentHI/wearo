@@ -266,6 +266,12 @@ def test_runtime_persists_exactly_once_success_and_releases_failure(engine: Engi
         assert len(gallery) == 1
         assert gallery[0].render_id == created.job_id
         assert gallery[0].result_asset_id == result_asset
+        gallery_page = runtime.list_gallery_page(ids["account"], page=1, page_size=1, now=now)
+        assert gallery_page.items == gallery
+        assert gallery_page.saved_look_count == 1
+        assert gallery_page.page == 1
+        assert gallery_page.page_size == 1
+        assert gallery_page.has_next is False
         assert runtime.list_gallery(uuid4(), now=now) == ()
         assert runtime.delete_saved_look(created.job_id, uuid4(), now=now) is False
         assert runtime.delete_saved_look(created.job_id, ids["account"], now=now) is True

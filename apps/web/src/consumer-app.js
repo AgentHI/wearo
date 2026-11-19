@@ -3,6 +3,7 @@ import { wearoConfirm } from "./wearo-dialog.js";
 import { apiError, networkError, readApiBody } from "./api-messages.js";
 import { optimizeImageForUpload } from "./image-optimizer.js";
 import { razorpayCheckoutLogo } from "./razorpay-brand.js";
+import { normalizeGalleryResponse } from "./gallery-response.js";
 
 const API_BASE = "/api/v1";
 const AUTH_KEY = "wearo_consumer_auth";
@@ -505,6 +506,7 @@ function historyView() {
     </section>
     <p id="looks-status" class="form-status status-panel" role="status" aria-live="polite">Loading your private try-ons…</p>
     <section id="looks-gallery" class="looks-gallery" aria-busy="true"></section>
+    <button id="looks-more" class="looks-more" type="button" hidden>Load more looks</button>
     <dialog id="look-preview-dialog" class="look-preview-dialog" aria-labelledby="look-preview-title">
       <div class="look-preview-dialog__header"><div><p class="eyebrow">Saved look</p><h2 id="look-preview-title">Try-on preview</h2></div><button id="close-look-preview" type="button" aria-label="Close try-on preview">×</button></div>
       <img id="look-preview-image" alt="" />
@@ -1829,8 +1831,9 @@ function attachHomeFlow(auth) {
 
   const loadLatestPreview = async () => {
     try {
-      const result = await api("/renders", {}, auth);
-      const activeRender = result.queue?.find((item) => ["QUEUED", "PROCESSING"].includes(item.status));
+      const result = await api("/renders?page=1&page_size=1", {}, auth);
+      const galleryResponse = normalizeGalleryResponse(result);
+      const activeRender = galleryResponse.queue.find((item) => ["QUEUED", "PROCESSING"].includes(item.status));
       if (activeRender) {
         generationActive = true;
         showGeneratingPreview();
@@ -1852,7 +1855,7 @@ function attachHomeFlow(auth) {
         }
         return;
       }
-      const latest = result.items?.[0];
+      const latest = galleryResponse.items[0];
       if (!generationActive && latest?.result_asset_id) {
         showGeneratedPreview(latest.result_asset_id);
       } else if (!generationActive) {
@@ -2101,12 +2104,37 @@ function queueMarkup(items) {
 
 function lookPlaceholders(count) {
   return Array.from({ length: count }, () => `
-    <article class="look-card look-card--placeholder" aria-hidden="true">
+    <article class="look-card look-card--placeholder look-card--filler" aria-hidden="true">
       <div class="look-placeholder__image">
         ${emptyTryOnPlaceholderMarkup()}
       </div>
       <div class="look-placeholder__meta"><i></i><i></i><i></i></div>
     </article>`).join("");
+}
+
+function lookCardsMarkup(items) {
+  return items.map((look) => {
+    const assetId = encodeURIComponent(look.result_asset_id);
+    const assetUrl = `${API_BASE}/assets/${assetId}`;
+    return `
+      <article class="look-card">
+        <a class="look-card__image" href="${assetUrl}" data-preview-title="Try-on from ${formatLookDate(look.created_at)}" aria-label="Preview try-on from ${formatLookDate(look.created_at)}">
+          <img src="${assetUrl}" alt="" loading="lazy" data-look-image />
+        </a>
+        <div class="look-card__meta">
+          <strong>${formatLookDate(look.created_at)}</strong>
+          <div class="look-card__retention">
+            <span>${formatRetentionCountdown(look.expires_at)}</span>
+            <small>Download before ${formatLookDate(look.expires_at)}</small>
+          </div>
+          <div class="look-card__actions">
+            <button class="icon-button" type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download before automatic deletion" title="Download before automatic deletion"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg></button>
+            <button class="icon-button" type="button" data-share-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Share" title="Share"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" /></svg></button>
+            <button class="icon-button" type="button" data-delete-look data-render-id="${escapeHtml(look.render_id)}" aria-label="Delete" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-2 4 1 14h8l1-14M10 11v6m4-6v6" /></svg></button>
+          </div>
+        </div>
+      </article>`;
+  }).join("");
 }
 
 function attachHistoryFlow(auth) {
@@ -2115,16 +2143,20 @@ function attachHistoryFlow(auth) {
   const queuePanel = document.querySelector("#queue-panel");
   const queueList = document.querySelector("#queue-list");
   const queueCount = document.querySelector("#queue-count");
+  const loadMore = document.querySelector("#looks-more");
   const previewDialog = document.querySelector("#look-preview-dialog");
   const previewImage = document.querySelector("#look-preview-image");
   const previewTitle = document.querySelector("#look-preview-title");
+  const pageSize = 6;
+  let loadedLookCount = 0;
 
-  const updateSavedLookStatus = () => {
-    const count = gallery.querySelectorAll(
-      ".look-card:not(.look-card--placeholder) [data-look-image]",
-    ).length;
+  const showSavedLookCount = (count) => {
+    if (count === null) {
+      setStatus(status, "");
+      return;
+    }
     if (count === 0) {
-      setStatus(status, "No saved looks are currently available.");
+      setStatus(status, "No saved looks.");
       return;
     }
     setStatus(status, `${count} saved ${count === 1 ? "look" : "looks"}.`, "success");
@@ -2134,11 +2166,10 @@ function attachHistoryFlow(auth) {
     if (!event.target?.matches?.("[data-look-image]")) return;
     const card = event.target.closest(".look-card");
     if (!card || card.classList.contains("look-card--placeholder")) return;
-    card.className = "look-card look-card--placeholder";
+    card.className = "look-card look-card--placeholder look-card--missing";
     card.setAttribute("aria-hidden", "true");
     card.innerHTML = `<div class="look-placeholder__image">${emptyTryOnPlaceholderMarkup()}</div><div class="look-placeholder__meta"><i></i><i></i><i></i></div>`;
     gallery.append(card);
-    updateSavedLookStatus();
   }, true);
 
   document.querySelector("#close-look-preview").addEventListener("click", () => previewDialog.close());
@@ -2273,62 +2304,79 @@ function attachHistoryFlow(auth) {
     }
   });
 
-  const loadLooks = async () => {
+  const loadLooks = async ({ page = 1, append = false } = {}) => {
+    if (append) {
+      loadMore.disabled = true;
+      loadMore.textContent = "Loading…";
+    } else {
+      gallery.setAttribute("aria-busy", "true");
+    }
     try {
-      const result = await api("/renders", {}, auth);
-      const activeQueue = result.queue.filter((item) => ["QUEUED", "PROCESSING"].includes(item.status));
+      const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+      const result = await api(`/renders?${query}`, {}, auth);
+      const galleryResponse = normalizeGalleryResponse(result);
+      const activeQueue = galleryResponse.queue.filter((item) => ["QUEUED", "PROCESSING"].includes(item.status));
       queuePanel.hidden = activeQueue.length === 0;
       queueCount.textContent = activeQueue.length ? `${activeQueue.length} active` : "Recent activity";
       queueList.innerHTML = queueMarkup(activeQueue);
-      if (!result.items.length) {
-        gallery.innerHTML = lookPlaceholders(6);
-        setStatus(status, activeQueue.length ? "Your try-ons will appear here when ready." : "You have no saved try-ons yet.");
+      if (
+        galleryResponse.items.length === 0
+        && [null, 0].includes(galleryResponse.savedLookCount)
+      ) {
+        loadedLookCount = 0;
+        gallery.innerHTML = lookPlaceholders(pageSize);
+        showSavedLookCount(0);
       } else {
-        const savedLooks = result.items
-          .map((look) => {
-            const assetId = encodeURIComponent(look.result_asset_id);
-            const assetUrl = `${API_BASE}/assets/${assetId}`;
-            return `
-              <article class="look-card">
-                <a class="look-card__image" href="${assetUrl}" data-preview-title="Try-on from ${formatLookDate(look.created_at)}" aria-label="Preview try-on from ${formatLookDate(look.created_at)}">
-                  <img src="${assetUrl}" alt="" loading="lazy" data-look-image />
-                </a>
-                <div class="look-card__meta">
-                  <strong>${formatLookDate(look.created_at)}</strong>
-                  <div class="look-card__retention">
-                    <span>${formatRetentionCountdown(look.expires_at)}</span>
-                    <small>Download before ${formatLookDate(look.expires_at)}</small>
-                  </div>
-                  <div class="look-card__actions">
-                    <button class="icon-button" type="button" data-download-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Download before automatic deletion" title="Download before automatic deletion"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg></button>
-                    <button class="icon-button" type="button" data-share-look data-asset-id="${escapeHtml(look.result_asset_id)}" data-created-at="${escapeHtml(look.created_at)}" aria-label="Share" title="Share"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" /></svg></button>
-                    <button class="icon-button" type="button" data-delete-look data-render-id="${escapeHtml(look.render_id)}" aria-label="Delete" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-2 4 1 14h8l1-14M10 11v6m4-6v6" /></svg></button>
-                  </div>
-                </div>
-              </article>`;
-          })
-          .join("");
-        gallery.innerHTML = `${savedLooks}${lookPlaceholders(Math.max(0, 6 - result.items.length))}`;
-        updateSavedLookStatus();
+        gallery.querySelectorAll(".look-card--filler").forEach((card) => card.remove());
+        const savedLooks = lookCardsMarkup(galleryResponse.items);
+        if (append) {
+          const firstMissingLook = gallery.querySelector(".look-card--missing");
+          if (firstMissingLook) firstMissingLook.insertAdjacentHTML("beforebegin", savedLooks);
+          else gallery.insertAdjacentHTML("beforeend", savedLooks);
+        } else gallery.innerHTML = savedLooks;
+        loadedLookCount = append
+          ? loadedLookCount + galleryResponse.items.length
+          : galleryResponse.items.length;
+        if (!galleryResponse.hasNext) {
+          const remainder = loadedLookCount % pageSize;
+          gallery.insertAdjacentHTML(
+            "beforeend",
+            lookPlaceholders(remainder ? pageSize - remainder : 0),
+          );
+        }
+        showSavedLookCount(galleryResponse.savedLookCount);
       }
-      if (activeQueue.length) window.setTimeout(loadLooks, 3000);
+      loadMore.hidden = !galleryResponse.hasNext;
+      loadMore.dataset.nextPage = String(galleryResponse.page + 1);
+      loadMore.disabled = false;
+      loadMore.textContent = "Load more looks";
+      if (activeQueue.length && !append) window.setTimeout(loadLooks, 3000);
     } catch (error) {
       if (error.status === 401) {
         clearAuth();
         window.location.assign("/app/sign-in");
         return;
       }
-      gallery.innerHTML = `
-        <section class="mobile-empty looks-empty">
-          <span aria-hidden="true">!</span>
-          <h2>Looks unavailable</h2>
-          <p>Your try-ons are still private. Try opening this page again.</p>
-        </section>`;
+      if (append) {
+        loadMore.disabled = false;
+        loadMore.textContent = "Try again";
+      } else {
+        gallery.innerHTML = `
+          <section class="mobile-empty looks-empty">
+            <span aria-hidden="true">!</span>
+            <h2>Looks unavailable</h2>
+            <p>Your try-ons are still private. Try opening this page again.</p>
+          </section>`;
+      }
       setStatus(status, error.message, "error");
     } finally {
       gallery.setAttribute("aria-busy", "false");
     }
   };
+
+  loadMore.addEventListener("click", () => {
+    loadLooks({ page: Number(loadMore.dataset.nextPage || 2), append: true });
+  });
 
   loadLooks();
 }

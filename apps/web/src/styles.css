@@ -1107,6 +1107,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .look-placeholder__meta i:nth-child(1) { width: 62%; }
 .look-placeholder__meta i:nth-child(2) { width: 82%; }
 .look-placeholder__meta i:nth-child(3) { width: 38%; height: 1.8rem; justify-self: end; }
+.looks-more { display: block; min-height: 2.65rem; margin: 1rem auto 0; padding: .55rem 1.2rem; border: 1px solid var(--brand-plum); border-radius: 999px; color: var(--brand-plum); background: white; font: inherit; font-size: .75rem; font-weight: 800; cursor: pointer; }
+.looks-more:disabled { cursor: wait; opacity: .55; }
 .look-preview-dialog { width: min(calc(100% - 1.5rem), 34rem); max-height: calc(100dvh - 1.5rem); padding: 0; overflow: hidden; border: 0; border-radius: 1.2rem; color: var(--ink-charcoal); background: var(--canvas-ivory); box-shadow: var(--shadow-lg); }
 .look-preview-dialog::backdrop { background: rgb(37 17 41 / 72%); backdrop-filter: blur(.25rem); }
 .look-preview-dialog__header { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; border-bottom: 1px solid var(--border-mauve); }

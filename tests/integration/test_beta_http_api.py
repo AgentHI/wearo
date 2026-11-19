@@ -171,7 +171,15 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
 
             gallery = client.get("/api/v1/renders")
             assert gallery.status_code == 200
-            assert gallery.json() == {"items": [], "queue": [], "retention_days": 30}
+            assert gallery.json() == {
+                "items": [],
+                "queue": [],
+                "saved_look_count": 0,
+                "page": 1,
+                "page_size": 12,
+                "has_next": False,
+                "retention_days": 30,
+            }
 
             allowance = client.get("/api/v1/me/daily-allowance")
             assert allowance.status_code == 200

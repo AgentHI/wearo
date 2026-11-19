@@ -13,7 +13,7 @@ from apps.api.wearo_api.browser_sessions import (
     SessionAuthenticationError,
 )
 from apps.api.wearo_api.http_api import ApiContainer, create_app
-from apps.api.wearo_api.render_runtime import DurableRenderJob
+from apps.api.wearo_api.render_runtime import DurableRenderJob, RenderGalleryPage
 from apps.api.wearo_api.tryon_authorization import (
     BusinessTryOnStatus,
     authorize_business_try_on,
@@ -69,6 +69,7 @@ class StatusAwareRenders:
     def __init__(self, status: BusinessTryOnStatus) -> None:
         self.status = status
         self.create_calls = 0
+        self.gallery_calls: list[tuple[int, int]] = []
 
     def create_job(
         self,
@@ -93,8 +94,11 @@ class StatusAwareRenders:
             None,
         )
 
-    def list_gallery(self, account_id: UUID) -> tuple[()]:
-        return ()
+    def list_gallery_page(
+        self, account_id: UUID, *, page: int, page_size: int
+    ) -> RenderGalleryPage:
+        self.gallery_calls.append((page, page_size))
+        return RenderGalleryPage((), 0, page, page_size, False)
 
     def list_queue_activity(self, account_id: UUID) -> tuple[()]:
         return ()
@@ -170,10 +174,14 @@ def test_blocked_business_status_keeps_profile_and_history_reads_available(
     client, renders = api_client(status)
     with client:
         profile = client.get("/api/v1/me/person-profile")
-        history = client.get("/api/v1/renders")
+        history = client.get("/api/v1/renders?page=3&page_size=5")
 
     assert profile.status_code == 200
     assert profile.json()["status"] == "ACTIVE"
     assert history.status_code == 200
     assert history.json()["items"] == []
+    assert history.json()["saved_look_count"] == 0
+    assert history.json()["page"] == 3
+    assert history.json()["page_size"] == 5
+    assert renders.gallery_calls == [(3, 5)]
     assert renders.create_calls == 0

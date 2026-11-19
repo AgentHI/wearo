@@ -3153,17 +3153,31 @@ paths:
     get:
       tags:
       - Rendering
-      summary: List owned recent render jobs
+      summary: List owned saved looks and recent render activity
       operationId: get__renders
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 12
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RenderJob'
+                $ref: '#/components/schemas/RenderGalleryPage'
         '400':
           description: Malformed request
           content:
@@ -4293,6 +4307,100 @@ components:
       - status
       - charge_status
       - cost_wearo_tokens
+      additionalProperties: false
+    RenderGalleryItem:
+      type: object
+      properties:
+        result_id:
+          type: string
+          format: uuid
+        render_id:
+          type: string
+          format: uuid
+        result_asset_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - result_id
+      - render_id
+      - result_asset_id
+      - created_at
+      - expires_at
+      additionalProperties: false
+    RenderQueueItem:
+      type: object
+      properties:
+        render_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        attempts:
+          type: integer
+          minimum: 0
+        error_code:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        cancel_after:
+          type: [string, 'null']
+          format: date-time
+        can_cancel:
+          type: boolean
+      required:
+      - render_id
+      - status
+      - attempts
+      - error_code
+      - created_at
+      - updated_at
+      - cancel_after
+      - can_cancel
+      additionalProperties: false
+    RenderGalleryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RenderGalleryItem'
+        queue:
+          type: array
+          items:
+            $ref: '#/components/schemas/RenderQueueItem'
+        saved_look_count:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 50
+        has_next:
+          type: boolean
+        retention_days:
+          type: integer
+          minimum: 1
+      required:
+      - items
+      - queue
+      - saved_look_count
+      - page
+      - page_size
+      - has_next
+      - retention_days
       additionalProperties: false
     RenderAssets:
       type: object

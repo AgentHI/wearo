@@ -55,6 +55,15 @@ class RenderGalleryItem:
 
 
 @dataclass(frozen=True)
+class RenderGalleryPage:
+    items: tuple[RenderGalleryItem, ...]
+    saved_look_count: int
+    page: int
+    page_size: int
+    has_next: bool
+
+
+@dataclass(frozen=True)
 class RenderQueueItem:
     render_id: UUID
     status: str
@@ -360,50 +369,67 @@ class PostgresRenderRuntime:
             )
         return _job_from_row(row) if row is not None else None
 
-    def list_gallery(
+    def list_gallery_page(
         self,
         account_id: UUID,
         *,
-        limit: int = 30,
+        page: int = 1,
+        page_size: int = 12,
         now: datetime | None = None,
-    ) -> tuple[RenderGalleryItem, ...]:
-        if not 1 <= limit <= 50:
-            raise ValueError("gallery limit must be between 1 and 50")
+    ) -> RenderGalleryPage:
+        if page < 1 or not 1 <= page_size <= 50:
+            raise ValueError("gallery page must be positive and page size between 1 and 50")
         current = now or datetime.now(UTC)
+        offset = (page - 1) * page_size
+        gallery_scope = """
+            FROM render_results AS result
+            JOIN render_jobs AS job
+              ON job.job_id = result.job_id
+             AND job.account_id = result.account_id
+            JOIN media_assets AS asset
+              ON asset.asset_id = result.result_asset_id
+             AND asset.account_id = result.account_id
+            WHERE result.account_id = :account
+              AND result.quality_state = 'APPROVED'
+              AND job.status = 'DELIVERED'
+              AND asset.deletion_state = 'RETAINED'
+              AND asset.retention_state <> 'LEGAL_HOLD'
+              AND asset.delete_after > :now
+        """
         with self.engine.connect() as connection:
+            saved_look_count = int(
+                connection.execute(
+                    text("SELECT COUNT(*) " + gallery_scope),
+                    {"account": account_id, "now": current},
+                ).scalar_one()
+            )
             rows = (
                 connection.execute(
                     text(
-                        """
-                        SELECT
+                        """SELECT
                             result.result_id,
                             result.job_id AS render_id,
                             result.result_asset_id,
                             result.created_at,
                             asset.delete_after AS expires_at
-                        FROM render_results AS result
-                        JOIN render_jobs AS job
-                          ON job.job_id = result.job_id
-                         AND job.account_id = result.account_id
-                        JOIN media_assets AS asset
-                          ON asset.asset_id = result.result_asset_id
-                         AND asset.account_id = result.account_id
-                        WHERE result.account_id = :account
-                          AND result.quality_state = 'APPROVED'
-                          AND job.status = 'DELIVERED'
-                          AND asset.deletion_state = 'RETAINED'
-                          AND asset.retention_state <> 'LEGAL_HOLD'
-                          AND asset.delete_after > :now
+                        """
+                        + gallery_scope
+                        + """
                         ORDER BY result.created_at DESC, result.result_id DESC
-                        LIMIT :limit
+                        LIMIT :limit OFFSET :offset
                         """
                     ),
-                    {"account": account_id, "now": current, "limit": limit},
+                    {
+                        "account": account_id,
+                        "now": current,
+                        "limit": page_size,
+                        "offset": offset,
+                    },
                 )
                 .mappings()
                 .all()
             )
-        return tuple(
+        items = tuple(
             RenderGalleryItem(
                 result_id=row["result_id"],
                 render_id=row["render_id"],
@@ -413,6 +439,29 @@ class PostgresRenderRuntime:
             )
             for row in rows
         )
+        return RenderGalleryPage(
+            items=items,
+            saved_look_count=saved_look_count,
+            page=page,
+            page_size=page_size,
+            has_next=offset + len(items) < saved_look_count,
+        )
+
+    def list_gallery(
+        self,
+        account_id: UUID,
+        *,
+        limit: int = 30,
+        now: datetime | None = None,
+    ) -> tuple[RenderGalleryItem, ...]:
+        if not 1 <= limit <= 50:
+            raise ValueError("gallery limit must be between 1 and 50")
+        return self.list_gallery_page(
+            account_id,
+            page=1,
+            page_size=limit,
+            now=now,
+        ).items
 
     def delete_saved_look(
         self,
