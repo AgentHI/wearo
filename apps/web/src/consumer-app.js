@@ -331,6 +331,10 @@ function emptyTryOnPlaceholderMarkup() {
     </div>`;
 }
 
+function personPhotoPlaceholderMarkup() {
+  return `<span class="person-photo-placeholder" aria-hidden="true"><img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="" /></span>`;
+}
+
 function homeView() {
   return `
     <header class="home-heading home-heading--modern">
@@ -1682,6 +1686,13 @@ function attachHomeFlow(auth) {
     setBusinessAvailability(readShopDetails()?.try_on_status || "ACTIVE");
   }
 
+  const replaceMissingPersonPhoto = (event) => {
+    if (!event.target?.matches?.("[data-person-photo-image]")) return;
+    event.target.outerHTML = personPhotoPlaceholderMarkup();
+  };
+  personPhotoSelector.addEventListener("error", replaceMissingPersonPhoto, true);
+  photoPickerGrid.addEventListener("error", replaceMissingPersonPhoto, true);
+
   const loadProfilePhotos = async () => {
     submit.disabled = true;
     try {
@@ -1700,13 +1711,13 @@ function attachHomeFlow(auth) {
       const renderSelectedPhoto = () => {
         const current = images.find((image) => image.person_asset_id === selectedPersonAssetId) || images[0];
         const label = escapeHtml(photoLabel(current));
-        personPhotoSelector.innerHTML = `<legend>Use person photo</legend><div class="selected-person-photo"><img src="${API_BASE}/assets/${encodeURIComponent(current.person_asset_id)}" alt="${label} profile photo" /><div><small>Selected photo</small><strong>${label}</strong><span>${images.length} saved photo${images.length === 1 ? "" : "s"}</span></div></div>`;
+        personPhotoSelector.innerHTML = `<legend>Use person photo</legend><div class="selected-person-photo"><img src="${API_BASE}/assets/${encodeURIComponent(current.person_asset_id)}" alt="" data-person-photo-image /><div><small>Selected photo</small><strong>${label}</strong><span>${images.length} saved photo${images.length === 1 ? "" : "s"}</span></div></div>`;
         openPhotoPickerButton.disabled = false;
       };
       photoPickerGrid.innerHTML = images.map((image) => {
         const assetId = escapeHtml(image.person_asset_id);
         const label = escapeHtml(photoLabel(image));
-        return `<button class="photo-picker-option${image.person_asset_id === selectedPersonAssetId ? " is-selected" : ""}" type="button" data-person-asset-id="${assetId}" aria-pressed="${image.person_asset_id === selectedPersonAssetId}"><img src="${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}" alt="${label} profile photo" /><span><strong>${label}</strong><small>${image.is_primary ? "Primary photo" : "Tap to select"}</small></span><i aria-hidden="true">✓</i></button>`;
+        return `<button class="photo-picker-option${image.person_asset_id === selectedPersonAssetId ? " is-selected" : ""}" type="button" data-person-asset-id="${assetId}" aria-pressed="${image.person_asset_id === selectedPersonAssetId}"><img src="${API_BASE}/assets/${encodeURIComponent(image.person_asset_id)}" alt="" data-person-photo-image /><span><strong>${label}</strong><small>${image.is_primary ? "Primary photo" : "Tap to select"}</small></span><i aria-hidden="true">✓</i></button>`;
       }).join("");
       photoPickerGrid.querySelectorAll("[data-person-asset-id]").forEach((option) => {
         option.addEventListener("click", () => {
@@ -2108,6 +2119,17 @@ function attachHistoryFlow(auth) {
   const previewImage = document.querySelector("#look-preview-image");
   const previewTitle = document.querySelector("#look-preview-title");
 
+  const updateSavedLookStatus = () => {
+    const count = gallery.querySelectorAll(
+      ".look-card:not(.look-card--placeholder) [data-look-image]",
+    ).length;
+    if (count === 0) {
+      setStatus(status, "No saved looks are currently available.");
+      return;
+    }
+    setStatus(status, `${count} saved ${count === 1 ? "look" : "looks"}.`, "success");
+  };
+
   gallery.addEventListener("error", (event) => {
     if (!event.target?.matches?.("[data-look-image]")) return;
     const card = event.target.closest(".look-card");
@@ -2116,6 +2138,7 @@ function attachHistoryFlow(auth) {
     card.setAttribute("aria-hidden", "true");
     card.innerHTML = `<div class="look-placeholder__image">${emptyTryOnPlaceholderMarkup()}</div><div class="look-placeholder__meta"><i></i><i></i><i></i></div>`;
     gallery.append(card);
+    updateSavedLookStatus();
   }, true);
 
   document.querySelector("#close-look-preview").addEventListener("click", () => previewDialog.close());
@@ -2286,7 +2309,7 @@ function attachHistoryFlow(auth) {
           })
           .join("");
         gallery.innerHTML = `${savedLooks}${lookPlaceholders(Math.max(0, 6 - result.items.length))}`;
-        setStatus(status, `${result.items.length} saved ${result.items.length === 1 ? "look" : "looks"}.`, "success");
+        updateSavedLookStatus();
       }
       if (activeQueue.length) window.setTimeout(loadLooks, 3000);
     } catch (error) {

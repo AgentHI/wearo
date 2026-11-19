@@ -493,6 +493,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /data-look-image/);
   assert.match(consumer, /gallery\.addEventListener\("error"/);
   assert.match(consumer, /gallery\.append\(card\)/);
+  assert.match(consumer, /updateSavedLookStatus/);
+  assert.match(consumer, /No saved looks are currently available/);
+  assert.match(consumer, /\.look-card:not\(\.look-card--placeholder\) \[data-look-image\]/);
   assert.doesNotMatch(consumer, /class="look-card__image"[^>]*target="_blank"/);
   assert.match(css, /\.look-preview-dialog::backdrop/);
   assert.match(css, /\.mobile-preview__canvas\[data-preview-url\][^}]*cursor:\s*zoom-in/s);
@@ -514,6 +517,11 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.look-card__actions/);
   assert.match(css, /\.look-card__retention span/);
   assert.match(css, /\.selected-person-photo/);
+  assert.match(consumer, /personPhotoPlaceholderMarkup/);
+  assert.match(consumer, /data-person-photo-image/);
+  assert.match(consumer, /replaceMissingPersonPhoto/);
+  assert.doesNotMatch(consumer, /alt="\$\{label\} profile photo"/);
+  assert.match(css, /\.person-photo-placeholder img/);
   assert.match(css, /\.photo-picker-dialog/);
   assert.match(css, /\.profile-library__grid/);
   assert.match(css, /\.profile-title h1[^}]*font-size:\s*1\.75rem/s);
@@ -524,7 +532,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.profile-library__item img[^}]*object-fit:\s*contain/s);
   assert.match(consumer, /profile-library__note/);
   assert.match(css, /\.profile-library__note[^}]*font-size:\s*\.68rem/s);
-  assert.match(css, /\.photo-picker-option img[^}]*object-fit:\s*contain/s);
+  assert.match(css, /\.photo-picker-option > img[^}]*object-fit:\s*contain/s);
   assert.match(css, /\.profile-photo-grid/);
   assert.match(css, /\.profile-camera-button/);
   assert.match(css, /\.wearable-source-actions/);

@@ -1211,7 +1211,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-composer .wearable-source { min-height: 2.1rem; padding: .35rem; border-radius: .6rem; font-size: .6rem; }
 .tryon-composer .person-photo-selector { min-width: 0; padding: .35rem .45rem; border: 0; background: var(--surface-soft); }
 .tryon-composer .selected-person-photo { grid-template-columns: 1fr; grid-template-rows: auto auto; justify-items: center; align-content: start; gap: .3rem; text-align: center; }
-.tryon-composer .selected-person-photo img { width: 4.25rem; }
+.tryon-composer .selected-person-photo > img { width: 4.25rem; }
 .tryon-composer .selected-person-photo > div { justify-items: center; }
 .tryon-card-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: .45rem; }
 .tryon-card-actions .model-choose-button { width: 100%; min-height: 2.1rem; padding: .35rem; border: 1px solid var(--brand-plum); border-radius: .6rem; color: var(--brand-plum); background: white; font: inherit; font-size: .6rem; font-weight: 800; cursor: pointer; }
@@ -1252,7 +1252,9 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .person-photo-selector legend { padding: 0 .25rem; color: var(--brand-plum); font-size: .78rem; font-weight: 700; }
 .person-photo-selector > p { margin: 0; color: var(--ink-mauve); font-size: .72rem; }
 .selected-person-photo { display: grid; grid-template-columns: 3.25rem minmax(0, 1fr) auto; align-items: center; gap: .6rem; }
-.selected-person-photo img { width: 3.25rem; aspect-ratio: 1; border-radius: .65rem; background: var(--surface-soft); object-fit: contain; object-position: center; }
+.selected-person-photo > img { width: 3.25rem; aspect-ratio: 1; border-radius: .65rem; background: var(--surface-soft); object-fit: contain; object-position: center; }
+.person-photo-placeholder { display: grid; width: 3.25rem; aspect-ratio: 1; place-items: center; overflow: hidden; border-radius: .65rem; background: linear-gradient(145deg, #fbf3f9, #f0e2ee); }
+.person-photo-placeholder img { width: 82%; height: 82%; object-fit: contain; filter: grayscale(1) saturate(.35); opacity: .1; transform: rotate(-8deg) scale(1.18); }
 .selected-person-photo > div { display: grid; min-width: 0; }
 .selected-person-photo small, .selected-person-photo span { color: var(--ink-mauve); font-size: .62rem; }
 .selected-person-photo strong { overflow: hidden; color: var(--brand-plum); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -1265,7 +1267,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .photo-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; overflow-y: auto; overscroll-behavior: contain; }
 .photo-picker-option { position: relative; display: grid; min-width: 0; grid-template-columns: 3.6rem minmax(0, 1fr); align-items: center; gap: .6rem; padding: .42rem; border: 2px solid transparent; border-radius: .85rem; color: inherit; background: var(--surface-soft); text-align: left; cursor: pointer; }
 .photo-picker-option.is-selected { border-color: var(--brand-plum); background: white; box-shadow: 0 .4rem 1.2rem rgb(59 23 70 / 10%); }
-.photo-picker-option img { width: 3.6rem; aspect-ratio: 1; border-radius: .62rem; background: var(--surface-soft); object-fit: contain; object-position: center; }
+.photo-picker-option > img { width: 3.6rem; aspect-ratio: 1; border-radius: .62rem; background: var(--surface-soft); object-fit: contain; object-position: center; }
+.photo-picker-option > .person-photo-placeholder { width: 3.6rem; border-radius: .62rem; }
 .photo-picker-option span { display: grid; min-width: 0; }
 .photo-picker-option strong { overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
 .photo-picker-option small { color: var(--ink-mauve); font-size: .6rem; }
@@ -1292,7 +1295,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-composer--reference .person-photo-selector { height: 100%; min-width: 0; align-content: center; padding: 0; border: 0; background: transparent; }
 .tryon-composer--reference .person-photo-selector legend { max-width: 100%; margin-inline: auto; padding: 0; text-align: center; white-space: nowrap; }
 .tryon-composer--reference .selected-person-photo { grid-template-columns: 2.6rem minmax(0, 1fr); gap: .45rem; text-align: left; }
-.tryon-composer--reference .selected-person-photo img { width: 2.6rem; background: white; object-fit: contain; }
+.tryon-composer--reference .selected-person-photo > img,
+.tryon-composer--reference .selected-person-photo > .person-photo-placeholder { width: 2.6rem; background: white; object-fit: contain; }
 .tryon-composer--reference .selected-person-photo > div { justify-items: start; }
 .tryon-composer--reference .model-choose-button { width: 100%; min-height: 1.9rem; padding: .3rem .65rem; border: 1px solid var(--brand-plum); border-radius: .65rem; color: var(--brand-plum); background: white; font: inherit; font-size: .67rem; font-weight: 800; cursor: pointer; }
 .tryon-composer--reference .model-choose-button:disabled { cursor: wait; opacity: .5; }
@@ -1325,7 +1329,8 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .tryon-composer--reference .person-photo-selector legend { font-size: .54rem; line-height: 1.1; }
   .tryon-composer--reference .person-photo-selector > p { font-size: .48rem; line-height: 1.2; text-align: center; }
   .tryon-composer--reference .selected-person-photo { grid-template-columns: 1.75rem minmax(0, 1fr); gap: .22rem; }
-  .tryon-composer--reference .selected-person-photo img { width: 1.75rem; border-radius: .4rem; }
+  .tryon-composer--reference .selected-person-photo > img,
+  .tryon-composer--reference .selected-person-photo > .person-photo-placeholder { width: 1.75rem; border-radius: .4rem; }
   .tryon-composer--reference .selected-person-photo small,
   .tryon-composer--reference .selected-person-photo span { font-size: .44rem; line-height: 1.15; }
   .tryon-composer--reference .selected-person-photo strong { max-width: 100%; font-size: .53rem; }
