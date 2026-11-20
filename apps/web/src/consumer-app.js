@@ -462,6 +462,30 @@ function profileView(auth) {
         </button>
       </div>
     </dialog>
+    <section class="consumer-card drive-settings" aria-labelledby="drive-settings-title">
+      <div class="drive-settings__heading">
+        <div><p class="eyebrow">Automatic backup</p><h2 id="drive-settings-title">Google Drive</h2></div>
+        <span id="drive-connection-state" class="status-chip">Loading…</span>
+      </div>
+      <p>Save each newly completed try-on privately in <strong>Wearo.ai/Try-Ons</strong>. Existing looks are not uploaded.</p>
+      <dl id="drive-details" class="drive-settings__details" hidden>
+        <div><dt>Google account</dt><dd id="drive-account-email">—</dd></div>
+        <div><dt>Destination</dt><dd id="drive-folder">Wearo.ai/Try-Ons</dd></div>
+        <div><dt>Last successful sync</dt><dd id="drive-last-sync">Not yet</dd></div>
+        <div><dt>Failed syncs</dt><dd id="drive-failed-count">0</dd></div>
+      </dl>
+      <label id="drive-auto-sync-control" class="drive-settings__toggle" hidden>
+        <input id="drive-auto-sync" type="checkbox" />
+        <span><strong>Automatically sync new try-ons</strong><small>Off until you enable it</small></span>
+      </label>
+      <div class="drive-settings__actions">
+        <button id="connect-google-drive" class="button button--primary" type="button" hidden>Connect Google Drive</button>
+        <button id="reconnect-google-drive" class="button button--primary" type="button" hidden>Reconnect Google Drive</button>
+        <button id="retry-google-drive" class="button button--quiet" type="button" hidden>Retry failed syncs</button>
+        <button id="disconnect-google-drive" class="button button--quiet" type="button" hidden>Disconnect Google Drive</button>
+      </div>
+      <p id="drive-settings-status" class="form-status status-panel" role="status" aria-live="polite"></p>
+    </section>
     <section class="mobile-menu account-menu">
       <div><span>◷</span><div><strong>Retention</strong><small>Product and accepted result media: 30 days</small></div></div>
       <div><span>⌾</span><div><strong>Privacy</strong><small>Not authorised for model training</small></div></div>
@@ -482,6 +506,112 @@ function profileView(auth) {
         </div>
       </div>
     </dialog>`;
+}
+
+async function driveApi(path, options = {}, auth = readAuth()) {
+  const headers = new Headers(options.headers || {});
+  if (auth?.csrfToken && options.method && !["GET", "HEAD"].includes(options.method)) {
+    headers.set("X-CSRF-Token", auth.csrfToken);
+  }
+  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  let response;
+  try {
+    response = await fetch(`/api/integrations/google-drive${path}`, {
+      credentials: "same-origin",
+      ...options,
+      headers,
+    });
+  } catch {
+    throw networkError();
+  }
+  const body = response.status === 204 ? {} : await readApiBody(response);
+  if (!response.ok) throw apiError(response, body);
+  return body;
+}
+
+function attachDriveIntegration(auth) {
+  const state = document.querySelector("#drive-connection-state");
+  const status = document.querySelector("#drive-settings-status");
+  const details = document.querySelector("#drive-details");
+  const control = document.querySelector("#drive-auto-sync-control");
+  const toggle = document.querySelector("#drive-auto-sync");
+  const connect = document.querySelector("#connect-google-drive");
+  const reconnect = document.querySelector("#reconnect-google-drive");
+  const retry = document.querySelector("#retry-google-drive");
+  const disconnect = document.querySelector("#disconnect-google-drive");
+  if (!state) return;
+
+  const render = (value) => {
+    const connected = Boolean(value.connected);
+    const unavailable = value.status === "UNAVAILABLE";
+    state.textContent = unavailable ? "Unavailable" : connected ? "Connected" : value.reconnect_required ? "Reconnect needed" : "Not connected";
+    details.hidden = !connected && !value.reconnect_required;
+    control.hidden = !connected;
+    connect.hidden = connected || value.reconnect_required || unavailable;
+    reconnect.hidden = !value.reconnect_required;
+    disconnect.hidden = !connected && !value.reconnect_required;
+    retry.hidden = !connected || Number(value.failed_sync_count || 0) === 0;
+    toggle.checked = connected && Boolean(value.auto_sync_enabled);
+    toggle.disabled = !connected;
+    document.querySelector("#drive-account-email").textContent = value.account_email || "—";
+    document.querySelector("#drive-folder").textContent = value.destination_folder || "Wearo.ai/Try-Ons";
+    document.querySelector("#drive-failed-count").textContent = String(value.failed_sync_count || 0);
+    document.querySelector("#drive-last-sync").textContent = value.last_successful_sync_at
+      ? new Date(value.last_successful_sync_at).toLocaleString("en-IN")
+      : "Not yet";
+    if (unavailable) setStatus(status, "Google Drive sync is not configured on this Wearo environment.");
+    else if (value.reconnect_required) setStatus(status, "Authorization expired. Reconnect Google Drive to resume syncing.", "error");
+    else if (connected && !value.auto_sync_enabled) setStatus(status, "Connected. Turn on automatic sync when you are ready.");
+    else setStatus(status, "");
+  };
+
+  const load = () => driveApi("/status", {}, auth).then(render).catch((error) => setStatus(status, error.message, "error"));
+  connect.addEventListener("click", () => window.location.assign("/api/integrations/google-drive/connect"));
+  reconnect.addEventListener("click", () => window.location.assign("/api/integrations/google-drive/connect"));
+  toggle.addEventListener("change", async () => {
+    toggle.disabled = true;
+    try {
+      const value = await driveApi("/settings", { method: "PATCH", body: JSON.stringify({ auto_sync_enabled: toggle.checked }) }, auth);
+      render(value);
+      setStatus(status, toggle.checked ? "New completed try-ons will sync automatically." : "Automatic sync is off.", "success");
+    } catch (error) {
+      toggle.checked = !toggle.checked;
+      setStatus(status, error.message, "error");
+    } finally {
+      toggle.disabled = false;
+    }
+  });
+  retry.addEventListener("click", async () => {
+    try {
+      const value = await driveApi("/retry", { method: "POST" }, auth);
+      setStatus(status, `${value.retried} failed sync${value.retried === 1 ? "" : "s"} queued for retry.`, "success");
+      await load();
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  });
+  disconnect.addEventListener("click", async () => {
+    if (!await wearoConfirm({
+      eyebrow: "Google Drive",
+      title: "Disconnect Google Drive?",
+      message: "Wearo will stop syncing new try-ons.",
+      note: "Existing files and folders in Google Drive will be preserved.",
+      confirmLabel: "Disconnect",
+      cancelLabel: "Keep connected",
+    })) return;
+    try {
+      await driveApi("/disconnect", { method: "POST" }, auth);
+      await load();
+      setStatus(status, "Google Drive disconnected. Existing Drive files were preserved.", "success");
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  });
+
+  const driveResult = new URLSearchParams(window.location.search).get("drive");
+  if (driveResult === "connected") setStatus(status, "Google Drive connected. Automatic sync remains off until you enable it.", "success");
+  if (driveResult === "cancelled") setStatus(status, "Google Drive connection was cancelled.");
+  load();
 }
 
 function pendingDeletionView() {
@@ -2435,7 +2565,10 @@ export function renderConsumerApp(root, pathname) {
   root.innerHTML = consumerFrame(route, views[route](), Boolean(auth), shopDetails);
   attachInstallButton();
   if (route === "sign-in") attachSignInFlow();
-  if (route === "profile") attachProfileFlow(auth);
+  if (route === "profile") {
+    attachProfileFlow(auth);
+    attachDriveIntegration(auth);
+  }
   if (route === "home") attachHomeFlow(auth);
   if (route === "history") attachHistoryFlow(auth);
   if (route === "payments") {

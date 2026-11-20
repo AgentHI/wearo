@@ -378,6 +378,12 @@ class PostgresMediaRuntime:
         mime_type = detect_image_mime(content)
         return (content, mime_type) if mime_type is not None else None
 
+    def read_original(self, asset_id: UUID, account_id: UUID) -> tuple[bytes, str]:
+        object_key, content_hash, mime_type = self._owned_metadata(asset_id, account_id)
+        if mime_type not in self.mime_formats:
+            raise MediaRuntimeError("ASSET_UNAVAILABLE", "Private asset is unavailable.")
+        return self._verified_blob(object_key, content_hash), mime_type
+
     def clear_progressive_preview(self, job_id: UUID) -> None:
         self.blobs.delete(f"private/previews/{job_id.hex}")
 

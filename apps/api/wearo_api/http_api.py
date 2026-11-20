@@ -17,7 +17,7 @@ from typing import Annotated, Any, Literal, cast
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine, text
 
@@ -127,6 +127,12 @@ from .external_runtime import (
     AnalysisServiceError,
     HttpAnalysisClient,
     OpenAIAnalysisClient,
+)
+from .google_drive import (
+    DriveIntegrationError,
+    DriveSyncWorker,
+    GoogleDriveConfig,
+    GoogleDriveService,
 )
 from .home_captions import HomeCaptionService
 from .image_preflight import ImagePreflightService, VisionAnalyzer
@@ -256,6 +262,7 @@ class ApiContainer:
     contact_enquiries: PostgresContactEnquiries | None = None
     home_captions: HomeCaptionService | None = None
     contact_form_token: bytes = b""
+    google_drive: GoogleDriveService | None = None
 
 
 class OtpRequestBody(BaseModel):
@@ -287,6 +294,12 @@ class ConsumerTopUpOrderBody(BaseModel):
 
     retail_package_id: UUID
     idempotency_key: str = Field(min_length=8, max_length=100)
+
+
+class GoogleDriveSettingsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auto_sync_enabled: bool
 
 
 class RazorpayVerificationBody(BaseModel):
@@ -918,6 +931,7 @@ def create_app(
     container: ApiContainer,
     *,
     embedded_worker: DurableRenderWorker | None = None,
+    embedded_drive_worker: DriveSyncWorker | None = None,
 ) -> FastAPI:
     platform_admin_auth = container.platform_admin_auth
     admin_organizations = container.admin_organizations or PostgresAdminOrganizations(
@@ -972,11 +986,15 @@ def create_app(
             try:
                 worker.recover_stale()
                 outcome = worker.run_once()
+                drive_claimed = False
+                if embedded_drive_worker is not None:
+                    embedded_drive_worker.recover_expired()
+                    drive_claimed = embedded_drive_worker.run_once()
             except Exception:
                 logger.exception("Local embedded render worker iteration failed")
                 stop_worker.wait(2)
                 continue
-            if not outcome.claimed:
+            if not outcome.claimed and not drive_claimed:
                 stop_worker.wait(1)
 
     @asynccontextmanager
@@ -1018,6 +1036,11 @@ def create_app(
     @app.exception_handler(ApiProblem)
     async def api_problem(request: Request, error: ApiProblem) -> JSONResponse:
         return _problem(error.status, error.code, str(error), _request_id(request))
+
+    @app.exception_handler(DriveIntegrationError)
+    async def drive_problem(request: Request, error: DriveIntegrationError) -> JSONResponse:
+        status = 503 if error.retryable else 400
+        return _problem(status, error.code, str(error), _request_id(request))
 
     @app.exception_handler(ProfileError)
     @app.exception_handler(CatalogError)
@@ -1979,6 +2002,94 @@ def create_app(
         if container.plan_usage is None:
             raise ApiProblem(503, "USAGE_UNAVAILABLE", "Usage is unavailable.")
         return asdict(container.plan_usage.for_account(session.account_id, action_code=action_code))
+
+    @app.get("/api/integrations/google-drive/connect")
+    def connect_google_drive(request: Request) -> RedirectResponse:
+        session = _authenticate(request, container)
+        if container.google_drive is None:
+            raise ApiProblem(503, "GOOGLE_DRIVE_UNAVAILABLE", "Google Drive is not configured.")
+        session_token = request.cookies.get(CONSUMER_SESSION_COOKIE) or request.cookies.get(
+            LEGACY_SESSION_COOKIE, ""
+        )
+        authorization_url = container.google_drive.begin_connection(
+            session.account_id, session_token
+        )
+        return RedirectResponse(authorization_url, status_code=302)
+
+    @app.get("/api/integrations/google-drive/callback")
+    def google_drive_callback(
+        request: Request,
+        state: str = Query(min_length=20, max_length=500),
+        code: str | None = Query(default=None, min_length=1, max_length=4096),
+        error: str | None = Query(default=None, max_length=200),
+    ) -> RedirectResponse:
+        session = _authenticate(request, container)
+        if container.google_drive is None:
+            raise ApiProblem(503, "GOOGLE_DRIVE_UNAVAILABLE", "Google Drive is not configured.")
+        session_token = request.cookies.get(CONSUMER_SESSION_COOKIE) or request.cookies.get(
+            LEGACY_SESSION_COOKIE, ""
+        )
+        if error or not code:
+            container.google_drive.cancel_connection_attempt(
+                session.account_id, session_token, state
+            )
+            return RedirectResponse(
+                f"{container.google_drive.config.settings_redirect_uri}?drive=cancelled",
+                status_code=302,
+            )
+        container.google_drive.complete_connection(session.account_id, session_token, state, code)
+        return RedirectResponse(
+            f"{container.google_drive.config.settings_redirect_uri}?drive=connected",
+            status_code=302,
+        )
+
+    @app.get("/api/integrations/google-drive/status")
+    def google_drive_status(request: Request) -> dict[str, object]:
+        session = _authenticate(request, container)
+        if container.google_drive is None:
+            return {
+                "status": "UNAVAILABLE",
+                "connected": False,
+                "account_email": None,
+                "auto_sync_enabled": False,
+                "destination_folder": None,
+                "last_successful_sync_at": None,
+                "failed_sync_count": 0,
+                "reconnect_required": False,
+                "last_error_code": None,
+            }
+        return container.google_drive.status(session.account_id)
+
+    @app.patch("/api/integrations/google-drive/settings")
+    def update_google_drive_settings(
+        body: GoogleDriveSettingsBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.google_drive is None:
+            raise ApiProblem(503, "GOOGLE_DRIVE_UNAVAILABLE", "Google Drive is not configured.")
+        return container.google_drive.set_enabled(session.account_id, body.auto_sync_enabled)
+
+    @app.post("/api/integrations/google-drive/disconnect", status_code=204)
+    def disconnect_google_drive(
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.google_drive is not None:
+            container.google_drive.disconnect(session.account_id)
+        return Response(status_code=204)
+
+    @app.post("/api/integrations/google-drive/retry")
+    def retry_google_drive_sync(
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, int]:
+        session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.google_drive is None:
+            raise ApiProblem(503, "GOOGLE_DRIVE_UNAVAILABLE", "Google Drive is not configured.")
+        return {"retried": container.google_drive.retry_failed(session.account_id)}
 
     @app.get("/api/v1/me/platform")
     def consumer_platform(request: Request) -> dict[str, Any]:
@@ -4061,6 +4172,7 @@ def create_app_from_env() -> FastAPI:
         raise RuntimeError("embedded worker is restricted to local test authentication")
     fixed_test_code = os.environ.get("WEARO_TEST_OTP_CODE", "1324") if test_auth_enabled else None
     engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
+    drive_config = GoogleDriveConfig.from_env()
     consent_service = ConsentService(PostgresConsentStore(engine), current_version="beta-v1")
     profile_service = PersonProfileService(PostgresProfileStore(engine))
     quota_service = DailyQuotaService(PostgresQuotaStore(engine), limit_enabled=daily_limit_enabled)
@@ -4199,6 +4311,7 @@ def create_app_from_env() -> FastAPI:
         registration_test_otp=fixed_test_code,
         preflight=preflight,
         secure_cookie=secure_cookie,
+        google_drive=(GoogleDriveService(engine, drive_config) if drive_config else None),
     )
     object.__setattr__(
         container,
@@ -4214,8 +4327,14 @@ def create_app_from_env() -> FastAPI:
         ),
     )
     embedded_worker = None
+    embedded_drive_worker = None
     if embedded_worker_enabled:
-        from .worker_process import build_worker
+        from .worker_process import build_drive_worker, build_worker
 
         embedded_worker = build_worker()
-    return create_app(container, embedded_worker=embedded_worker)
+        embedded_drive_worker = build_drive_worker()
+    return create_app(
+        container,
+        embedded_worker=embedded_worker,
+        embedded_drive_worker=embedded_drive_worker,
+    )

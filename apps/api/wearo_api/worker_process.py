@@ -18,6 +18,7 @@ from .external_runtime import (
     RequestsJsonTransport,
     RequestsMultipartTransport,
 )
+from .google_drive import DriveSyncWorker, GoogleDriveConfig, GoogleDriveService
 from .media_runtime import PostgresMediaRuntime, private_blob_store_from_env
 from .render_provider import (
     BytePlusImageGenerationAdapter,
@@ -185,6 +186,26 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
     )
 
 
+def build_drive_worker(*, worker_slot: int | None = None) -> DriveSyncWorker | None:
+    load_wearo_environment()
+    config = GoogleDriveConfig.from_env()
+    if config is None:
+        return None
+    engine = create_engine(
+        normalize_database_url(_required("WEARO_DATABASE_URL")), pool_pre_ping=True
+    )
+    media = PostgresMediaRuntime(engine, private_blob_store_from_env())
+    worker_id = os.environ.get("WEARO_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+    if worker_slot is not None:
+        worker_id = f"{worker_id}-{worker_slot}"
+    return DriveSyncWorker(
+        engine,
+        GoogleDriveService(engine, config),
+        media,
+        worker_id=f"{worker_id}-drive",
+    )
+
+
 def main() -> None:
     load_wearo_environment()
     parser = argparse.ArgumentParser(description="Wearo durable render worker")
@@ -202,16 +223,21 @@ def main() -> None:
 
     def run_slot(slot: int) -> None:
         worker = build_worker(worker_slot=slot)
+        drive_worker = build_drive_worker(worker_slot=slot)
         while not stop.is_set():
             recovery = worker.recover_stale()
             outcome = worker.run_once()
+            drive_recovered = drive_worker.recover_expired() if drive_worker else 0
+            drive_claimed = drive_worker.run_once() if drive_worker else False
             if args.once:
                 print(
                     f"slot={slot} timed_out={recovery.failed} "
-                    f"claimed={str(outcome.claimed).lower()}"
+                    f"claimed={str(outcome.claimed).lower()} "
+                    f"drive_recovered={drive_recovered} "
+                    f"drive_claimed={str(drive_claimed).lower()}"
                 )
                 return
-            if not outcome.claimed:
+            if not outcome.claimed and not drive_claimed:
                 stop.wait(args.poll_seconds)
 
     threads = [

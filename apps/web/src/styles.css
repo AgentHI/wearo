@@ -2529,3 +2529,15 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .admin-app .business-user { display: none; }
   .admin-app .business-topbar__actions { justify-content: space-between; }
 }
+
+.drive-settings { display: grid; gap: 1rem; margin-top: 1rem; }
+.drive-settings__heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.drive-settings__heading h2 { margin: .15rem 0 0; }
+.drive-settings > p { margin: 0; color: var(--muted); }
+.drive-settings__details { display: grid; gap: .65rem; margin: 0; }
+.drive-settings__details > div { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: .55rem; border-bottom: 1px solid rgb(63 28 65 / 10%); }
+.drive-settings__details dt { color: var(--muted); }
+.drive-settings__details dd { margin: 0; text-align: right; font-weight: 650; overflow-wrap: anywhere; }
+.drive-settings__actions { display: flex; flex-wrap: wrap; gap: .65rem; }
+.drive-settings__actions .button { width: auto; margin: 0; }
+.drive-settings label { display: flex; align-items: center; gap: .7rem; font-weight: 650; }

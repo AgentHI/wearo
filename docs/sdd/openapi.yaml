@@ -14,6 +14,7 @@ tags:
 - name: Catalog
 - name: Consent
 - name: Identity
+- name: Google Drive
 - name: Media
 - name: Merchant Catalog
 - name: Mirror Lite
@@ -23,6 +24,143 @@ tags:
 - name: Trust
 - name: Wallet
 paths:
+  /api/integrations/google-drive/connect:
+    servers:
+    - url: /
+    get:
+      tags: [Google Drive]
+      summary: Start Google Drive OAuth with PKCE
+      operationId: connect_google_drive
+      security:
+      - sessionCookie: []
+      responses:
+        '302': {description: Redirect to Google authorization}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/integrations/google-drive/callback:
+    servers:
+    - url: /
+    get:
+      tags: [Google Drive]
+      summary: Complete Google Drive OAuth
+      operationId: complete_google_drive_oauth
+      security:
+      - sessionCookie: []
+      parameters:
+      - {name: state, in: query, required: true, schema: {type: string}}
+      - {name: code, in: query, required: false, schema: {type: string}}
+      - {name: error, in: query, required: false, schema: {type: string}}
+      responses:
+        '302': {description: Redirect to the consumer settings page}
+        '400':
+          description: Invalid or expired OAuth callback
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/integrations/google-drive/status:
+    servers:
+    - url: /
+    get:
+      tags: [Google Drive]
+      summary: Read the current user's Google Drive sync status
+      operationId: get_google_drive_status
+      security:
+      - sessionCookie: []
+      responses:
+        '200':
+          description: Google Drive connection and sync status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GoogleDriveStatus'}
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/integrations/google-drive/settings:
+    servers:
+    - url: /
+    patch:
+      tags: [Google Drive]
+      summary: Enable or disable automatic sync
+      operationId: update_google_drive_settings
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GoogleDriveSettings'}
+      responses:
+        '200':
+          description: Updated status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GoogleDriveStatus'}
+        '403':
+          description: CSRF validation or authorization failed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/integrations/google-drive/disconnect:
+    servers:
+    - url: /
+    post:
+      tags: [Google Drive]
+      summary: Disconnect Google Drive and cancel unfinished sync jobs
+      operationId: disconnect_google_drive
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      responses:
+        '204': {description: Disconnected}
+        '403':
+          description: CSRF validation or authorization failed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/integrations/google-drive/retry:
+    servers:
+    - url: /
+    post:
+      tags: [Google Drive]
+      summary: Retry the current user's failed Drive sync jobs
+      operationId: retry_google_drive_sync
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: Failed jobs queued again
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  retried: {type: integer, minimum: 0}
+                required: [retried]
+                additionalProperties: false
+        '403':
+          description: CSRF validation or authorization failed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /admin/audit:
     get:
       tags:
@@ -3891,6 +4029,37 @@ components:
       - code
       - message
       - request_id
+      additionalProperties: false
+    GoogleDriveSettings:
+      type: object
+      properties:
+        auto_sync_enabled: {type: boolean}
+      required: [auto_sync_enabled]
+      additionalProperties: false
+    GoogleDriveStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UNAVAILABLE, CONNECTING, CONNECTED, RECONNECT_REQUIRED, DISCONNECTED]
+        connected: {type: boolean}
+        account_email: {type: [string, 'null'], format: email}
+        auto_sync_enabled: {type: boolean}
+        destination_folder: {type: [string, 'null']}
+        last_successful_sync_at: {type: [string, 'null'], format: date-time}
+        failed_sync_count: {type: integer, minimum: 0}
+        reconnect_required: {type: boolean}
+        last_error_code: {type: [string, 'null']}
+      required:
+      - status
+      - connected
+      - account_email
+      - auto_sync_enabled
+      - destination_folder
+      - last_successful_sync_at
+      - failed_sync_count
+      - reconnect_required
+      - last_error_code
       additionalProperties: false
     Principal:
       type: object

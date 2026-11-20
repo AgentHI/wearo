@@ -962,6 +962,21 @@ class PostgresRenderRuntime:
                     ),
                     {"account": locked["account_id"], "job": job_id, "now": current},
                 )
+            connection.execute(
+                text(
+                    """INSERT INTO drive_sync_jobs
+                       (connection_id, account_id, render_job_id, result_asset_id)
+                       SELECT connection_id, account_id, :job, :asset
+                       FROM user_drive_connections
+                       WHERE account_id=:account AND status='CONNECTED' AND auto_sync_enabled
+                       ON CONFLICT (render_job_id) DO NOTHING"""
+                ),
+                {
+                    "account": locked["account_id"],
+                    "job": job_id,
+                    "asset": result_asset_id,
+                },
+            )
             return self._get_in_transaction(connection, job_id)
 
     def complete_failure(
