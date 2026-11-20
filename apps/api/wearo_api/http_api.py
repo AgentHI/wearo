@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
@@ -2018,26 +2019,26 @@ def create_app(
 
     @app.get("/api/integrations/google-drive/callback")
     def google_drive_callback(
-        request: Request,
         state: str = Query(min_length=20, max_length=500),
         code: str | None = Query(default=None, min_length=1, max_length=4096),
         error: str | None = Query(default=None, max_length=200),
     ) -> RedirectResponse:
-        session = _authenticate(request, container)
         if container.google_drive is None:
             raise ApiProblem(503, "GOOGLE_DRIVE_UNAVAILABLE", "Google Drive is not configured.")
-        session_token = request.cookies.get(CONSUMER_SESSION_COOKIE) or request.cookies.get(
-            LEGACY_SESSION_COOKIE, ""
-        )
         if error or not code:
-            container.google_drive.cancel_connection_attempt(
-                session.account_id, session_token, state
-            )
+            container.google_drive.cancel_connection_callback(state)
             return RedirectResponse(
                 f"{container.google_drive.config.settings_redirect_uri}?drive=cancelled",
                 status_code=302,
             )
-        container.google_drive.complete_connection(session.account_id, session_token, state, code)
+        try:
+            container.google_drive.complete_connection_callback(state, code)
+        except DriveIntegrationError as connection_error:
+            query = urlencode({"drive": "error", "drive_error": connection_error.code})
+            return RedirectResponse(
+                f"{container.google_drive.config.settings_redirect_uri}?{query}",
+                status_code=302,
+            )
         return RedirectResponse(
             f"{container.google_drive.config.settings_redirect_uri}?drive=connected",
             status_code=302,

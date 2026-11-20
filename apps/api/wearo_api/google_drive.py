@@ -548,29 +548,69 @@ class GoogleDriveService:
     def complete_connection(
         self, account_id: UUID, session_token: str, state: str, code: str
     ) -> dict[str, object]:
+        return self._complete_connection(
+            state,
+            code,
+            account_id=account_id,
+            session_token=session_token,
+        )
+
+    def complete_connection_callback(self, state: str, code: str) -> dict[str, object]:
+        """Complete Google's return using the short-lived, one-time OAuth state.
+
+        Browser privacy controls may omit Wearo's session cookie on the cross-site
+        return from Google. The initiating endpoint is authenticated, while this
+        callback is bound to the account by the unique state record and PKCE
+        verifier created for that authenticated request.
+        """
+        return self._complete_connection(state, code)
+
+    def _complete_connection(
+        self,
+        state: str,
+        code: str,
+        *,
+        account_id: UUID | None = None,
+        session_token: str | None = None,
+    ) -> dict[str, object]:
         state_hash = hashlib.sha256(state.encode()).digest()
-        session_hash = hashlib.sha256(session_token.encode()).digest()
-        with self.engine.begin() as connection:
-            row = (
-                connection.execute(
-                    text(
-                        """SELECT connection_id, encrypted_code_verifier, encrypted_refresh_token,
-                              google_subject, status, root_folder_id, tryons_folder_id
-                       FROM user_drive_connections
-                       WHERE account_id=:account AND oauth_state_hash=:state
-                         AND oauth_session_hash=:session AND oauth_state_expires_at > now()
-                         AND status='CONNECTING'
-                       FOR UPDATE"""
-                    ),
-                    {"account": account_id, "state": state_hash, "session": session_hash},
-                )
-                .mappings()
-                .one_or_none()
+        if account_id is not None and session_token is not None:
+            attempt_query = text(
+                """SELECT connection_id, account_id, encrypted_code_verifier,
+                          encrypted_refresh_token, google_subject, status,
+                          root_folder_id, tryons_folder_id
+                   FROM user_drive_connections
+                   WHERE oauth_state_hash=:state
+                     AND oauth_state_expires_at > now()
+                     AND status='CONNECTING'
+                     AND account_id=:account
+                     AND oauth_session_hash=:session
+                   FOR UPDATE"""
             )
+            parameters: dict[str, object] = {
+                "state": state_hash,
+                "account": account_id,
+                "session": hashlib.sha256(session_token.encode()).digest(),
+            }
+        else:
+            attempt_query = text(
+                """SELECT connection_id, account_id, encrypted_code_verifier,
+                          encrypted_refresh_token, google_subject, status,
+                          root_folder_id, tryons_folder_id
+                   FROM user_drive_connections
+                   WHERE oauth_state_hash=:state
+                     AND oauth_state_expires_at > now()
+                     AND status='CONNECTING'
+                   FOR UPDATE"""
+            )
+            parameters = {"state": state_hash}
+        with self.engine.begin() as connection:
+            row = connection.execute(attempt_query, parameters).mappings().one_or_none()
             if row is None:
                 raise DriveIntegrationError(
                     "INVALID_OAUTH_STATE", "Google connection request is invalid or expired."
                 )
+            resolved_account_id = cast(UUID, row["account_id"])
             connection.execute(
                 text(
                     """UPDATE user_drive_connections SET oauth_state_hash=NULL,
@@ -580,33 +620,36 @@ class GoogleDriveService:
                 ),
                 {"connection": row["connection_id"]},
             )
-        verifier = self.cipher.decrypt(
-            bytes(row["encrypted_code_verifier"]), context=f"oauth-verifier:{account_id}"
-        )
-        tokens = self.client.exchange_code(code, verifier)
-        access_token = str(tokens["access_token"])
-        subject, email = self.client.userinfo(access_token)
-        prior_subject = row["google_subject"]
-        if prior_subject and row["status"] != "DISCONNECTED" and prior_subject != subject:
-            raise DriveIntegrationError(
-                "GOOGLE_ACCOUNT_MISMATCH",
-                "Reconnect the same Google account or disconnect it first.",
-            )
-        refresh_token = tokens.get("refresh_token")
-        encrypted_refresh = (
-            self.cipher.encrypt(str(refresh_token), context=f"refresh-token:{account_id}")
-            if refresh_token
-            else row["encrypted_refresh_token"]
-        )
-        if encrypted_refresh is None:
-            raise DriveIntegrationError(
-                "GOOGLE_REFRESH_TOKEN_MISSING",
-                "Google did not grant offline access. Try connecting again.",
-            )
-        root_folder, tryons_folder = self.client.ensure_folders(
-            access_token, row["root_folder_id"], row["tryons_folder_id"]
-        )
         try:
+            verifier = self.cipher.decrypt(
+                bytes(row["encrypted_code_verifier"]),
+                context=f"oauth-verifier:{resolved_account_id}",
+            )
+            tokens = self.client.exchange_code(code, verifier)
+            access_token = str(tokens["access_token"])
+            subject, email = self.client.userinfo(access_token)
+            prior_subject = row["google_subject"]
+            if prior_subject and row["status"] != "DISCONNECTED" and prior_subject != subject:
+                raise DriveIntegrationError(
+                    "GOOGLE_ACCOUNT_MISMATCH",
+                    "Reconnect the same Google account or disconnect it first.",
+                )
+            refresh_token = tokens.get("refresh_token")
+            encrypted_refresh = (
+                self.cipher.encrypt(
+                    str(refresh_token), context=f"refresh-token:{resolved_account_id}"
+                )
+                if refresh_token
+                else row["encrypted_refresh_token"]
+            )
+            if encrypted_refresh is None:
+                raise DriveIntegrationError(
+                    "GOOGLE_REFRESH_TOKEN_MISSING",
+                    "Google did not grant offline access. Try connecting again.",
+                )
+            root_folder, tryons_folder = self.client.ensure_folders(
+                access_token, row["root_folder_id"], row["tryons_folder_id"]
+            )
             with self.engine.begin() as connection:
                 connection.execute(
                     text(
@@ -625,20 +668,28 @@ class GoogleDriveService:
                         "connection": row["connection_id"],
                     },
                 )
+        except DriveIntegrationError as error:
+            self._record_connection_failure(cast(UUID, row["connection_id"]), error.code)
+            raise
         except Exception as error:
             if "uq_user_drive_connections_google_subject" in str(error):
-                raise DriveIntegrationError(
+                connection_error = DriveIntegrationError(
                     "GOOGLE_ACCOUNT_ALREADY_CONNECTED",
                     "This Google account is connected to another Wearo account.",
-                ) from None
+                )
+                self._record_connection_failure(
+                    cast(UUID, row["connection_id"]), connection_error.code
+                )
+                raise connection_error from None
+            self._record_connection_failure(
+                cast(UUID, row["connection_id"]), "GOOGLE_DRIVE_CONNECTION_FAILED"
+            )
             raise
-        return self.status(account_id)
+        return self.status(resolved_account_id)
 
-    def cancel_connection_attempt(self, account_id: UUID, session_token: str, state: str) -> None:
-        state_hash = hashlib.sha256(state.encode()).digest()
-        session_hash = hashlib.sha256(session_token.encode()).digest()
+    def _record_connection_failure(self, connection_id: UUID, error_code: str) -> None:
         with self.engine.begin() as connection:
-            result = connection.execute(
+            connection.execute(
                 text(
                     """UPDATE user_drive_connections SET
                          status=CASE
@@ -646,14 +697,68 @@ class GoogleDriveService:
                              THEN 'RECONNECT_REQUIRED'
                            WHEN encrypted_refresh_token IS NULL THEN 'DISCONNECTED'
                            ELSE 'CONNECTED' END,
-                         oauth_state_hash=NULL, encrypted_code_verifier=NULL,
-                         oauth_session_hash=NULL, oauth_state_expires_at=NULL, updated_at=now()
-                       WHERE account_id=:account AND oauth_state_hash=:state
-                         AND oauth_session_hash=:session AND oauth_state_expires_at > now()
-                         AND status='CONNECTING'"""
+                         last_error_code=:error, updated_at=now()
+                       WHERE connection_id=:connection"""
                 ),
-                {"account": account_id, "state": state_hash, "session": session_hash},
+                {"connection": connection_id, "error": error_code},
             )
+
+    def cancel_connection_attempt(self, account_id: UUID, session_token: str, state: str) -> None:
+        self._cancel_connection_attempt(
+            state,
+            account_id=account_id,
+            session_token=session_token,
+        )
+
+    def cancel_connection_callback(self, state: str) -> None:
+        self._cancel_connection_attempt(state)
+
+    def _cancel_connection_attempt(
+        self,
+        state: str,
+        *,
+        account_id: UUID | None = None,
+        session_token: str | None = None,
+    ) -> None:
+        state_hash = hashlib.sha256(state.encode()).digest()
+        if account_id is not None and session_token is not None:
+            cancel_query = text(
+                """UPDATE user_drive_connections SET
+                     status=CASE
+                       WHEN last_error_code='GOOGLE_DRIVE_RECONNECT_REQUIRED'
+                         THEN 'RECONNECT_REQUIRED'
+                       WHEN encrypted_refresh_token IS NULL THEN 'DISCONNECTED'
+                       ELSE 'CONNECTED' END,
+                     oauth_state_hash=NULL, encrypted_code_verifier=NULL,
+                     oauth_session_hash=NULL, oauth_state_expires_at=NULL, updated_at=now()
+                   WHERE oauth_state_hash=:state
+                     AND oauth_state_expires_at > now()
+                     AND status='CONNECTING'
+                     AND account_id=:account
+                     AND oauth_session_hash=:session"""
+            )
+            parameters: dict[str, object] = {
+                "state": state_hash,
+                "account": account_id,
+                "session": hashlib.sha256(session_token.encode()).digest(),
+            }
+        else:
+            cancel_query = text(
+                """UPDATE user_drive_connections SET
+                     status=CASE
+                       WHEN last_error_code='GOOGLE_DRIVE_RECONNECT_REQUIRED'
+                         THEN 'RECONNECT_REQUIRED'
+                       WHEN encrypted_refresh_token IS NULL THEN 'DISCONNECTED'
+                       ELSE 'CONNECTED' END,
+                     oauth_state_hash=NULL, encrypted_code_verifier=NULL,
+                     oauth_session_hash=NULL, oauth_state_expires_at=NULL, updated_at=now()
+                   WHERE oauth_state_hash=:state
+                     AND oauth_state_expires_at > now()
+                     AND status='CONNECTING'"""
+            )
+            parameters = {"state": state_hash}
+        with self.engine.begin() as connection:
+            result = connection.execute(cancel_query, parameters)
             if result.rowcount != 1:
                 raise DriveIntegrationError(
                     "INVALID_OAUTH_STATE", "Google connection request is invalid or expired."

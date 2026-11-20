@@ -464,10 +464,15 @@ function profileView(auth) {
     </dialog>
     <section class="consumer-card drive-settings" aria-labelledby="drive-settings-title">
       <div class="drive-settings__heading">
-        <div><p class="eyebrow">Automatic backup</p><h2 id="drive-settings-title">Google Drive</h2></div>
+        <div class="drive-settings__identity">
+          <span class="drive-settings__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 18.5h9a4 4 0 0 0 .7-7.94A5.5 5.5 0 0 0 6.7 8.8 4.75 4.75 0 0 0 7.5 18.5Z"/><path d="M12 10.5v5m-2-2 2 2 2-2"/></svg>
+          </span>
+          <div><p class="eyebrow">Private cloud backup</p><h2 id="drive-settings-title">Google Drive</h2></div>
+        </div>
         <span id="drive-connection-state" class="status-chip">Loading…</span>
       </div>
-      <p>Save each newly completed try-on privately in <strong>Wearo.ai/Try-Ons</strong>. Existing looks are not uploaded.</p>
+      <p class="drive-settings__intro">Keep your favourite new try-ons safely backed up in <strong>Wearo.ai/Try-Ons</strong>. Your existing looks stay exactly where they are.</p>
       <dl id="drive-details" class="drive-settings__details" hidden>
         <div><dt>Google account</dt><dd id="drive-account-email">—</dd></div>
         <div><dt>Destination</dt><dd id="drive-folder">Wearo.ai/Try-Ons</dd></div>
@@ -476,7 +481,8 @@ function profileView(auth) {
       </dl>
       <label id="drive-auto-sync-control" class="drive-settings__toggle" hidden>
         <input id="drive-auto-sync" type="checkbox" />
-        <span><strong>Automatically sync new try-ons</strong><small>Off until you enable it</small></span>
+        <span class="drive-settings__switch" aria-hidden="true"></span>
+        <span class="drive-settings__toggle-copy"><strong>Automatically back up new try-ons</strong><small id="drive-auto-sync-note">Off · Enable whenever you’re ready</small></span>
       </label>
       <div class="drive-settings__actions">
         <button id="connect-google-drive" class="button button--primary" type="button" hidden>Connect Google Drive</button>
@@ -545,6 +551,7 @@ function attachDriveIntegration(auth) {
     const connected = Boolean(value.connected);
     const unavailable = value.status === "UNAVAILABLE";
     state.textContent = unavailable ? "Unavailable" : connected ? "Connected" : value.reconnect_required ? "Reconnect needed" : "Not connected";
+    state.dataset.state = unavailable ? "unavailable" : connected ? "connected" : value.reconnect_required ? "reconnect" : "disconnected";
     details.hidden = !connected && !value.reconnect_required;
     control.hidden = !connected;
     connect.hidden = connected || value.reconnect_required || unavailable;
@@ -553,6 +560,9 @@ function attachDriveIntegration(auth) {
     retry.hidden = !connected || Number(value.failed_sync_count || 0) === 0;
     toggle.checked = connected && Boolean(value.auto_sync_enabled);
     toggle.disabled = !connected;
+    document.querySelector("#drive-auto-sync-note").textContent = toggle.checked
+      ? "On · New completed try-ons will be backed up"
+      : "Off · Enable whenever you’re ready";
     document.querySelector("#drive-account-email").textContent = value.account_email || "—";
     document.querySelector("#drive-folder").textContent = value.destination_folder || "Wearo.ai/Try-Ons";
     document.querySelector("#drive-failed-count").textContent = String(value.failed_sync_count || 0);
@@ -608,9 +618,14 @@ function attachDriveIntegration(auth) {
     }
   });
 
-  const driveResult = new URLSearchParams(window.location.search).get("drive");
+  const driveParameters = new URLSearchParams(window.location.search);
+  const driveResult = driveParameters.get("drive");
   if (driveResult === "connected") setStatus(status, "Google Drive connected. Automatic sync remains off until you enable it.", "success");
   if (driveResult === "cancelled") setStatus(status, "Google Drive connection was cancelled.");
+  if (driveResult === "error") {
+    const errorCode = driveParameters.get("drive_error") || "GOOGLE_DRIVE_CONNECTION_FAILED";
+    setStatus(status, `Google Drive connection failed (${errorCode}). Select Connect Google Drive to try again.`, "error");
+  }
   load();
 }
 
