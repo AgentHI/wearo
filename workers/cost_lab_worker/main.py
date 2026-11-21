@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import socket
 import time
@@ -11,13 +12,17 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from PIL import Image, ImageOps
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
+from apps.api.wearo_api.database import create_database_engine
 from apps.api.wearo_api.worker_health import start_worker_health_server
 from apps.cost_lab_api.adapters import BFLAdapter, BytePlusAdapter, OpenAICompatibleAdapter
 from apps.cost_lab_api.app import CostLab, _provider_quality_parameters
 from apps.cost_lab_api.config import Settings
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CostLabWorker:
@@ -402,14 +407,28 @@ def run() -> None:
     args = parser.parse_args()
     settings = Settings.from_env()
     worker = CostLabWorker(
-        CostLab(settings, create_engine(settings.database_url, pool_pre_ping=True))
+        CostLab(
+            settings,
+            create_database_engine(
+                settings.database_url,
+                application_name="wearo-cost-lab-worker",
+                pool_size=1,
+            ),
+        )
     )
     if not args.once:
         start_worker_health_server(
             "cost-lab-worker", int(os.environ.get("WEARO_COST_LAB_WORKER_HEALTH_PORT", "8023"))
         )
     while True:
-        worked = worker.process_dataset_one() or worker.process_one()
+        try:
+            worked = worker.process_dataset_one() or worker.process_one()
+        except SQLAlchemyError:
+            if args.once:
+                raise
+            LOGGER.exception("Cost Lab worker database operation failed; retrying")
+            time.sleep(2)
+            continue
         if args.once:
             return
         if not worked:

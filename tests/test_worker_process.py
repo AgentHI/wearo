@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -84,3 +84,18 @@ def test_worker_applies_openai_image_transport_configuration(
     assert provider.streaming is True
     assert provider.connect_timeout_seconds == 12
     assert provider.read_timeout_seconds == 240
+
+
+def test_worker_uses_an_explicit_shared_database_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    configure_common(monkeypatch, tmp_path)
+    monkeypatch.setenv("WEARO_RENDER_PROVIDER", "OPENAI")
+    monkeypatch.setenv("WEARO_OPENAI_ENABLED", "true")
+    monkeypatch.setenv("WEARO_OPENAI_API_KEY", "openai-secret")
+    shared_engine = cast(Any, object())
+
+    worker = build_worker(engine=shared_engine)
+
+    assert worker.runtime.engine is shared_engine  # type: ignore[attr-defined]
+    assert worker.media.engine is shared_engine  # type: ignore[attr-defined]

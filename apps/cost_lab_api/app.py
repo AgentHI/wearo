@@ -19,9 +19,10 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Respon
 from fastapi.responses import HTMLResponse
 from PIL import Image, ImageOps
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
 
 from apps.api.wearo_api.admin_auth import verify_password
+from apps.api.wearo_api.database import create_database_engine
 from apps.api.wearo_api.render_quality_strategy import quality_parameters
 
 from .adapters import BFLAdapter, BFLUpstreamError, BytePlusAdapter, OpenAICompatibleAdapter
@@ -589,7 +590,16 @@ class CostLab:
 
 def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
     actual = settings or Settings.from_env()
-    service = CostLab(actual, engine or create_engine(actual.database_url, pool_pre_ping=True))
+    service = CostLab(
+        actual,
+        engine
+        or create_database_engine(
+            actual.database_url,
+            application_name="wearo-cost-lab-api",
+            pool_size=2,
+            max_overflow=1,
+        ),
+    )
     app = FastAPI(title="Wearo Model Cost Lab API", version="1.0.0")
     app.state.cost_lab = service
 

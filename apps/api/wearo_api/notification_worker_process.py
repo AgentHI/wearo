@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import socket
 import time
@@ -8,12 +9,15 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
-from .database import normalize_database_url
+from .database import create_database_engine
 from .environment import load_wearo_environment
 from .notification_delivery import NotificationWorker, PostgresNotificationService, SesEmailSender
 from .worker_health import start_worker_health_server
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _required(name: str) -> str:
@@ -31,10 +35,12 @@ def customer_origin() -> str:
     return "https://wearo.ai" if environment in {"production", "prod"} else "http://127.0.0.1:5173"
 
 
-def build_notification_worker() -> NotificationWorker:
+def build_notification_worker(*, engine: Engine | None = None) -> NotificationWorker:
     load_wearo_environment()
-    engine = create_engine(
-        normalize_database_url(_required("WEARO_DATABASE_URL")), pool_pre_ping=True
+    database_engine = engine or create_database_engine(
+        _required("WEARO_DATABASE_URL"),
+        application_name="wearo-notification-worker",
+        pool_size=1,
     )
     ses = boto3.client(
         "sesv2",
@@ -61,7 +67,7 @@ def build_notification_worker() -> NotificationWorker:
     )
     origin = customer_origin()
     return NotificationWorker(
-        PostgresNotificationService(engine),
+        PostgresNotificationService(database_engine),
         sender,
         worker_id,
         standard_variables={
@@ -89,7 +95,14 @@ def main() -> None:
             int(os.environ.get("WEARO_NOTIFICATION_WORKER_HEALTH_PORT", "8022")),
         )
     while True:
-        claimed = worker.run_once()
+        try:
+            claimed = worker.run_once()
+        except SQLAlchemyError:
+            if args.once:
+                raise
+            LOGGER.exception("Notification worker database operation failed; retrying")
+            time.sleep(max(args.poll_seconds, 2.0))
+            continue
         if args.once:
             print(f"claimed={str(claimed).lower()}")
             return

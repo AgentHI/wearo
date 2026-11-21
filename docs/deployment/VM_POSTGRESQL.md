@@ -22,6 +22,13 @@ If systemd runs the services, use a root-readable `EnvironmentFile` outside the 
 processes. Setting `WEARO_ENVIRONMENT=production` prevents a repository `.env` from being loaded,
 even if one is accidentally present on the VM.
 
+The API pool is bounded at five total connections (three retained plus two temporary overflow
+connections). Render and Google Drive worker threads share one pool capped at
+`WEARO_WORKER_CONCURRENCY`; the production example starts at two. The notification worker uses one
+connection, the Cost Lab API uses at most three, and the Cost Lab worker uses one. PostgreSQL
+sessions are labelled with their service name in `pg_stat_activity`, so include every deployed
+process when calculating the database connection budget.
+
 Before restarting, verify each service manager/container has both variables. Do not print the
 complete URL into deployment logs. The `sslmode=require` query parameter is mandatory for this
 DigitalOcean connection.

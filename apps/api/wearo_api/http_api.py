@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
 
 from .account_lifecycle import AccountLifecycleError, PostgresAccountLifecycle
 from .admin_ai_costs import AdminAiCostError, PostgresAdminAiCosts, PostgresTryOnRouteRegistry
@@ -114,7 +114,7 @@ from .contact_enquiries import (
     ContactPurpose,
     PostgresContactEnquiries,
 )
-from .database import normalize_database_url
+from .database import create_database_engine
 from .durable_worker import DurableRenderWorker
 from .email_otp import (
     AuthRealm,
@@ -4172,7 +4172,12 @@ def create_app_from_env() -> FastAPI:
     if embedded_worker_enabled and not test_auth_enabled:
         raise RuntimeError("embedded worker is restricted to local test authentication")
     fixed_test_code = os.environ.get("WEARO_TEST_OTP_CODE", "1324") if test_auth_enabled else None
-    engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
+    engine = create_database_engine(
+        database_url,
+        application_name="wearo-api",
+        pool_size=3,
+        max_overflow=2,
+    )
     drive_config = GoogleDriveConfig.from_env()
     consent_service = ConsentService(PostgresConsentStore(engine), current_version="beta-v1")
     profile_service = PersonProfileService(PostgresProfileStore(engine))
@@ -4332,8 +4337,8 @@ def create_app_from_env() -> FastAPI:
     if embedded_worker_enabled:
         from .worker_process import build_drive_worker, build_worker
 
-        embedded_worker = build_worker()
-        embedded_drive_worker = build_drive_worker()
+        embedded_worker = build_worker(engine=engine)
+        embedded_drive_worker = build_drive_worker(engine=engine)
     return create_app(
         container,
         embedded_worker=embedded_worker,

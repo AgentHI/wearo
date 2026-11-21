@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import socket
 import threading
 from typing import TypedDict
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
-from .database import normalize_database_url
+from .database import create_database_engine
 from .durable_worker import DurableRenderWorker, WorkerProvider
 from .environment import load_wearo_environment
 from .external_runtime import (
@@ -29,6 +31,8 @@ from .render_provider import (
 from .render_quality import QualityAnalyzer, RenderQualityGate
 from .render_runtime import DurableRenderJob, PostgresRenderRuntime
 from .worker_health import start_worker_health_server
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _required(name: str) -> str:
@@ -73,12 +77,18 @@ def _openai_image_options() -> OpenAIImageOptions:
     }
 
 
-def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
+def build_worker(
+    *, worker_slot: int | None = None, engine: Engine | None = None
+) -> DurableRenderWorker:
     load_wearo_environment()
     database_url = _required("WEARO_DATABASE_URL")
-    engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
+    database_engine = engine or create_database_engine(
+        database_url,
+        application_name="wearo-render-worker",
+        pool_size=1,
+    )
     media = PostgresMediaRuntime(
-        engine,
+        database_engine,
         private_blob_store_from_env(),
     )
     selected_provider = os.environ.get("WEARO_RENDER_PROVIDER", "GOOGLE_VERTEX").strip().upper()
@@ -132,7 +142,7 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
         worker_id = f"{worker_id}-{worker_slot}"
 
     def resolve_provider(job: DurableRenderJob) -> WorkerProvider:
-        with engine.connect() as connection:
+        with database_engine.connect() as connection:
             route = (
                 connection.execute(
                     text("""SELECT p.adapter_type, p.credential_env_name
@@ -170,7 +180,7 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
 
     return DurableRenderWorker(
         PostgresRenderRuntime(
-            engine,
+            database_engine,
             enforce_daily_allowance=(
                 os.environ.get("WEARO_DAILY_LIMIT_ENABLED", "true").casefold() == "true"
             ),
@@ -186,21 +196,25 @@ def build_worker(*, worker_slot: int | None = None) -> DurableRenderWorker:
     )
 
 
-def build_drive_worker(*, worker_slot: int | None = None) -> DriveSyncWorker | None:
+def build_drive_worker(
+    *, worker_slot: int | None = None, engine: Engine | None = None
+) -> DriveSyncWorker | None:
     load_wearo_environment()
     config = GoogleDriveConfig.from_env()
     if config is None:
         return None
-    engine = create_engine(
-        normalize_database_url(_required("WEARO_DATABASE_URL")), pool_pre_ping=True
+    database_engine = engine or create_database_engine(
+        _required("WEARO_DATABASE_URL"),
+        application_name="wearo-drive-worker",
+        pool_size=1,
     )
-    media = PostgresMediaRuntime(engine, private_blob_store_from_env())
+    media = PostgresMediaRuntime(database_engine, private_blob_store_from_env())
     worker_id = os.environ.get("WEARO_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
     if worker_slot is not None:
         worker_id = f"{worker_id}-{worker_slot}"
     return DriveSyncWorker(
-        engine,
-        GoogleDriveService(engine, config),
+        database_engine,
+        GoogleDriveService(database_engine, config),
         media,
         worker_id=f"{worker_id}-drive",
     )
@@ -217,18 +231,32 @@ def main() -> None:
         raise SystemExit("--poll-seconds must be between 0.1 and 30")
     concurrency = worker_concurrency(args.concurrency)
     stop = threading.Event()
+    engine = create_database_engine(
+        _required("WEARO_DATABASE_URL"),
+        application_name=f"wearo-render-worker:{socket.gethostname()}:{os.getpid()}",
+        pool_size=concurrency,
+    )
     health_server = None if args.once else start_worker_health_server(
         "render-worker", int(os.environ.get("WEARO_RENDER_WORKER_HEALTH_PORT", "8021"))
     )
 
     def run_slot(slot: int) -> None:
-        worker = build_worker(worker_slot=slot)
-        drive_worker = build_drive_worker(worker_slot=slot)
+        worker = build_worker(worker_slot=slot, engine=engine)
+        drive_worker = build_drive_worker(worker_slot=slot, engine=engine)
         while not stop.is_set():
-            recovery = worker.recover_stale()
-            outcome = worker.run_once()
-            drive_recovered = drive_worker.recover_expired() if drive_worker else 0
-            drive_claimed = drive_worker.run_once() if drive_worker else False
+            try:
+                recovery = worker.recover_stale()
+                outcome = worker.run_once()
+                drive_recovered = drive_worker.recover_expired() if drive_worker else 0
+                drive_claimed = drive_worker.run_once() if drive_worker else False
+            except SQLAlchemyError:
+                if args.once:
+                    raise
+                LOGGER.exception(
+                    "Database operation failed in render worker slot %s; retrying", slot
+                )
+                stop.wait(max(args.poll_seconds, 2.0))
+                continue
             if args.once:
                 print(
                     f"slot={slot} timed_out={recovery.failed} "
@@ -256,6 +284,7 @@ def main() -> None:
     finally:
         if health_server is not None:
             health_server.shutdown()
+        engine.dispose()
 
 
 if __name__ == "__main__":
