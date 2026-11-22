@@ -1283,11 +1283,13 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .consumer-app--home .home-heading--modern h1 { margin: 0; font-size: clamp(1.75rem, 7vw, 2.2rem); }
 .consumer-app--home .home-caption { width: fit-content; color: var(--brand-plum); background: linear-gradient(110deg, var(--brand-plum) 0%, #8f3e75 48%, #c18b42 100%); background-clip: text; filter: drop-shadow(0 .2rem .45rem rgb(91 36 79 / 10%)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .consumer-app--home .home-heading--modern p:last-child { margin-top: .2rem; font-size: .8rem; }
-.consumer-app--home .allowance-card--modern { min-height: 3.75rem; margin: 0; padding: .65rem .8rem; border-radius: 1rem; }
+.consumer-app--home .allowance-card--modern { display: grid; width: 100%; max-width: 100%; min-height: 3.75rem; grid-template-columns: minmax(0, 1fr) auto; margin: 0; padding: .65rem .8rem; border-radius: 1rem; }
 .consumer-app--home .allowance-card--modern > div { gap: .55rem; }
+.consumer-app--home .allowance-card--modern > div:first-child,
+.consumer-app--home .allowance-card--modern > div:first-child > div { min-width: 0; }
 .consumer-app--home .allowance-sparkle { font-size: 1.25rem; }
 .consumer-app--home .allowance-card--modern strong { font-size: .85rem; }
-.consumer-app--home .allowance-card--modern p { max-width: 20rem; overflow: hidden; margin-top: .02rem; font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-app--home .allowance-card--modern p { max-width: 100%; margin-top: .02rem; overflow-wrap: anywhere; font-size: .65rem; line-height: 1.35; white-space: normal; }
 .consumer-app--home .allowance-card--modern .allowance-count { min-width: 2rem; height: 2rem; font-size: .75rem; }
 .consumer-app--home .allowance-refresh { width: 2rem; min-height: 2rem; font-size: 1rem; }
 .consumer-app--home .allowance-card--modern .allowance-actions { grid-auto-flow: column; align-items: center; align-self: center; gap: .45rem; }
@@ -1295,6 +1297,11 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .consumer-app--home .allowance-buy:hover { background: var(--brand-aubergine); }
 .consumer-app--home .allowance-buy:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 2px; }
 .consumer-app--home .allowance-buy[hidden] { display: none; }
+@media (max-width: 24rem) {
+  .consumer-app--home .allowance-card--modern { column-gap: .45rem; padding-inline: .65rem; }
+  .consumer-app--home .allowance-card--modern .allowance-actions { grid-auto-flow: row; grid-template-columns: repeat(2, 2rem); }
+  .consumer-app--home .allowance-card--modern .allowance-buy { grid-row: 2; grid-column: 1 / -1; justify-self: stretch; text-align: center; }
+}
 .tryon-composer { width: 100%; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-mauve); border-radius: 1.15rem; color: var(--ink-charcoal); background: rgb(255 255 255 / 92%); box-shadow: 0 .55rem 1.5rem rgb(59 23 70 / 7%); }
 .tryon-composer__panel { display: grid; }
 .tryon-composer__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem .75rem .45rem; background: linear-gradient(120deg, rgb(247 236 245 / 72%), rgb(255 250 245 / 35%)); }

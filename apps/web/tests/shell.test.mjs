@@ -457,6 +457,10 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.doesNotMatch(consumer, /Camera permission is controlled by your browser or device/);
   assert.doesNotMatch(css, /recent-tryons|recent-tryon-card/);
   assert.match(css, /mobile-preview__canvas\[data-advertisement="true"\][^{]*\{[^}]*aspect-ratio:\s*3\s*\/\s*4/s);
+  assert.match(css, /\.consumer-app--home \.allowance-card--modern[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto/s);
+  assert.match(css, /\.consumer-app--home \.allowance-card--modern > div:first-child[^}]*min-width:\s*0/s);
+  assert.match(css, /\.consumer-app--home \.allowance-card--modern p[^}]*white-space:\s*normal/s);
+  assert.match(css, /@media \(max-width:\s*24rem\)[\s\S]*?\.allowance-card--modern \.allowance-actions[^}]*grid-template-columns:\s*repeat\(2,\s*2rem\)/s);
   assert.match(css, /\.sponsored-advertisement-progress img[^}]*object-fit:\s*contain/s);
   assert.match(css, /\.tryon-composer--reference \.mobile-preview__canvas \.tryon-result-image[^}]*width:\s*auto\s*!important[^}]*height:\s*auto\s*!important[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s);
   assert.match(css, /\.tryon-composer--reference \.tryon-workspace[^}]*grid-template-columns:\s*minmax\(0,\s*1\.7fr\)\s*minmax\(9\.25rem,\s*\.68fr\)/s);
