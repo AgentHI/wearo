@@ -17,7 +17,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.wearo_api.database import create_database_engine
 from apps.api.wearo_api.worker_health import start_worker_health_server
-from apps.cost_lab_api.adapters import BFLAdapter, BytePlusAdapter, OpenAICompatibleAdapter
+from apps.cost_lab_api.adapters import (
+    BFLAdapter,
+    BytePlusAdapter,
+    OpenAICompatibleAdapter,
+    RunwareAdapter,
+)
 from apps.cost_lab_api.app import CostLab, _provider_quality_parameters
 from apps.cost_lab_api.config import Settings
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
@@ -41,6 +46,7 @@ class CostLabWorker:
         adapters = {
             "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
             "BYTEPLUS": BytePlusAdapter,
+            "RUNWARE": RunwareAdapter,
         }
         if provider_type not in adapters:
             raise ValueError(f"No worker adapter for {provider_type}")

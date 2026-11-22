@@ -30,9 +30,11 @@ this). Open `http://localhost:5173/admin/cost-lab`.
 ## First benchmark
 
 1. Sign in with `COST_LAB_ADMIN_USERNAME` and the password used for the hash.
-2. Add an OpenAI-compatible or BytePlus provider. Prefer environment references such as
-   `env:WEARO_OPENAI_API_KEY` or `env:WEARO_BYTEPLUS_API_KEY` to pasting a key; pasted keys are
-   encrypted with `COST_LAB_ENCRYPTION_KEY` and are never returned by the API.
+2. Add an OpenAI-compatible, BytePlus, BFL, or Runware provider. Prefer environment references
+   such as `env:WEARO_OPENAI_API_KEY`, `env:WEARO_BYTEPLUS_API_KEY`, or
+   `env:WEARO_RUNWARE_API_KEY` to pasting a key; pasted keys are encrypted with
+   `COST_LAB_ENCRYPTION_KEY` and are never returned by the API. For Runware, use
+   `https://api.runware.ai/v1` as the API base URL.
 3. Add a model, then add its effective pricing components. Current prices are deliberately not
    hardcoded.
 4. Under Dataset, choose a configured model and click **Generate dataset now**. The worker creates
@@ -74,10 +76,20 @@ preserving the history and priority position.
 
 Implement the `ProviderAdapter` protocol in `apps/cost_lab_api/adapters.py`, including an explicit
 validation and generation request contract. Add a new `provider_type`, dispatch it in the worker,
-and create mocked response tests. OpenAI Images-compatible, BytePlus ModelArk, and Black Forest
-Labs adapters are currently executable. Do not route another provider through the OpenAI-compatible
-adapter unless its image edit API is actually compatible. Normalize only usage fields the provider
-really reports; preserve aggregate-only token usage rather than inventing a split.
+and create mocked response tests. OpenAI Images-compatible, BytePlus ModelArk, Black Forest Labs,
+and Runware adapters are currently executable. Do not route another provider through the
+OpenAI-compatible adapter unless its image edit API is actually compatible. Normalize only usage
+fields the provider really reports; preserve aggregate-only token usage rather than inventing a
+split.
+
+Runware `alibaba:qwen-image-edit@2511` accepts one to three ordered reference images. Cost Lab
+benchmarks send the person first and the product second. The original `runware:108@20` model is
+limited to exactly one reference image. Add the model identifier and pricing through **Models &
+pricing**; `WEARO_RUNWARE_MODEL` documents the intended local model but does not bypass the audited
+Cost Lab model catalogue.
+
+Runware `runware:400@4` (FLUX.2 Klein 4B) supports text-to-image with no input and editing with one
+to four ordered reference images. Cost Lab benchmarks use two of those references.
 
 BFL diagnostics are emitted as structured `bfl_upstream` log entries. They include the phase,
 upstream status, sanitized response, request ID, generation ID, and elapsed time; credentials and
@@ -107,8 +119,8 @@ deployment is performed by this change.
 
 ## Known MVP limitations
 
-- Executable adapters are available for OpenAI Images-compatible providers and BytePlus ModelArk.
-  Other providers require their own adapter.
+- Executable adapters are available for OpenAI Images-compatible, BytePlus ModelArk, BFL, and
+  Runware providers. Other providers require their own adapter.
 - Local filesystem assets are suitable for one VM; use an object-store implementation before
   horizontal scaling.
 - Live progress uses polling. Output-quality scoring remains a human review step.

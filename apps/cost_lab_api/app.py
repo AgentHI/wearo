@@ -25,7 +25,13 @@ from apps.api.wearo_api.admin_auth import verify_password
 from apps.api.wearo_api.database import create_database_engine
 from apps.api.wearo_api.render_quality_strategy import quality_parameters
 
-from .adapters import BFLAdapter, BFLUpstreamError, BytePlusAdapter, OpenAICompatibleAdapter
+from .adapters import (
+    BFLAdapter,
+    BFLUpstreamError,
+    BytePlusAdapter,
+    OpenAICompatibleAdapter,
+    RunwareAdapter,
+)
 from .config import Settings
 from .pricing import calculate_cost
 from .storage import FilesystemCostLabStorage, S3CostLabStorage
@@ -63,7 +69,7 @@ class LoginBody(BaseModel):
 class ProviderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
-    provider_type: Literal["OPENAI_COMPATIBLE", "BYTEPLUS", "BFL", "SECRET_REFERENCE"]
+    provider_type: Literal["OPENAI_COMPATIBLE", "BYTEPLUS", "BFL", "RUNWARE", "SECRET_REFERENCE"]
     api_base_url: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=4096)
     secret_reference: str | None = Field(default=None, max_length=512)
@@ -200,6 +206,90 @@ class BenchmarkBody(BaseModel):
         return self
 
 
+def _benchmark_category_instruction(
+    category: Literal["JEWELLERY", "SAREE", "DRESS"],
+) -> str:
+    if category == "JEWELLERY":
+        return (
+            "CATEGORY: JEWELLERY REPLACEMENT. Complete these edits in order. "
+            "STEP 1 — ERASE OLD JEWELLERY: remove every jewellery item currently worn in IMAGE 1, "
+            "including the old earrings and old necklace. Inpaint clean natural earlobes, neck, "
+            "and skin where those old items were removed. Do not preserve, stack, mix, or blend "
+            "any old jewellery with the new set. "
+            "STEP 2 — INVENTORY IMAGE 2: treat IMAGE 2 only as a parts inventory, never as a "
+            "spatial layout. The central connected piece is the necklace. Any two matching, "
+            "separate pieces displayed to the left and right of or below the necklace are an "
+            "earring pair. They are earrings, not pendants, brooches, or chest ornaments. Ignore "
+            "the product-photo background, spacing, display positions, stand, and shadows. "
+            "STEP 3 — WEAR EVERY NEW COMPONENT: put the necklace once around the neck and "
+            "collarbone at its original length. If IMAGE 2 contains an earring pair, put exactly "
+            "one supplied earring on the left earlobe and exactly one supplied earring on the "
+            "right earlobe. Each earring stud or hook must visibly touch its earlobe and each drop "
+            "must hang downward from that ear. Preserve the product's exact design, colours, "
+            "stones, metal, proportions, and component count. "
+            "HARD PLACEMENT CONSTRAINT: earrings are allowed only on the two ears. Never place an "
+            "earring on or near the necklace, chest, collarbone, shoulder, saree, blouse, hand, "
+            "background, or any other location. Never leave an earring loose, floating, displayed, "
+            "or duplicated. The final image must have zero product-display earrings and zero old "
+            "jewellery. "
+            "STEP 4 — CLEAN THE CHEST: inspect the area from the lower edge of the worn necklace "
+            "down to the waist. Any detached matching pair, dangling cluster, or isolated jewellery "
+            "piece in this area is a catalogue earring copied into the wrong place. Erase it and "
+            "restore the original bare skin or clothing from IMAGE 1. Only the connected necklace "
+            "may occupy the neck or upper chest; all supplied earrings must be attached to ears. "
+            "FINAL COUNT CHECK: one supplied necklace, two supplied earrings when the pair exists "
+            "in IMAGE 2, and zero unattached jewellery pieces. "
+        )
+
+    garment = "saree" if category == "SAREE" else "dress or apparel item"
+    garment_fit = (
+        "Apply the referenced saree only within the existing clothing area and the minimum adjacent "
+        "occlusion boundary, with realistic pleats, pallu, drape, scale, and fabric behaviour."
+        if category == "SAREE"
+        else "Replace only the existing garment pixels and the minimum edge pixels required for a natural fit."
+    )
+    return (
+        f"BENCHMARK CATEGORY — {category}. This category is fixed; do not reclassify the product "
+        f"as jewellery. Image 2 is the authoritative {garment} reference. {garment_fit} "
+        "PRESERVE EXISTING JEWELLERY: because Image 2 is not a jewellery product, retain every "
+        "jewellery item already worn in Image 1 exactly as it is. Do not remove, replace, recolour, "
+        "move, resize, duplicate, cover unnecessarily, or redesign the person's existing earrings, "
+        "necklaces, nose jewellery, head jewellery, bangles, bracelets, rings, waist jewellery, or "
+        "anklets. Preserve all other non-garment accessories as well. Do not add any jewellery from "
+        "Image 2. Do not regenerate the person underneath the garment. "
+    )
+
+
+def _benchmark_prompt(category: Literal["JEWELLERY", "SAREE", "DRESS"]) -> str:
+    return (
+        "Create one photorealistic virtual try-on by editing IMAGE 1. IMAGE 1 is the immutable "
+        "person photograph and output canvas. IMAGE 2 is only the product reference. Keep IMAGE "
+        "1's person identity, face, expression, skin tone, hair, body, pose, hands, clothing "
+        "outside the required edit, bindi, background, lighting, crop, composition, and aspect "
+        "ratio unchanged. First inventory the non-jewellery accessories actually visible in IMAGE "
+        "1. Preserve exactly that inventory and introduce no new accessory. If IMAGE 1 has bare "
+        "eyes without spectacles, the output must also have bare eyes without spectacles: never "
+        "add eyeglasses, lenses, rims, or frames. If eyewear is genuinely present in IMAGE 1, "
+        "preserve it unchanged. Do not create a new portrait, person, pose, background, text, "
+        "watermark, or product-display layout. Modify only the minimum pixels required for the "
+        "product and its physically correct occlusion. "
+        f"{_benchmark_category_instruction(category)}"
+        "Use IMAGE 2 as the exact product-design authority. Do not recolour, redesign, simplify, "
+        "duplicate, omit, or invent product details. Match its material, colour placement, stones, "
+        "patterns, construction, scale, and proportions while fitting it naturally to the unchanged "
+        "person. Return only the final edited IMAGE 1. "
+    )
+
+
+_RUNWARE_JEWELLERY_NEGATIVE_PROMPT = (
+    "old jewellery, original earrings, original necklace, mixed jewellery sets, stacked necklaces, "
+    "earrings on chest, earrings on necklace, earrings on collarbone, earrings on shoulders, "
+    "earrings on clothing, earrings on saree, loose earrings, floating earrings, displayed earrings, "
+    "duplicate earrings, extra jewellery, missing earrings, product display layout, jewellery stand, "
+    "catalogue arrangement, altered face, changed person, changed pose, changed clothing, text, watermark"
+)
+
+
 class DatasetGenerationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: UUID
@@ -325,6 +415,8 @@ def _provider_adapter(provider: dict[str, Any]) -> type:
         return BFLAdapter
     if provider_type == "BYTEPLUS":
         return BytePlusAdapter
+    if provider_type == "RUNWARE":
+        return RunwareAdapter
     if provider_type == "OPENAI_COMPATIBLE":
         return OpenAICompatibleAdapter
     raise HTTPException(422, "This provider has no generation adapter configured")
@@ -334,11 +426,16 @@ def _provider_quality_parameters(
     provider: dict[str, Any], model: str, quality: str
 ) -> dict[str, str | int]:
     adapter = _provider_adapter(provider)
-    strategy_provider = {
-        OpenAICompatibleAdapter: "OPENAI",
-        BytePlusAdapter: "BYTEPLUS",
-        BFLAdapter: "BFL",
-    }[adapter]
+    if adapter is OpenAICompatibleAdapter:
+        strategy_provider = "OPENAI"
+    elif adapter is BytePlusAdapter:
+        strategy_provider = "BYTEPLUS"
+    elif adapter is BFLAdapter:
+        strategy_provider = "BFL"
+    elif adapter is RunwareAdapter:
+        strategy_provider = "RUNWARE"
+    else:  # pragma: no cover - _provider_adapter rejects unknown providers.
+        raise ValueError("unsupported Cost Lab quality strategy")
     return quality_parameters(strategy_provider, model, quality)
 
 
@@ -994,8 +1091,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         images: Annotated[list[UploadFile] | None, File()] = None,
     ) -> dict[str, Any]:
         uploads = images or []
-        if len(uploads) > 2:
-            raise HTTPException(422, "A model test accepts at most two input images")
+        if len(uploads) > 3:
+            raise HTTPException(422, "A model test accepts at most three input images")
         image_bytes: list[bytes] = []
         for upload in uploads:
             if upload.content_type not in {"image/png", "image/jpeg", "image/webp"}:
@@ -1673,104 +1770,8 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         qualities = [output_quality]
         categories = [body.category]
         tryons_per_quality = body.image_count
-        prompt_version = "wearo-preservation-priority-v7"
-        prompt = (
-            "Perform a photorealistic virtual try-on using exactly two images. IMAGE 1 (PERSON) is "
-            "the original person photo and fixed output canvas. IMAGE 2 (PRODUCT) is the exact "
-            "wearable to apply. Replace or add ONLY the target wearable in IMAGE 1 using the "
-            "product from IMAGE 2. STRICT PRESERVATION — PERSON: keep the exact original face, "
-            "identity, hair, skin tone, expression, glasses, facial hair, body shape, pose, hands, "
-            "accessories, background, lighting, framing, composition, and aspect ratio. Never "
-            "regenerate, beautify, or retouch the face. PRODUCT: preserve the exact colour, fabric "
-            "texture, material, prints, patterns, embroidery, logos, stitching, neckline, sleeves, "
-            "construction, and design. Never recolour, redesign, simplify, or invent details. EDIT "
-            "REGION: modify only pixels necessary for the wearable and preserve every unaffected "
-            "area of IMAGE 1. FIT AND REALISM: fit the wearable naturally to the existing body and "
-            "pose with realistic folds, draping, shadows, and occlusion while keeping product "
-            "colours and details faithful to IMAGE 2. OUTPUT: return one photorealistic image with "
-            "IMAGE 1's original composition and aspect ratio, with no additional people, text, or "
-            "watermarks. PRIORITY ORDER: exact person identity first, exact product appearance "
-            "second, realistic wearable fit third. Never regenerate the entire person or scene. "
-            "EDIT IMAGE 1; DO NOT RECREATE IT. Image 1 is the immutable base photograph and the "
-            "only source for the person, face, body, pose, framing, lighting, and background. "
-            "Perform a localized image edit by adding or replacing only the wearable region on "
-            "Image 1. Do not generate a new portrait, compose the person into another image, "
-            "redraw the person, reinterpret the photograph, or use Image 2 as the output canvas. "
-            "The output must be the same photograph as Image 1 with the selected wearable applied. "
-            "Preserve the face exactly and pixel-faithfully: identical identity, facial geometry, "
-            "head shape, eyes, eyebrows, glasses, nose, mouth, moustache or beard, ears, skin "
-            "texture, skin tone, expression, gaze, age, and all distinguishing features. Never "
-            "synthesize, retouch, beautify, sharpen, restyle, or replace the face. Preserve the "
-            "exact hair, hairline, neck, shoulder position, body structure, body proportions, "
-            "silhouette outside the wearable, pose, hand and finger positions, leg and foot "
-            "positions, camera angle, perspective, crop, resolution, background, floor, lighting, "
-            "shadows, and every unrelated pixel from Image 1. Do not straighten, enlarge, slim, "
-            "repose, recrop, recenter, or otherwise improve the person. Pixels outside the minimum "
-            "anatomically necessary wearable and occlusion mask must remain unchanged. "
-            "Create exactly one photorealistic virtual try-on from the two supplied reference "
-            "images. Image 2 is the product "
-            "reference. Determine from Image 2 whether the primary product is jewellery, a saree, "
-            "or a dress, then follow only the matching instruction below within this same generation. "
-            "For jewellery: extract only the jewellery product from Image 2 and place exactly one of "
-            "it naturally on the anatomically correct location of the person in Image 1. Ignore and "
-            "never copy any reference person, face, skin, hair, hands, arms, legs, feet, mannequin, "
-            "display stand, support, clothing, or background from Image 2. "
-            "First classify the exact jewellery type and intended wearing configuration from Image "
-            "2, including whether it is a single item, matching pair, or coordinated set. Place "
-            "every component only on its anatomically correct location at a realistic scale and "
-            "orientation: earrings on the corresponding earlobes, nose jewellery on the correct "
-            "nostril or septum, maang tikka and head jewellery at the hairline and forehead, "
-            "necklaces around the neck and collarbone, brooches on the intended garment area, "
-            "armlets on the upper arm, bangles and bracelets around the wrists, rings on the "
-            "appropriate fingers, waist belts or chains around the waist, and anklets around the "
-            "ankles. Preserve the exact item count and wearing arrangement; do not turn a single "
-            "item into a pair, merge a pair into one item, or split, combine, or relocate set "
-            "components. Respect occlusion and perspective so jewellery sits on the body rather "
-            "than floating, embedding into skin, or hanging from the wrong body part. "
-            "For a necklace, first infer its exact necklace type, original length, silhouette, "
-            "width, curvature, chain-to-ornament ratio, pendant position, and intended wearing "
-            "height from Image 2. Fit that same necklace closely and naturally around the neck in "
-            "Image 1, following the neck and collarbone perspective. A short necklace, choker, "
-            "collar necklace, or collarbone necklace must remain short and must not become a long "
-            "chain or hang down onto the mid-chest. For earrings, preserve whether they are studs, "
-            "hoops, drops, jhumkas, chandbalis, ear cuffs, or another design and retain their "
-            "original drop length and orientation. For bangles, bracelets, rings, armlets, waist "
-            "jewellery, and anklets, preserve the original circumference, width, stacking order, "
-            "and body placement. Preserve the exact number, order, spacing, shape, and relative "
-            "size of every link, motif, stone, bead, drop, clasp, chain, and pendant across all "
-            "jewellery types. "
-            "Preserve the exact metal color, stone colors, enamel colors, color placement, "
-            "symmetry, proportions, and construction. Do not redesign, simplify, embellish, "
-            "extend, duplicate, remove, recolor, or invent any jewellery component. Scale and "
-            "curve only as required for anatomically realistic contact with the neck. "
-            "For a saree: modify only the existing clothing area and the minimum adjacent occlusion "
-            "boundary needed to apply the referenced saree with realistic pleats, pallu, drape, "
-            "scale, and fabric behaviour. Do not regenerate the person underneath it. For a dress, "
-            "shirt, T-shirt, blouse, trousers, jeans, or other apparel: replace only the existing "
-            "garment pixels and the minimum edge pixels required for natural fit. Retain the exact "
-            "person, face, body structure, pose, and visible non-garment areas from Image 1. For "
-            "jewellery, overlay only the jewellery at the correct anatomical location; do not alter "
-            "the face, hair, body, clothing, or background except for essential local occlusion. "
-            "Treat Image 2 as the authoritative product appearance. Lock the product's exact "
-            "colour and colour placement, including hue, saturation, brightness, contrast, "
-            "undertone, gradients, panels, borders, prints, and embroidery colours. Do not "
-            "recolour, colour-match to the person, apply a colour grade, brighten, darken, fade, "
-            "wash out, or replace any product colour. Preserve the exact fabric and material "
-            "identity, weave, knit, grain, texture, thickness, opacity, sheen, finish, drape, "
-            "pattern scale, print, embroidery, stitching, seams, hems, buttons, pockets, neckline, "
-            "sleeves, distressing, wash, stones, pendant, chain, construction, branding, and "
-            "visible logo. Do not substitute a similar fabric or simplify product details. Only "
-            "geometrically warp, fold, scale, and occlude the product as strictly necessary to fit "
-            "the unchanged person. Lighting adaptation may add physically plausible local "
-            "highlights and shadows, but the perceived base colour and material must remain the "
-            "same as Image 2. Preserve the target person's identity, face, expression, hairstyle, skin "
-            "tone, body, pose, hands, feet, camera framing, lighting, and background. Do not create "
-            "another person, miniature person, mannequin, extra or missing body parts, duplicate "
-            "products, black shapes, text, logos not present in the product, or unrelated objects. "
-            "Keep all unrelated areas of Image 1 unchanged. Before returning, compare the result "
-            "against Image 1 and verify that the face, head, body structure, pose, hands, legs, "
-            "background, crop, and lighting are unchanged. Return only the locally edited Image 1."
-        )
+        prompt_version = "wearo-flux-accessory-cleanup-v10"
+        prompt = _benchmark_prompt(body.category)
         selected_result: dict[str, Any] | None = None
         with service.engine.begin() as connection:
             model = (
@@ -1837,6 +1838,16 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 "complexity": body.input_complexity}))
         if model is None:
             raise HTTPException(404, "Enabled model not found")
+        if body.category == "JEWELLERY" and model["api_identifier"] == "runware:400@4":
+            for mapping in mappings:
+                request_parameters = dict(mapping.get("request_parameters") or {})
+                configured_negative = str(request_parameters.get("negativePrompt") or "").strip()
+                request_parameters["negativePrompt"] = (
+                    f"{_RUNWARE_JEWELLERY_NEGATIVE_PROMPT}, {configured_negative}"
+                    if configured_negative
+                    else _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+                )
+                mapping["request_parameters"] = request_parameters
         if body.person_asset_id is not None and body.person_result_tryon_id is not None:
             raise HTTPException(422, "Select either a dataset person or a result image, not both")
         if body.person_result_tryon_id is not None and selected_result is None:

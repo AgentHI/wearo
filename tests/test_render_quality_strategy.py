@@ -40,6 +40,21 @@ def test_legacy_bfl_models_use_explicit_portrait_dimensions() -> None:
     }
 
 
+def test_runware_uses_cost_lab_square_quality_dimensions() -> None:
+    assert quality_parameters("RUNWARE", "alibaba:qwen-image-edit@2511", "LOW") == {
+        "width": 512,
+        "height": 512,
+    }
+    assert quality_parameters("RUNWARE", "alibaba:qwen-image-edit@2511", "MEDIUM") == {
+        "width": 1024,
+        "height": 1024,
+    }
+    assert quality_parameters("RUNWARE", "alibaba:qwen-image-edit@2511", "HIGH") == {
+        "width": 1536,
+        "height": 1536,
+    }
+
+
 def test_vertex_try_on_accepts_all_wearo_qualities_without_unsupported_fields() -> None:
     for quality in RenderQuality:
         assert quality_parameters("GOOGLE_VERTEX", "virtual-try-on-001", quality) == {}

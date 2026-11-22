@@ -6,6 +6,7 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
+from uuid import uuid4
 
 import requests
 
@@ -294,6 +295,184 @@ class BytePlusAdapter:
             if raw.get(source) is not None:
                 usage[target] = raw[source]
         return usage
+
+
+class RunwareAdapter:
+    """Runware task API adapter for image generation and multi-reference editing."""
+
+    _REQUIRED_REFERENCE_LIMITS = {
+        "alibaba:qwen-image-edit@2511": (1, 3),
+        "runware:108@20": (1, 1),
+    }
+    _OPTIONAL_REFERENCE_LIMITS = {
+        "runware:400@4": (0, 4),
+    }
+
+    def __init__(self, base_url: str, api_key: str, timeout: int = 120) -> None:
+        normalized_url = base_url.rstrip("/")
+        self.base_url = normalized_url if normalized_url.endswith("/v1") else f"{normalized_url}/v1"
+        self.api_key = api_key
+        self.timeout = timeout
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def validate(self) -> tuple[bool, str]:
+        response = requests.post(
+            self.base_url,
+            headers=self.headers,
+            json=[{"taskType": "ping", "ping": True}],
+            timeout=15,
+        )
+        if not response.ok:
+            return False, self._error_message(response)
+        body = response.json()
+        valid = any(item.get("pong") is True for item in body.get("data") or [])
+        return valid, "Connection successful" if valid else self._error_message(response, body)
+
+    def generate(
+        self, *, model: str, prompt: str, images: list[bytes], parameters: dict[str, Any]
+    ) -> GenerationResult:
+        self._validate_image_count(model, len(images))
+        inputs: dict[str, Any]
+        if model in self._REQUIRED_REFERENCE_LIMITS or model in self._OPTIONAL_REFERENCE_LIMITS:
+            inputs = {"referenceImages": [self._data_url(image) for image in images]}
+        elif len(images) == 1:
+            inputs = {"seedImage": self._data_url(images[0])}
+        else:
+            raise ValueError(
+                f"Runware model {model} does not have a configured multi-image input contract"
+            )
+        return self._generate(model, prompt, parameters, inputs=inputs)
+
+    def generate_from_prompt(
+        self, *, model: str, prompt: str, parameters: dict[str, Any] | None = None
+    ) -> GenerationResult:
+        if model in self._REQUIRED_REFERENCE_LIMITS:
+            raise ValueError(f"Runware edit model {model} requires at least one input image")
+        return self._generate(model, prompt, parameters or {}, inputs=None)
+
+    def _generate(
+        self,
+        model: str,
+        prompt: str,
+        parameters: dict[str, Any],
+        *,
+        inputs: dict[str, Any] | None,
+    ) -> GenerationResult:
+        started = time.monotonic()
+        task_uuid = str(uuid4())
+        payload: dict[str, Any] = {
+            "taskType": "imageInference",
+            "taskUUID": task_uuid,
+            "model": model,
+            "positivePrompt": prompt,
+            "numberResults": 1,
+            "outputType": "base64Data",
+            "outputFormat": "PNG",
+            "includeCost": True,
+            **parameters,
+        }
+        if inputs:
+            payload["inputs"] = inputs
+        response = requests.post(
+            self.base_url,
+            headers=self.headers,
+            json=[payload],
+            timeout=self.timeout,
+        )
+        if not response.ok:
+            raise RuntimeError(self._error_message(response))
+        body = response.json()
+        errors = body.get("errors") or []
+        if errors:
+            raise RuntimeError(self._format_errors(errors))
+        item = next(
+            (value for value in body.get("data") or [] if value.get("taskUUID") == task_uuid),
+            None,
+        )
+        if item is None:
+            raise RuntimeError("RUNWARE_INVALID_RESPONSE: no matching image result was returned")
+        if item.get("status") == "processing":
+            raise RuntimeError(
+                f"RUNWARE_PROCESSING: task {task_uuid} exceeded the synchronous response window"
+            )
+        image = self._image_bytes(item)
+        usage: dict[str, Any] = {"output_images": 1}
+        if item.get("cost") is not None:
+            usage["cost_usd"] = item["cost"]
+        metadata = {
+            key: item[key]
+            for key in ("taskType", "taskUUID", "imageUUID", "seed", "cost", "NSFWContent")
+            if item.get(key) is not None
+        }
+        return GenerationResult(
+            image,
+            task_uuid,
+            usage,
+            metadata,
+            round((time.monotonic() - started) * 1000),
+        )
+
+    @classmethod
+    def _validate_image_count(cls, model: str, count: int) -> None:
+        limits = cls._REQUIRED_REFERENCE_LIMITS.get(model) or cls._OPTIONAL_REFERENCE_LIMITS.get(
+            model
+        )
+        if limits is None:
+            return
+        minimum, maximum = limits
+        if not minimum <= count <= maximum:
+            if minimum == maximum:
+                requirement = f"exactly {minimum} input image"
+            else:
+                requirement = f"{minimum} to {maximum} input images"
+            raise ValueError(f"Runware model {model} requires {requirement}")
+
+    @staticmethod
+    def _data_url(image: bytes) -> str:
+        if image.startswith(b"\x89PNG\r\n\x1a\n"):
+            mime_type = "image/png"
+        elif image.startswith(b"RIFF") and image[8:12] == b"WEBP":
+            mime_type = "image/webp"
+        else:
+            mime_type = "image/jpeg"
+        return f"data:{mime_type};base64,{base64.b64encode(image).decode()}"
+
+    @classmethod
+    def _image_bytes(cls, item: dict[str, Any]) -> bytes:
+        if item.get("imageBase64Data"):
+            return base64.b64decode(item["imageBase64Data"], validate=True)
+        if item.get("imageDataURI"):
+            _, encoded = str(item["imageDataURI"]).split(",", 1)
+            return base64.b64decode(encoded, validate=True)
+        if item.get("imageURL"):
+            response = requests.get(item["imageURL"], timeout=30)
+            response.raise_for_status()
+            return response.content
+        raise RuntimeError("RUNWARE_INVALID_RESPONSE: image content is missing")
+
+    @classmethod
+    def _error_message(cls, response: Any, body: dict[str, Any] | None = None) -> str:
+        try:
+            parsed = body if body is not None else response.json()
+        except (requests.JSONDecodeError, ValueError):
+            parsed = {}
+        errors = parsed.get("errors") if isinstance(parsed, dict) else None
+        if errors:
+            return cls._format_errors(errors)
+        return f"RUNWARE_HTTP_{getattr(response, 'status_code', 502)}: request failed"
+
+    @staticmethod
+    def _format_errors(errors: list[dict[str, Any]]) -> str:
+        error = errors[0] if errors else {}
+        code = str(error.get("code") or "ERROR")
+        message = str(error.get("message") or "Runware request failed")
+        return f"RUNWARE_{code}: {message}"
 
 
 class BFLAdapter:

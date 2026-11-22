@@ -1,7 +1,7 @@
 import base64
 from decimal import Decimal
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 from uuid import uuid4
 
 import pytest
@@ -12,9 +12,15 @@ from apps.cost_lab_api.adapters import (
     BFLAdapter,
     BFLUpstreamError,
     BytePlusAdapter,
+    RunwareAdapter,
     normalize_openai_usage,
 )
-from apps.cost_lab_api.app import reproducible_combinations
+from apps.cost_lab_api.app import (
+    _RUNWARE_JEWELLERY_NEGATIVE_PROMPT,
+    _benchmark_category_instruction,
+    _benchmark_prompt,
+    reproducible_combinations,
+)
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
 
 
@@ -44,6 +50,46 @@ def test_cost_lab_combinations_are_reproducible_and_quality_scoped() -> None:
     assert first == second
     assert len(first) == 20
     assert [quality for quality, _, _ in first].count("LOW") == 10
+
+
+def test_jewellery_benchmark_prompt_replaces_existing_set_and_wears_earrings() -> None:
+    prompt = _benchmark_prompt("JEWELLERY")
+
+    assert "remove every jewellery item currently worn" in prompt
+    assert "Any two matching, separate pieces" in prompt
+    assert "exactly one supplied earring on the left earlobe" in prompt
+    assert "earrings are allowed only on the two ears" in prompt
+    assert "STEP 4 — CLEAN THE CHEST" in prompt
+    assert "restore the original bare skin or clothing" in prompt
+    assert "zero unattached jewellery pieces" in prompt
+    assert len(prompt) < 4_000
+
+
+def test_benchmark_prompt_does_not_invent_spectacles() -> None:
+    prompt = _benchmark_prompt("JEWELLERY")
+
+    assert "introduce no new accessory" in prompt
+    assert "bare eyes without spectacles" in prompt
+    assert "never add eyeglasses, lenses, rims, or frames" in prompt
+    assert "If eyewear is genuinely present" in prompt
+
+
+def test_runware_jewellery_negative_prompt_forbids_displayed_earrings() -> None:
+    assert "original earrings" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "earrings on chest" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "loose earrings" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "duplicate earrings" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+
+
+@pytest.mark.parametrize("category", ["SAREE", "DRESS"])
+def test_apparel_benchmark_prompt_preserves_existing_jewellery(category: str) -> None:
+    typed_category = cast(Literal["SAREE", "DRESS"], category)
+    prompt = _benchmark_category_instruction(typed_category)
+
+    assert "PRESERVE EXISTING JEWELLERY" in prompt
+    assert "retain every jewellery item already worn" in prompt
+    assert "Do not remove, replace, recolour" in prompt
+    assert "remove every jewellery item currently worn" not in prompt
 
 
 def test_benchmark_accepts_multiple_unique_product_sources() -> None:
@@ -191,6 +237,120 @@ def test_byteplus_flash_model_omits_unsupported_sequential_parameter(
     assert "sequential_image_generation" not in calls[0]["json"]
     assert calls[0]["json"]["size"] == "1.5K"
     assert "2:3 aspect ratio" in calls[0]["json"]["prompt"]
+
+
+def test_runware_qwen_edit_2511_sends_two_reference_images(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class Response:
+        ok = True
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            task_uuid = cast(list[dict[str, object]], calls[0]["json"])[0]["taskUUID"]
+            return {
+                "data": [
+                    {
+                        "taskType": "imageInference",
+                        "taskUUID": task_uuid,
+                        "imageUUID": "image-1",
+                        "imageBase64Data": base64.b64encode(b"generated").decode(),
+                        "seed": 42,
+                        "cost": 0.01078,
+                    }
+                ]
+            }
+
+    def post(url: str, **kwargs: object) -> Response:
+        calls.append({"url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(requests, "post", post)
+    result = RunwareAdapter("https://api.runware.ai", "secret").generate(
+        model="alibaba:qwen-image-edit@2511",
+        prompt="Use image 1 as the person and image 2 as the garment",
+        images=[b"\x89PNG\r\n\x1a\nperson", b"garment"],
+        parameters={"width": 1024, "height": 1024},
+    )
+
+    payload = cast(list[dict[str, object]], calls[0]["json"])[0]
+    assert calls[0]["url"] == "https://api.runware.ai/v1"
+    assert payload["model"] == "alibaba:qwen-image-edit@2511"
+    assert payload["inputs"] == {
+        "referenceImages": [
+            "data:image/png;base64,iVBORw0KGgpwZXJzb24=",
+            "data:image/jpeg;base64,Z2FybWVudA==",
+        ]
+    }
+    assert payload["outputType"] == "base64Data"
+    assert payload["includeCost"] is True
+    assert result.image_bytes == b"generated"
+    assert result.usage == {"output_images": 1, "cost_usd": 0.01078}
+    assert result.raw_metadata["cost"] == 0.01078
+
+
+@pytest.mark.parametrize("count", [0, 4])
+def test_runware_qwen_edit_2511_enforces_one_to_three_images(count: int) -> None:
+    with pytest.raises(ValueError, match="requires 1 to 3 input images"):
+        RunwareAdapter("https://api.runware.ai/v1", "secret").generate(
+            model="alibaba:qwen-image-edit@2511",
+            prompt="edit",
+            images=[b"image"] * count,
+            parameters={},
+        )
+
+
+def test_runware_original_qwen_edit_requires_exactly_one_image() -> None:
+    with pytest.raises(ValueError, match="requires exactly 1 input image"):
+        RunwareAdapter("https://api.runware.ai/v1", "secret").generate(
+            model="runware:108@20",
+            prompt="edit",
+            images=[b"one", b"two"],
+            parameters={},
+        )
+
+
+def test_runware_flux_klein_supports_zero_to_four_reference_images(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    adapter = RunwareAdapter("https://api.runware.ai/v1", "secret")
+    captured: list[dict[str, object] | None] = []
+
+    def generate_stub(
+        _model: str,
+        _prompt: str,
+        _parameters: dict[str, object],
+        *,
+        inputs: dict[str, object] | None,
+    ) -> object:
+        captured.append(inputs)
+        return object()
+
+    monkeypatch.setattr(adapter, "_generate", generate_stub)
+    adapter.generate(
+        model="runware:400@4",
+        prompt="combine references",
+        images=[b"one", b"two"],
+        parameters={},
+    )
+    adapter.generate_from_prompt(model="runware:400@4", prompt="generate")
+
+    assert captured[0] == {
+        "referenceImages": [
+            "data:image/jpeg;base64,b25l",
+            "data:image/jpeg;base64,dHdv",
+        ]
+    }
+    assert captured[1] is None
+    with pytest.raises(ValueError, match="requires 0 to 4 input images"):
+        adapter.generate(
+            model="runware:400@4",
+            prompt="too many",
+            images=[b"image"] * 5,
+            parameters={},
+        )
 
 
 def test_bfl_adapter_submits_polls_and_downloads(monkeypatch: MonkeyPatch) -> None:

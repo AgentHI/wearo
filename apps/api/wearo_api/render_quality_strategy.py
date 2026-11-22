@@ -69,12 +69,26 @@ class BFLQualityStrategy:
         return {"width": width, "height": height}
 
 
+class RunwareQualityStrategy:
+    _DIMENSIONS: dict[RenderQuality, int] = {
+        RenderQuality.LOW: 512,
+        RenderQuality.MEDIUM: 1024,
+        RenderQuality.HIGH: 1536,
+    }
+
+    def parameters(self, model: str, quality: RenderQuality) -> dict[str, str | int]:
+        del model
+        dimension = self._DIMENSIONS[quality]
+        return {"width": dimension, "height": dimension}
+
+
 _STRATEGIES: dict[str, QualityStrategy] = {
     "OPENAI": OpenAIQualityStrategy(),
     "GOOGLE_VERTEX": VertexTryOnQualityStrategy(),
     "BYTEPLUS": BytePlusQualityStrategy(),
     "BFL": BFLQualityStrategy(),
     "BFLAI": BFLQualityStrategy(),
+    "RUNWARE": RunwareQualityStrategy(),
 }
 
 
