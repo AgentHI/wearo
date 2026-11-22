@@ -202,7 +202,7 @@ def upgrade() -> None:
          signature, status)
         VALUES
         (gen_random_uuid(), 'EMAIL', 'SMART_AD', 'NOTIFICATION', 'SmartAds campaign',
-         '{{advertisement_title}} from {{business_name}}',
+         '{{advertisement_title}}',
          '{{occasion}}\n\nDiscover {{advertisement_title}} from {{business_name}}.',
          'Team Wearo.ai', 'ACTIVE')"""
     )

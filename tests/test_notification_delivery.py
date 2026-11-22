@@ -174,7 +174,8 @@ def test_ses_sender_adds_only_the_trusted_smart_ad_image() -> None:
     html_body = client.request["Content"]["Simple"]["Body"]["Html"]["Data"]
     assert "untrusted.example" not in html_body
     assert "https://wearo.example/api/v1/public/smart-ads/token/image" in html_body
-    assert "See how you look in the new collection" in html_body
+    assert "Do you want to see how this collection looks on you?" in html_body
+    assert "Click the Try on button" in html_body
     assert ">Try on</a>" in html_body
     assert "https://wearo.example/shop/madhu-jewels?key=public&amp;smart_ad=token" in html_body
 
@@ -233,6 +234,13 @@ class FakeService:
         return self.job
 
     def template_for(self, channel: str, key: str) -> dict[str, object]:
+        if key == "SMART_AD":
+            return {
+                "category": "NOTIFICATION",
+                "subject": "{{advertisement_title}}",
+                "body": "Discover {{advertisement_title}}",
+                "signature": "Wearo",
+            }
         return {
             "category": "NOTIFICATION",
             "subject": "Welcome {{name}}",
@@ -272,6 +280,7 @@ def test_worker_forwards_smart_ad_image_and_try_on_urls() -> None:
         "person@example.com",
         {
             "name": "A",
+            "advertisement_title": "Diwali heritage collection",
             "smart_ad_image_url": "https://wearo.example/api/v1/public/smart-ads/token/image",
             "smart_ad_try_on_url": "https://wearo.example/shop/store?key=public&smart_ad=token",
         },
@@ -288,6 +297,7 @@ def test_worker_forwards_smart_ad_image_and_try_on_urls() -> None:
     worker = NotificationWorker(service, SmartAdEmail(), "worker-1")
 
     assert worker.run_once() is True
+    assert message["subject"] == "Diwali heritage collection"
     assert message["advertisement_url"] == service.job.variables["smart_ad_image_url"]
     assert message["action_url"] == service.job.variables["smart_ad_try_on_url"]
 

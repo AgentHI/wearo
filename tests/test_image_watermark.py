@@ -14,6 +14,14 @@ def source_image(mime_type: str = "image/png") -> bytes:
     return output.getvalue()
 
 
+def company_logo() -> bytes:
+    output = io.BytesIO()
+    image = Image.new("RGBA", (320, 120), (0, 0, 0, 0))
+    image.paste((120, 12, 110, 255), (10, 10, 310, 110))
+    image.save(output, "PNG")
+    return output.getvalue()
+
+
 def test_wearo_brand_is_added_only_to_bottom_right_corner() -> None:
     source = source_image()
     result, mime_type = apply_generated_image_watermark(source, "image/png")
@@ -36,3 +44,24 @@ def test_b2b2c_company_name_is_added_to_top_left_and_jpeg_is_preserved() -> None
     with Image.open(io.BytesIO(result)) as image:
         assert mime_type == "image/jpeg" and image.format == "JPEG"
         assert image.getpixel((35, 35)) != (198, 167, 207)
+
+
+def test_uploaded_company_logo_is_top_left_and_wearo_logo_is_bottom_right() -> None:
+    source = source_image()
+    result, mime_type = apply_generated_image_watermark(
+        source,
+        "image/png",
+        company_name="This fallback must not be drawn",
+        company_logo=company_logo(),
+    )
+
+    with Image.open(io.BytesIO(source)) as before, Image.open(io.BytesIO(result)) as after:
+        changed = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
+        top_left = changed.crop((0, 0, 250, 150))
+        bottom_right = changed.crop((800, 1000, 1000, 1200))
+        center = changed.crop((300, 250, 700, 800))
+
+        assert mime_type == "image/png"
+        assert top_left.getbbox() is not None
+        assert bottom_right.getbbox() is not None
+        assert center.getbbox() is None

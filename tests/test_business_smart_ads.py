@@ -89,15 +89,27 @@ def test_smart_ad_generator_uses_jewellery_and_optional_model(
 
 def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:
     migration = Path("apps/api/migrations/versions/20261122_0095_business_smart_ads.py")
+    email_migration = Path(
+        "apps/api/migrations/versions/20261122_0096_smart_ad_email_subject.py"
+    )
     source = migration.read_text()
+    email_source = email_migration.read_text()
     service = Path("apps/api/wearo_api/business_smart_ads.py").read_text()
 
     assert validate_revision(migration) == "20261122_0095"
+    assert validate_revision(email_migration) == "20261122_0096"
     assert "business_smart_ads" in source
     assert "store_advertisements" not in source
+    assert "'{{advertisement_title}}'" in source
+    assert "SET subject = '{{advertisement_title}}'" in email_source
     assert "count(DISTINCT person.person_id)" in service
     assert "person.gender='female'" in service
     assert "person.marketing_eligible=true" in service
+    assert "SMART_AD_BUSINESS_LOGO_REQUIRED" in service
+    assert "company_logo=business_logo" in service
+    assert "SMART_AD_GENERATION_IN_PROGRESS" in service
+    assert "generation_in_progress" in service
+    assert "GENERATION_TIMEOUT" in service
     assert "communication_jobs" in service
     assert "template_key,recipient" in service
     assert MAX_DAILY_GENERATIONS == 2
@@ -115,3 +127,18 @@ def test_smart_ads_http_surface_covers_lifecycle_and_scheduling() -> None:
         '"/api/v1/public/smart-ads/{public_token}/try-on-item"',
     ):
         assert path in source
+    assert '"/api/v1/business/tenants/{tenant_id}/smart-ad-schedules/{schedule_id}"' in source
+
+
+def test_smart_ad_schedules_can_be_updated_and_deleted_before_delivery() -> None:
+    service = Path("apps/api/wearo_api/business_smart_ads.py").read_text()
+    api = Path("apps/api/wearo_api/http_api.py").read_text()
+
+    assert "def update_schedule(" in service
+    assert "def delete_schedule(" in service
+    assert "SMART_AD_SCHEDULE_UPDATED" in service
+    assert "SMART_AD_SCHEDULE_DELETED" in service
+    assert "status IN ('PROCESSING','DELIVERED')" in service
+    assert "def update_business_smart_ad_schedule(" in api
+    assert "def delete_business_smart_ad_schedule(" in api
+    assert "SMART_AD_SCHEDULE_LOCKED" in api

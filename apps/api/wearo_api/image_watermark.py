@@ -4,7 +4,7 @@ import io
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
 BRAND_ASSET = Path(__file__).with_name("assets") / "wearo-brand.png"
 
@@ -40,13 +40,34 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def _uploaded_logo(content: bytes) -> Image.Image:
+    try:
+        with Image.open(io.BytesIO(content)) as source:
+            source.load()
+            logo = ImageOps.exif_transpose(source).convert("RGBA")
+    except (OSError, ValueError) as error:
+        raise ImageWatermarkError("The company logo is not a supported raster image.") from error
+
+    alpha_bounds = logo.getchannel("A").getbbox()
+    if alpha_bounds and alpha_bounds != (0, 0, logo.width, logo.height):
+        return logo.crop(alpha_bounds)
+
+    # Trim a flat border from opaque JPEG/PNG logos without removing light logo details.
+    rgb = logo.convert("RGB")
+    background = Image.new("RGB", rgb.size, rgb.getpixel((0, 0)))
+    difference = ImageChops.difference(rgb, background).convert("L")
+    bounds = difference.point(lambda pixel: 255 if pixel > 20 else 0).getbbox()
+    return logo.crop(bounds) if bounds else logo
+
+
 def apply_generated_image_watermark(
     content: bytes,
     content_type: str,
     *,
     company_name: str | None = None,
+    company_logo: bytes | None = None,
 ) -> tuple[bytes, str]:
-    """Add the Wearo brand and, for B2B2C renders, the sponsoring company name."""
+    """Add Wearo branding and the sponsoring company's name or uploaded logo."""
 
     try:
         with Image.open(io.BytesIO(content)) as source:
@@ -73,8 +94,18 @@ def apply_generated_image_watermark(
     y = height - margin - logo.height
     image.alpha_composite(logo, (x, y))
 
-    label = (company_name or "").strip()
-    if label:
+    label = ""
+    if company_logo:
+        sponsor = _uploaded_logo(company_logo)
+        sponsor.thumbnail(
+            (max(1, round(width * 0.2)), max(1, round(height * 0.1))),
+            Image.Resampling.LANCZOS,
+        )
+        sponsor.putalpha(sponsor.getchannel("A").point(lambda alpha: round(alpha * 0.78)))
+        image.alpha_composite(sponsor, (margin, margin))
+    else:
+        label = (company_name or "").strip()
+    if not company_logo and label:
         # Keep a long legal name compact and inside the corner treatment.
         label = label[:64]
         font_size = max(11, min(24, round(shortest * 0.022)))

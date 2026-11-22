@@ -1150,6 +1150,7 @@ def create_app(
             "TRY_ON_STATUS_CONFLICT",
             "SMART_AD_ALREADY_ACTIVE",
             "SMART_AD_DAILY_LIMIT_REACHED",
+            "SMART_AD_GENERATION_IN_PROGRESS",
             "SMART_AD_SCHEDULE_LOCKED",
         }:
             status = 409

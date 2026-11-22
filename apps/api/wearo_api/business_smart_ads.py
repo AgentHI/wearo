@@ -13,6 +13,7 @@ import requests
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import Connection, Engine, text
 
+from .image_watermark import apply_generated_image_watermark
 from .media_runtime import PostgresMediaRuntime
 from .retention import RetentionService
 from .tenant_scope import TenantScopeError, require_tenant_scope
@@ -247,6 +248,19 @@ class PostgresBusinessSmartAds:
                     parameters,
                 ).scalar_one()
             )
+            generation_in_progress = bool(
+                connection.execute(
+                    text(
+                        """SELECT EXISTS(
+                            SELECT 1 FROM business_smart_ad_generations
+                            WHERE tenant_id=:tenant AND account_id=:account
+                              AND status='RESERVED'
+                              AND updated_at >= now() - interval '10 minutes'
+                        )"""
+                    ),
+                    parameters,
+                ).scalar_one()
+            )
             ads = [
                 dict(row)
                 for row in connection.execute(
@@ -273,7 +287,8 @@ class PostgresBusinessSmartAds:
                                   count(job.job_id) FILTER (WHERE job.status='FAILED') failed,
                                   count(job.job_id) FILTER
                                     (WHERE job.status IN ('QUEUED','RETRY')) pending,
-                                  count(job.job_id) FILTER (WHERE job.status='PROCESSING') processing
+                                  count(job.job_id) FILTER
+                                    (WHERE job.status='PROCESSING') processing
                         FROM business_smart_ad_schedules schedule
                         JOIN business_smart_ads ad ON ad.smart_ad_id=schedule.smart_ad_id
                         LEFT JOIN communication_jobs job
@@ -300,6 +315,7 @@ class PostgresBusinessSmartAds:
             "attempts_used_today": attempts_today,
             "attempts_remaining_today": self._remaining(attempts_today),
             "maximum_daily_attempts": MAX_DAILY_GENERATIONS,
+            "generation_in_progress": generation_in_progress,
             "items": ads,
             "schedules": schedules,
         }
@@ -373,9 +389,14 @@ class PostgresBusinessSmartAds:
             ad = (
                 connection.execute(
                     text(
-                        """SELECT smart_ad_id,title,prompt,jewellery_asset_id,model_asset_id,status
-                        FROM business_smart_ads
-                        WHERE smart_ad_id=:ad AND tenant_id=:tenant AND account_id=:account"""
+                        """SELECT ad.smart_ad_id,ad.title,ad.prompt,ad.jewellery_asset_id,
+                                  ad.model_asset_id,ad.status,profile.logo_asset_id
+                        FROM business_smart_ads ad
+                        JOIN business_profiles profile
+                          ON profile.tenant_id=ad.tenant_id
+                         AND profile.account_id=ad.account_id
+                        WHERE ad.smart_ad_id=:ad AND ad.tenant_id=:tenant
+                          AND ad.account_id=:account"""
                     ),
                     {"ad": smart_ad_id, "tenant": tenant_id, "account": account_id},
                 )
@@ -387,6 +408,38 @@ class PostgresBusinessSmartAds:
             if ad["status"] == "ACTIVE":
                 raise SmartAdError(
                     "SMART_AD_ALREADY_ACTIVE", "An accepted advertisement cannot be regenerated."
+                )
+            if ad["logo_asset_id"] is None:
+                raise SmartAdError(
+                    "SMART_AD_BUSINESS_LOGO_REQUIRED",
+                    "Upload a company logo before generating a SmartAds advertisement.",
+                )
+            connection.execute(
+                text(
+                    """UPDATE business_smart_ad_generations
+                    SET status='FAILED',failure_code='GENERATION_TIMEOUT',updated_at=now()
+                    WHERE tenant_id=:tenant AND account_id=:account
+                      AND status='RESERVED'
+                      AND updated_at < now() - interval '10 minutes'"""
+                ),
+                {"tenant": tenant_id, "account": account_id},
+            )
+            generation_in_progress = bool(
+                connection.execute(
+                    text(
+                        """SELECT EXISTS(
+                            SELECT 1 FROM business_smart_ad_generations
+                            WHERE tenant_id=:tenant AND account_id=:account
+                              AND status='RESERVED'
+                        )"""
+                    ),
+                    {"tenant": tenant_id, "account": account_id},
+                ).scalar_one()
+            )
+            if generation_in_progress:
+                raise SmartAdError(
+                    "SMART_AD_GENERATION_IN_PROGRESS",
+                    "Another advertisement concept is still generating. Wait for it to finish.",
                 )
             attempts = int(
                 connection.execute(
@@ -424,6 +477,7 @@ class PostgresBusinessSmartAds:
                 if ad["model_asset_id"]
                 else None
             )
+            business_logo, _ = self.media.read_owned(ad["logo_asset_id"], account_id)
             stable_identifier = hashlib.sha256(f"{account_id}:{tenant_id}".encode()).hexdigest()
             creative = normalize_creative(
                 self.generator.generate(
@@ -432,6 +486,11 @@ class PostgresBusinessSmartAds:
                     model_photo,
                     safety_identifier=stable_identifier,
                 )
+            )
+            creative, _ = apply_generated_image_watermark(
+                creative,
+                "image/jpeg",
+                company_logo=business_logo,
             )
             asset = self.media.store_smart_ad(account_id, creative, "image/jpeg")
         except Exception as error:

@@ -198,14 +198,17 @@ class SesEmailSender:
                 '<div style="margin:28px 0;padding:20px;border:1px solid #c9a46b;'
                 'border-radius:12px;text-align:center">'
                 '<strong style="display:block;margin-bottom:6px;font-size:19px">'
-                'See how you look in the new collection</strong>'
+                'Do you want to see how this collection looks on you?</strong>'
                 '<span style="display:block;margin-bottom:16px;font-size:14px">'
-                'Open your private Wearo fitting room and use an available try-on.</span>'
+                'Click the Try on button to open your private Wearo fitting room.</span>'
                 f'<a href="{safe_action_url}" style="display:inline-block;padding:12px 24px;'
                 'border-radius:999px;color:#251129;background:#e7c57e;text-decoration:none;'
                 'font-weight:700">Try on</a></div>'
             )
-            text_body = f"{text_body}\n\nSee how you look in the new collection: {action_url}"
+            text_body = (
+                f"{text_body}\n\nDo you want to see how this collection looks on you? "
+                f"Click Try on: {action_url}"
+            )
         email_content = (
             '<div style="max-width:520px;font-size:17px;line-height:1.6;text-align:left">'
             f"{advertisement}{body_html}{try_on_action}{signature_block}</div>"
