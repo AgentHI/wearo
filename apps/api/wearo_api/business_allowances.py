@@ -227,7 +227,8 @@ class PostgresBusinessAllowances:
                           FROM (
                             SELECT person.person_id, person.person_category, person.gender,
                                    person.age_range, person.estimated_age,
-                                   person.marketing_eligible,
+                                   bool_or(observation.marketing_eligible)
+                                     AS marketing_eligible,
                                    array_agg(DISTINCT observation.store_id)
                                      FILTER (WHERE observation.store_id IS NOT NULL) AS store_ids,
                                    count(DISTINCT observation.render_job_id) AS try_on_count,

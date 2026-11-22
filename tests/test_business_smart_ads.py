@@ -104,7 +104,7 @@ def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:
     assert "SET subject = '{{advertisement_title}}'" in email_source
     assert "count(DISTINCT person.person_id)" in service
     assert "person.gender='female'" in service
-    assert "person.marketing_eligible=true" in service
+    assert "observation.marketing_eligible=true" in service
     assert "SMART_AD_BUSINESS_LOGO_REQUIRED" in service
     assert "company_logo=business_logo" in service
     assert "SMART_AD_GENERATION_IN_PROGRESS" in service

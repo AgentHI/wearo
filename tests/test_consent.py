@@ -46,7 +46,7 @@ def approved() -> ConsentAttestation:
 def test_all_disclosures_must_be_affirmatively_accepted() -> None:
     account_id, principal_id, asset_id = uuid4(), uuid4(), uuid4()
     service = ConsentService(MemoryConsentStore(asset_id, account_id), current_version="beta-v1")
-    values = list(approved().__dict__.values())
+    values = [True, True, True, True, True]
     for index in range(len(values)):
         candidate = values.copy()
         candidate[index] = False
@@ -59,6 +59,59 @@ def test_all_disclosures_must_be_affirmatively_accepted() -> None:
                 attestation=ConsentAttestation(*candidate),
                 now=NOW,
             )
+
+
+def test_marketing_consent_is_optional_and_business_scoped() -> None:
+    account_id, principal_id, asset_id, tenant_id = uuid4(), uuid4(), uuid4(), uuid4()
+    store = MemoryConsentStore(asset_id, account_id)
+    service = ConsentService(store, current_version="beta-v1")
+
+    declined = service.accept(
+        account_id=account_id,
+        actor_principal_id=principal_id,
+        asset_id=asset_id,
+        purpose="TRY_ON",
+        attestation=approved(),
+        now=NOW,
+    )
+    accepted = service.accept(
+        account_id=account_id,
+        actor_principal_id=principal_id,
+        asset_id=asset_id,
+        purpose="TRY_ON",
+        attestation=ConsentAttestation(
+            True,
+            True,
+            True,
+            True,
+            True,
+            marketing_approved=True,
+            marketing_tenant_id=tenant_id,
+        ),
+        now=NOW,
+    )
+
+    assert declined.marketing_approved is False
+    assert declined.marketing_tenant_id is None
+    assert accepted.marketing_approved is True
+    assert accepted.marketing_tenant_id == tenant_id
+
+
+def test_platform_marketing_consent_does_not_require_a_business_scope() -> None:
+    account_id, principal_id, asset_id = uuid4(), uuid4(), uuid4()
+    service = ConsentService(MemoryConsentStore(asset_id, account_id), current_version="beta-v1")
+
+    accepted = service.accept(
+        account_id=account_id,
+        actor_principal_id=principal_id,
+        asset_id=asset_id,
+        purpose="TRY_ON",
+        attestation=ConsentAttestation(True, True, True, True, True, True),
+        now=NOW,
+    )
+
+    assert accepted.marketing_approved is True
+    assert accepted.marketing_tenant_id is None
 
 
 def test_current_consent_is_owner_actor_asset_purpose_and_version_scoped() -> None:

@@ -221,9 +221,12 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
                     "transformation_approved": True,
                     "retention_notice_acknowledged": True,
                     "no_training_notice_acknowledged": True,
+                    "marketing_approved": True,
                 },
             )
             assert consent.status_code == 201
+            assert consent.json()["marketing_approved"] is True
+            assert consent.json()["marketing_tenant_id"] is None
 
             close_up = client.post(
                 "/api/v1/assets",

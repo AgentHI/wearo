@@ -379,6 +379,8 @@ class PostgresConsentStore:
                             consent_version,
                             purpose,
                             permission_asserted,
+                            marketing_approved,
+                            marketing_tenant_id,
                             accepted_at,
                             withdrawn_at
                         )
@@ -391,6 +393,8 @@ class PostgresConsentStore:
                             :version,
                             :purpose,
                             true,
+                            :marketing_approved,
+                            :marketing_tenant_id,
                             :accepted_at,
                             :withdrawn_at
                         )
@@ -403,6 +407,8 @@ class PostgresConsentStore:
                     "principal": evidence.actor_principal_id,
                     "version": evidence.consent_version,
                     "purpose": evidence.purpose,
+                    "marketing_approved": evidence.marketing_approved,
+                    "marketing_tenant_id": evidence.marketing_tenant_id,
                     "accepted_at": evidence.accepted_at,
                     "withdrawn_at": evidence.withdrawn_at,
                 },
@@ -427,6 +433,8 @@ class PostgresConsentStore:
                         asset_id,
                         purpose,
                         consent_version,
+                        marketing_approved,
+                        marketing_tenant_id,
                         accepted_at,
                         withdrawn_at
                     FROM consent_records
@@ -458,6 +466,8 @@ class PostgresConsentStore:
             purpose=row["purpose"],
             consent_version=row["consent_version"],
             accepted_at=row["accepted_at"],
+            marketing_approved=bool(row["marketing_approved"]),
+            marketing_tenant_id=row["marketing_tenant_id"],
             withdrawn_at=row["withdrawn_at"],
         )
 

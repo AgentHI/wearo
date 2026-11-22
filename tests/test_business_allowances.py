@@ -30,6 +30,7 @@ def test_anonymized_customers_are_not_exposed_in_business_search_or_lists() -> N
     assert "JOIN person_tryon_observations observation" in source
     assert "observation.tenant_id=:tenant" in source
     assert "observation.business_account_id=:account" in source
+    assert "bool_or(observation.marketing_eligible)" in source
 
 
 def test_customer_directory_returns_every_person_seen_for_the_shared_login() -> None:

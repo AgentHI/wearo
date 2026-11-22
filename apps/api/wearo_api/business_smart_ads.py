@@ -232,7 +232,8 @@ class PostgresBusinessSmartAds:
                          AND observation.account_id=person.account_id
                         WHERE observation.tenant_id=:tenant
                           AND observation.business_account_id=:account
-                          AND person.gender='female' AND person.marketing_eligible=true"""
+                          AND person.gender='female'
+                          AND observation.marketing_eligible=true"""
                     ),
                     parameters,
                 ).scalar_one()
@@ -784,7 +785,7 @@ class PostgresBusinessSmartAds:
                         ) email ON true
                         WHERE observation.tenant_id=:tenant
                           AND observation.business_account_id=:account
-                          AND person.marketing_eligible=true
+                          AND observation.marketing_eligible=true
                           AND (:gender='all' OR person.gender=:gender)
                           AND (CAST(:age_min AS smallint) IS NULL
                                OR person.estimated_age >= :age_min)
@@ -986,7 +987,7 @@ class PostgresBusinessSmartAds:
                         ) email ON true
                         WHERE observation.tenant_id=:tenant
                           AND observation.business_account_id=:account
-                          AND person.marketing_eligible=true
+                          AND observation.marketing_eligible=true
                           AND (:gender='all' OR person.gender=:gender)
                           AND (CAST(:age_min AS smallint) IS NULL
                                OR person.estimated_age >= :age_min)

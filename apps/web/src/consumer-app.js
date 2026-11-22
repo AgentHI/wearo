@@ -396,6 +396,7 @@ function homeView() {
 
 function profileView(auth) {
   const setup = !auth.hasProfile;
+  const shopContext = readShopContext();
   return `
     <header class="mobile-title profile-title">
       <p class="eyebrow">Personal profile</p>
@@ -444,11 +445,8 @@ function profileView(auth) {
       </section>
       <fieldset id="consent-fields" class="consent-card" ${setup ? "" : "hidden"}>
         <legend>Photo consent</legend>
-        <label class="check"><input name="adult" type="checkbox" /> I am at least 18 years old.</label>
-        <label class="check"><input name="permission" type="checkbox" /> I own or have permission to transform this person’s photo.</label>
-        <label class="check"><input name="transform" type="checkbox" /> I agree to AI transformation for virtual try-on.</label>
-        <label class="check"><input name="retention" type="checkbox" /> I understand profile and 30-day image retention.</label>
-        <label class="check"><input name="training" type="checkbox" /> My images are not authorised for model training.</label>
+        <label class="check"><input name="general_consent" type="checkbox" /> <span><strong>General consent</strong><small>I confirm I am at least 18, own or have permission to use this photo, and consent to AI transformation for virtual try-on. I understand profile and 30-day image retention, and that my images are not authorised for model training.</small></span></label>
+        <div class="consent-card__optional"><span>Optional</span><label class="check"><input name="marketing" type="checkbox" data-optional-consent /> <span><strong>Future collections and offers</strong><small>Send me new collection items and offers ${shopContext ? "from this store" : "from Wearo.ai"} by email.</small></span></label><small>You can create your profile and use virtual try-on without agreeing.</small></div>
       </fieldset>
       <button id="save-profile" class="button button--primary button--full" type="submit">${setup ? "Save profile and continue" : "Save profile changes"}</button>
       <p id="profile-status" class="form-status status-panel" role="status" aria-live="polite"></p>
@@ -1200,6 +1198,7 @@ async function upload(kind, file, auth) {
 
 function attachProfileFlow(auth) {
   const form = document.querySelector("#profile-form");
+  const shopContext = readShopContext();
   const fullBodyInput = form.elements.namedItem("full_body");
   const closeUpInput = form.elements.namedItem("close_up");
   const additionalPhotosInput = form.elements.namedItem("additional_photos");
@@ -1264,7 +1263,7 @@ function attachProfileFlow(auth) {
   const setConsentRequired = (required) => {
     consentFields.hidden = !required;
     for (const checkbox of consentFields.querySelectorAll('input[type="checkbox"]')) {
-      checkbox.required = required;
+      checkbox.required = required && !checkbox.hasAttribute("data-optional-consent");
     }
   };
 
@@ -1587,11 +1586,16 @@ function attachProfileFlow(auth) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               subject_asset_id: person.asset_id,
-              adult_confirmed: form.elements.adult.checked,
-              depicted_person_permission: form.elements.permission.checked,
-              transformation_approved: form.elements.transform.checked,
-              retention_notice_acknowledged: form.elements.retention.checked,
-              no_training_notice_acknowledged: form.elements.training.checked,
+              adult_confirmed: form.elements.general_consent.checked,
+              depicted_person_permission: form.elements.general_consent.checked,
+              transformation_approved: form.elements.general_consent.checked,
+              retention_notice_acknowledged: form.elements.general_consent.checked,
+              no_training_notice_acknowledged: form.elements.general_consent.checked,
+              marketing_approved: Boolean(form.elements.marketing?.checked),
+              marketing_business_reference: form.elements.marketing?.checked
+                ? shopContext?.businessReference
+                : null,
+              marketing_public_key: form.elements.marketing?.checked ? shopContext?.key : null,
             }),
           },
           auth,

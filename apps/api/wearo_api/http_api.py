@@ -453,6 +453,9 @@ class ConsentBody(BaseModel):
     transformation_approved: bool
     retention_notice_acknowledged: bool
     no_training_notice_acknowledged: bool
+    marketing_approved: bool = False
+    marketing_business_reference: str | None = Field(default=None, max_length=100)
+    marketing_public_key: str | None = Field(default=None, max_length=100)
 
 
 class ProfileImageBody(BaseModel):
@@ -4074,6 +4077,22 @@ def create_app(
         x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
     ) -> dict[str, Any]:
         session = _authenticate(request, container, mutation=True, csrf_token=x_csrf_token)
+        marketing_tenant_id = None
+        has_marketing_business_scope = bool(
+            body.marketing_business_reference or body.marketing_public_key
+        )
+        if body.marketing_approved and has_marketing_business_scope:
+            if (
+                container.business_shop is None
+                or not body.marketing_business_reference
+                or not body.marketing_public_key
+            ):
+                raise ConsentError("Choose whether this store may send collections and offers.")
+            marketing_details = container.business_shop.public_details(
+                body.marketing_business_reference,
+                body.marketing_public_key,
+            )
+            marketing_tenant_id = UUID(str(marketing_details["business_id"]))
         evidence = container.consents.accept(
             account_id=session.account_id,
             actor_principal_id=session.principal_id,
@@ -4085,6 +4104,8 @@ def create_app(
                 transformation_approved=body.transformation_approved,
                 retention_notice_acknowledged=body.retention_notice_acknowledged,
                 no_training_notice_acknowledged=body.no_training_notice_acknowledged,
+                marketing_approved=body.marketing_approved,
+                marketing_tenant_id=marketing_tenant_id,
             ),
         )
         return {
@@ -4092,6 +4113,8 @@ def create_app(
             "accepted_at": evidence.accepted_at,
             "consent_version": evidence.consent_version,
             "purpose": evidence.purpose,
+            "marketing_approved": evidence.marketing_approved,
+            "marketing_tenant_id": evidence.marketing_tenant_id,
         }
 
     @app.get("/api/v1/me/person-profile")

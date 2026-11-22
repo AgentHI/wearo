@@ -470,6 +470,17 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /api\("\/me\/account", \{ method: "DELETE" \}, auth\)/);
   assert.doesNotMatch(consumer, /\/me\/account\/\$\{/);
   assert.match(consumer, /profile: \(\) => profileView\(auth\)/);
+  const consentFieldset = consumer.match(/<fieldset id="consent-fields"[\s\S]*?<\/fieldset>/)?.[0] ?? "";
+  assert.equal(consentFieldset.match(/type="checkbox"/g)?.length, 2);
+  assert.match(consumer, /name="general_consent"/);
+  assert.match(consumer, /name="marketing"[^>]*data-optional-consent/);
+  assert.doesNotMatch(consumer, /name="(?:adult|permission|transform|retention|training)"/);
+  assert.match(consumer, /adult_confirmed: form\.elements\.general_consent\.checked/);
+  assert.match(consumer, /Future collections and offers/);
+  assert.match(consumer, /shopContext \? "from this store" : "from Wearo\.ai"/);
+  assert.match(consumer, /marketing_approved: Boolean\(form\.elements\.marketing\?\.checked\)/);
+  assert.match(consumer, /marketing_business_reference/);
+  assert.match(consumer, /checkbox\.required = required && !checkbox\.hasAttribute\("data-optional-consent"\)/);
   assert.match(consumer, /Boolean\(auth\)/);
   assert.match(consumer, /Uploading your wearable item/);
   assert.match(consumer, /elements\.namedItem\("item_upload"\)/);

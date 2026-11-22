@@ -19,6 +19,8 @@ class ConsentAttestation:
     transformation_approved: bool
     retention_notice_acknowledged: bool
     no_training_notice_acknowledged: bool
+    marketing_approved: bool = False
+    marketing_tenant_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,8 @@ class ConsentEvidence:
     purpose: ConsentPurpose
     consent_version: str
     accepted_at: datetime
+    marketing_approved: bool = False
+    marketing_tenant_id: UUID | None = None
     withdrawn_at: datetime | None = None
 
 
@@ -80,6 +84,10 @@ class ConsentService:
             purpose=purpose,
             consent_version=self.current_version,
             accepted_at=now or datetime.now(UTC),
+            marketing_approved=attestation.marketing_approved,
+            marketing_tenant_id=(
+                attestation.marketing_tenant_id if attestation.marketing_approved else None
+            ),
         )
         self.store.append(evidence)
         return evidence

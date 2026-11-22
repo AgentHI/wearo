@@ -959,11 +959,16 @@ class PostgresRenderRuntime:
                                quote.person_category,
                                quote.age_range,
                                quote.estimated_age,
+                               consent.marketing_approved,
+                               consent.marketing_tenant_id,
                                sponsored_session.tenant_id,
                                sponsored_session.business_account_id,
                                sponsored_session.store_id
                         FROM render_jobs AS job
                         JOIN render_quotes AS quote ON quote.quote_id = job.quote_id
+                        JOIN consent_records AS consent
+                          ON consent.consent_id = quote.consent_id
+                         AND consent.account_id = quote.account_id
                         LEFT JOIN business_sponsored_tryons AS sponsored
                           ON sponsored.render_job_id = job.job_id
                         LEFT JOIN business_sponsored_sessions AS sponsored_session
@@ -982,7 +987,7 @@ class PostgresRenderRuntime:
                                     THEN 'female' ELSE 'unknown' END,
                                age_range,
                                estimated_age,
-                               false,
+                               marketing_approved,
                                :now,
                                :now,
                                :now,
@@ -1001,19 +1006,27 @@ class PostgresRenderRuntime:
                             estimated_age = COALESCE(
                               existing.estimated_age, EXCLUDED.estimated_age
                             ),
+                            marketing_eligible = (
+                              existing.marketing_eligible OR EXCLUDED.marketing_eligible
+                            ),
                             last_seen_at = EXCLUDED.last_seen_at,
                             updated_at = EXCLUDED.updated_at
                         RETURNING person_id, account_id
                     )
                     INSERT INTO person_tryon_observations
                         (person_id, account_id, render_job_id, tenant_id,
-                         business_account_id, store_id, observed_at, created_at, updated_at)
+                         business_account_id, store_id, marketing_eligible,
+                         observed_at, created_at, updated_at)
                     SELECT person.person_id,
                            context.account_id,
                            context.job_id,
                            context.tenant_id,
                            context.business_account_id,
                            context.store_id,
+                           (
+                             context.marketing_approved
+                             AND context.marketing_tenant_id = context.tenant_id
+                           ),
                            :now,
                            :now,
                            :now

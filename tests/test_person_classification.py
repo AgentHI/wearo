@@ -36,6 +36,8 @@ def test_each_successful_try_on_keeps_its_b2b_store_observation() -> None:
     assert "INSERT INTO person_tryon_observations" in source
     assert "sponsored_session.store_id" in source
     assert "ON CONFLICT (render_job_id) DO NOTHING" in source
+    assert "context.marketing_tenant_id = context.tenant_id" in source
+    assert "business_account_id, store_id, marketing_eligible" in source
 
 
 def test_estimated_age_maps_to_non_overlapping_analytics_ranges() -> None:
@@ -79,3 +81,22 @@ def test_account_person_directory_migration_is_valid_and_photo_deduplicated() ->
     assert 'name="uq_account_persons_source_asset"' in source
     assert 'sa.Column("marketing_eligible", sa.Boolean(), nullable=False' in source
     assert 'sa.Column("store_id", UUID)' in source
+
+
+def test_optional_marketing_consent_migration_is_valid_and_store_scoped() -> None:
+    path = Path("apps/api/migrations/versions/20261122_0097_optional_marketing_consent.py")
+    source = path.read_text()
+    assert validate_revision(path) == "20261122_0097"
+    assert 'down_revision: str | None = "20261122_0096"' in source
+    assert '"marketing_approved"' in source
+    assert '"marketing_tenant_id"' in source
+    assert '"person_tryon_observations"' in source
+
+
+def test_platform_marketing_consent_migration_is_valid() -> None:
+    path = Path("apps/api/migrations/versions/20261122_0098_platform_marketing_consent.py")
+    source = path.read_text()
+    assert validate_revision(path) == "20261122_0098"
+    assert 'down_revision: str | None = "20261122_0097"' in source
+    assert '"ck_consent_records_marketing_scope"' in source
+    assert "op.drop_constraint" in source
