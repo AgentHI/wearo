@@ -568,6 +568,12 @@ class PostgresAccountLifecycle:
                 text("DELETE FROM person_profile_images WHERE account_id = :account"),
                 {"account": account_id},
             )
+            # Person demographics and store observations are private account data. They are
+            # removed with the source-photo identity when the consumer deletion becomes final.
+            connection.execute(
+                text("DELETE FROM account_persons WHERE account_id = :account"),
+                {"account": account_id},
+            )
             connection.execute(
                 text(
                     """
@@ -630,7 +636,7 @@ class PostgresAccountLifecycle:
                 {"account": account_id, "now": current},
             )
             connection.execute(
-                text("DELETE FROM generation_daily_usage WHERE account_id = :account"),
+                text("DELETE FROM consumer_free_tryon_grants WHERE account_id = :account"),
                 {"account": account_id},
             )
             connection.execute(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -8,6 +9,7 @@ import pytest
 
 from apps.api.wearo_api.beta_profile import PersonProfile
 from apps.api.wearo_api.image_preflight import PreflightResult
+from apps.api.wearo_api.product_classification import ProductClassifier, ProductSignals
 from apps.api.wearo_api.render_preflight import (
     BetaRenderPreflightService,
     BetaRenderQuote,
@@ -39,15 +41,41 @@ class Consents:
 
 
 class Images:
-    def __init__(self, accepted: bool = True) -> None:
+    def __init__(self, accepted: bool = True, *, high_jewellery: bool = False) -> None:
         self.accepted = accepted
+        self.high_jewellery = high_jewellery
 
-    def validate(self, person: bytes, item: bytes) -> PreflightResult:
+    def validate(
+        self,
+        person: bytes,
+        item: bytes,
+        *,
+        merchant_attributes: Mapping[str, object] | None = None,
+        price_minor: int | None = None,
+        currency: str | None = None,
+    ) -> PreflightResult:
+        classification = (
+            ProductClassifier().classify(
+                "JEWELLERY",
+                visual=ProductSignals(
+                    material="luxury",
+                    richness="luxury",
+                    stones="luxury",
+                    craftsmanship="luxury",
+                ),
+            )
+            if self.high_jewellery
+            else None
+        )
         return PreflightResult(
             self.accepted,
             "ACCEPTED" if self.accepted else "ITEM_UNSUPPORTED",
             "ok" if self.accepted else "unsupported",
-            item_kind="APPAREL",
+            item_kind="JEWELLERY" if self.high_jewellery else "APPAREL",
+            product_classification=classification,
+            person_category="woman",
+            age_range="30_39",
+            estimated_age=34,
         )
 
 
@@ -120,6 +148,28 @@ def test_valid_quote_captures_approved_route_allowance_and_limitation() -> None:
     assert "not a sizing" in result.limitation and quotes.items == [result]
 
 
+def test_quote_captures_product_category_for_successful_render_settlement() -> None:
+    service, quotes, account, principal, person_asset_id = setup()
+    service.images = Images(high_jewellery=True)
+
+    result = service.quote(
+        account_id=account,
+        principal_id=principal,
+        person_asset_id=person_asset_id,
+        item_asset_id=uuid4(),
+        person_image=b"p",
+        item_image=b"i",
+        now=NOW,
+    )
+
+    assert result.product_kind == "JEWELLERY"
+    assert result.product_category == "luxury"
+    assert result.classification_evidence is not None
+    assert result.person_category == "woman"
+    assert result.age_range == "30_39"
+    assert result.estimated_age == 34
+
+
 def test_sponsored_quote_uses_business_allowance_when_personal_quota_is_used() -> None:
     service, quotes, account, principal, person_asset_id = setup(remaining=0)
     result = service.quote(
@@ -129,7 +179,7 @@ def test_sponsored_quote_uses_business_allowance_when_personal_quota_is_used() -
         item_asset_id=uuid4(),
         person_image=b"p",
         item_image=b"i",
-        bypass_daily_quota=True,
+        bypass_free_allowance=True,
         sponsored_remaining=2,
         now=NOW,
     )
@@ -142,7 +192,7 @@ def test_sponsored_quote_uses_business_allowance_when_personal_quota_is_used() -
     ("options", "code"),
     [
         ({"images": False}, "ITEM_UNSUPPORTED"),
-        ({"remaining": 0}, "DAILY_LIMIT_REACHED"),
+        ({"remaining": 0}, "FREE_TRYONS_USED"),
         ({"route": False}, "ROUTE_UNAVAILABLE"),
     ],
 )

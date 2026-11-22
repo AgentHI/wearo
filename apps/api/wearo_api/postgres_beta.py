@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+import json
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, text
 
-from .beta_profile import DailyUsage, PersonProfile, ProfileImage
+from .beta_profile import FreeTryOnUsage, PersonProfile, ProfileImage
 from .consent import ConsentEvidence, ConsentPurpose
 from .render_preflight import BetaRenderQuote
 
@@ -466,81 +467,74 @@ class PostgresQuotaStore:
         self.engine = engine
 
     @staticmethod
-    def _usage(row: object, account_id: UUID, usage_date: date) -> DailyUsage:
+    def _usage(row: object, account_id: UUID) -> FreeTryOnUsage:
         if row is None:
-            return DailyUsage(account_id, usage_date, 0, None)
+            return FreeTryOnUsage(account_id, 0, None)
         values = row._mapping  # type: ignore[attr-defined]
-        return DailyUsage(
+        return FreeTryOnUsage(
             account_id=values["account_id"],
-            usage_date_ist=values["usage_date_ist"],
             successful_generations=values["successful_generations"],
             active_job_id=values["active_job_id"],
         )
 
-    def get(self, account_id: UUID, usage_date: date) -> DailyUsage | None:
+    def get(self, account_id: UUID) -> FreeTryOnUsage | None:
         with self.engine.connect() as connection:
             row = connection.execute(
                 text(
                     """
-                    SELECT account_id, usage_date_ist, successful_generations, active_job_id
-                    FROM generation_daily_usage
-                    WHERE account_id = :account AND usage_date_ist = :usage_date
+                    SELECT account_id, successful_generations, active_job_id
+                    FROM consumer_free_tryon_grants
+                    WHERE account_id = :account
                     """
                 ),
-                {"account": account_id, "usage_date": usage_date},
+                {"account": account_id},
             ).one_or_none()
-        return self._usage(row, account_id, usage_date) if row is not None else None
+        return self._usage(row, account_id) if row is not None else None
 
-    def reserve(
-        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
-    ) -> DailyUsage | None:
-        return self._mutate(account_id, usage_date, job_id, maximum, "reserve")
+    def reserve(self, account_id: UUID, job_id: UUID, maximum: int) -> FreeTryOnUsage | None:
+        return self._mutate(account_id, job_id, maximum, "reserve")
 
-    def settle_success(
-        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
-    ) -> DailyUsage | None:
-        return self._mutate(account_id, usage_date, job_id, maximum, "settle")
+    def settle_success(self, account_id: UUID, job_id: UUID, maximum: int) -> FreeTryOnUsage | None:
+        return self._mutate(account_id, job_id, maximum, "settle")
 
-    def release(self, account_id: UUID, usage_date: date, job_id: UUID) -> DailyUsage | None:
-        return self._mutate(account_id, usage_date, job_id, 3, "release")
+    def release(self, account_id: UUID, job_id: UUID) -> FreeTryOnUsage | None:
+        return self._mutate(account_id, job_id, 3, "release")
 
     def _mutate(
         self,
         account_id: UUID,
-        usage_date: date,
         job_id: UUID,
         maximum: int,
         action: str,
-    ) -> DailyUsage | None:
+    ) -> FreeTryOnUsage | None:
         statements = {
             "reserve": """
-                INSERT INTO generation_daily_usage
-                    (account_id, usage_date_ist, active_job_id)
-                VALUES (:account, :usage_date, :job)
-                ON CONFLICT (account_id, usage_date_ist) DO UPDATE
+                INSERT INTO consumer_free_tryon_grants
+                    (account_id, grant_limit, active_job_id)
+                VALUES (:account, :maximum, :job)
+                ON CONFLICT (account_id) DO UPDATE
                 SET active_job_id = EXCLUDED.active_job_id, updated_at = now()
-                WHERE generation_daily_usage.successful_generations < :maximum
-                  AND generation_daily_usage.active_job_id IS NULL
-                RETURNING account_id, usage_date_ist, successful_generations, active_job_id
+                WHERE consumer_free_tryon_grants.successful_generations
+                        < consumer_free_tryon_grants.grant_limit
+                  AND consumer_free_tryon_grants.active_job_id IS NULL
+                RETURNING account_id, successful_generations, active_job_id
             """,
             "settle": """
-                UPDATE generation_daily_usage
+                UPDATE consumer_free_tryon_grants
                 SET successful_generations = successful_generations + 1,
                     active_job_id = NULL,
                     updated_at = now()
                 WHERE account_id = :account
-                  AND usage_date_ist = :usage_date
                   AND active_job_id = :job
-                  AND successful_generations < :maximum
-                RETURNING account_id, usage_date_ist, successful_generations, active_job_id
+                  AND successful_generations < grant_limit
+                RETURNING account_id, successful_generations, active_job_id
             """,
             "release": """
-                UPDATE generation_daily_usage
+                UPDATE consumer_free_tryon_grants
                 SET active_job_id = NULL, updated_at = now()
                 WHERE account_id = :account
-                  AND usage_date_ist = :usage_date
                   AND active_job_id = :job
-                RETURNING account_id, usage_date_ist, successful_generations, active_job_id
+                RETURNING account_id, successful_generations, active_job_id
             """,
         }
         with self.engine.begin() as connection:
@@ -548,12 +542,11 @@ class PostgresQuotaStore:
                 text(statements[action]),
                 {
                     "account": account_id,
-                    "usage_date": usage_date,
                     "job": job_id,
                     "maximum": maximum,
                 },
             ).one_or_none()
-        return self._usage(row, account_id, usage_date) if row is not None else None
+        return self._usage(row, account_id) if row is not None else None
 
 
 class PostgresQuoteStore:
@@ -578,7 +571,13 @@ class PostgresQuoteStore:
                             remaining_allowance,
                             provider,
                             model_version,
-                            provider_region
+                            provider_region,
+                            product_kind,
+                            product_category,
+                            classification_evidence,
+                            person_category,
+                            age_range,
+                            estimated_age
                         )
                     SELECT
                         :quote,
@@ -592,7 +591,13 @@ class PostgresQuoteStore:
                         :remaining,
                         :provider,
                         :model,
-                        :region
+                        :region,
+                        :product_kind,
+                        :product_category,
+                        CAST(:classification_evidence AS jsonb),
+                        :person_category,
+                        :age_range,
+                        :estimated_age
                     FROM person_profiles AS profile
                     WHERE profile.profile_id = :profile
                       AND profile.account_id = :account
@@ -624,6 +629,16 @@ class PostgresQuoteStore:
                     "provider": quote.route.provider,
                     "model": quote.route.model,
                     "region": quote.route.region,
+                    "product_kind": quote.product_kind,
+                    "product_category": quote.product_category,
+                    "person_category": quote.person_category,
+                    "age_range": quote.age_range,
+                    "estimated_age": quote.estimated_age,
+                    "classification_evidence": (
+                        json.dumps(quote.classification_evidence)
+                        if quote.classification_evidence is not None
+                        else None
+                    ),
                     "profile": quote.profile_id,
                     "account": quote.account_id,
                     "principal": quote.principal_id,

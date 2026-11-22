@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import Engine, create_engine, text
 
-from apps.api.wearo_api.beta_profile import DailyQuotaService, PersonProfileService
+from apps.api.wearo_api.beta_profile import FreeTryOnQuotaService, PersonProfileService
 from apps.api.wearo_api.browser_sessions import BrowserSessionService, SessionPolicy
 from apps.api.wearo_api.consent import ConsentService
 from apps.api.wearo_api.database import normalize_database_url
@@ -71,7 +71,7 @@ def _cleanup(engine: Engine, account_id: object, email_hash: bytes) -> None:
             for statement in (
                 "DELETE FROM render_results WHERE account_id = :account",
                 "DELETE FROM render_work_items WHERE account_id = :account",
-                "DELETE FROM generation_daily_usage WHERE account_id = :account",
+                "DELETE FROM consumer_free_tryon_grants WHERE account_id = :account",
                 "DELETE FROM render_jobs WHERE account_id = :account",
                 "DELETE FROM render_quotes WHERE account_id = :account",
                 "DELETE FROM person_profiles WHERE account_id = :account",
@@ -144,7 +144,7 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
         media=PostgresMediaRuntime(engine, FilesystemPrivateBlobStore(tmp_path / "private")),
         consents=ConsentService(PostgresConsentStore(engine), current_version="beta-v1"),
         profiles=PersonProfileService(PostgresProfileStore(engine)),
-        quota=DailyQuotaService(PostgresQuotaStore(engine)),
+        quota=FreeTryOnQuotaService(PostgresQuotaStore(engine)),
         renders=PostgresRenderRuntime(engine),
         secure_cookie=True,
     )
@@ -181,9 +181,11 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
                 "retention_days": 30,
             }
 
-            allowance = client.get("/api/v1/me/daily-allowance")
+            allowance = client.get("/api/v1/me/try-on-allowance")
             assert allowance.status_code == 200
             assert allowance.json()["remaining"] == 3
+            assert allowance.json()["grant_type"] == "ONE_TIME_REGISTRATION"
+            assert allowance.json()["resets_at"] is None
 
             denied = client.post(
                 "/api/v1/assets",
@@ -448,6 +450,6 @@ def test_authenticated_upload_consent_profile_and_allowance_flow(
             assert missing_profile.status_code == 404
             assert missing_profile.json()["code"] == "PROFILE_NOT_FOUND"
             assert client.post("/api/v1/auth/logout", headers=headers).status_code == 200
-            assert client.get("/api/v1/me/daily-allowance").status_code == 401
+            assert client.get("/api/v1/me/try-on-allowance").status_code == 401
     finally:
         _cleanup(engine, account_id, email_hash)

@@ -181,8 +181,12 @@ def build_worker(
     return DurableRenderWorker(
         PostgresRenderRuntime(
             database_engine,
-            enforce_daily_allowance=(
-                os.environ.get("WEARO_DAILY_LIMIT_ENABLED", "true").casefold() == "true"
+            enforce_free_allowance=(
+                os.environ.get(
+                    "WEARO_FREE_TRYON_LIMIT_ENABLED",
+                    os.environ.get("WEARO_DAILY_LIMIT_ENABLED", "true"),
+                ).casefold()
+                == "true"
             ),
         ),
         media,

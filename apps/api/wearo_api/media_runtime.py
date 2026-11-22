@@ -149,8 +149,20 @@ class S3PrivateBlobStore:
                     Bucket=self.bucket,
                     Delete={"Objects": [{"Key": item} for item in keys[offset : offset + 1000]]},
                 )
-                if response.get("Errors"):
-                    raise OSError("S3 did not delete every object in the private asset family")
+                errors = response.get("Errors", ())
+                if errors:
+                    error_codes = sorted(
+                        {
+                            str(error.get("Code", "Unknown"))
+                            for error in errors
+                            if isinstance(error, dict)
+                        }
+                    )
+                    codes = ",".join(error_codes) or "Unknown"
+                    raise OSError(
+                        "S3 did not delete every object in the private asset family "
+                        f"(error_codes={codes})"
+                    )
         except self.client.exceptions.ClientError as error:
             raise OSError("S3 private asset deletion failed") from error
 
@@ -224,6 +236,15 @@ class PostgresMediaRuntime:
             )
         return self._store(account_id, "ADVERTISEMENT", content, content_type)
 
+    def store_smart_ad(
+        self, account_id: UUID, content: bytes, content_type: str
+    ) -> StoredMedia:
+        if len(content) > 5 * 1024 * 1024:
+            raise MediaRuntimeError(
+                "INVALID_IMAGE_SIZE", "SmartAds images must be under 5 MB."
+            )
+        return self._store(account_id, "SMART_AD", content, content_type)
+
     def _store(
         self, account_id: UUID, purpose: str, content: bytes, content_type: str
     ) -> StoredMedia:
@@ -280,6 +301,7 @@ class PostgresMediaRuntime:
             "RENDER_RESULT": "render-results",
             "BUSINESS_LOGO": "business-logos",
             "ADVERTISEMENT": "advertisements",
+            "SMART_AD": "smart-ads",
         }[purpose]
         object_key = f"private/accounts/{account_id.hex}/{purpose_prefix}/{asset_id.hex}"
         self.blobs.put(object_key, content, normalized_type)
@@ -321,12 +343,12 @@ class PostgresMediaRuntime:
                         "purpose": purpose,
                         "retention_state": (
                             "ACTIVE"
-                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO"}
+                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO", "SMART_AD"}
                             else "EXPIRING"
                         ),
                         "delete_after": (
                             None
-                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO"}
+                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO", "SMART_AD"}
                             else datetime.now(UTC) + timedelta(days=30)
                         ),
                     },

@@ -813,15 +813,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/me/daily-allowance": {
+    "/me/try-on-allowance": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Read remaining free-beta successful generations for the current IST day */
-        get: operations["get__me_daily_allowance"];
+        /** Read the one-time registration grant and purchased try-on capacity */
+        get: operations["get__me_try_on_allowance"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1218,15 +1218,21 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
         };
-        DailyAllowance: {
-            /** @constant */
-            successful_limit: 3;
+        TryOnAllowance: {
+            successful_limit: number;
             successful_used: number;
             remaining: number;
-            /** Format: date-time */
-            resets_at: string;
+            free_remaining: number;
+            purchased_try_ons_remaining: number;
+            token_balance: number;
+            unlimited: boolean;
+            /** @constant */
+            grant_type: "ONE_TIME_REGISTRATION";
+            token_cost_per_try_on: number | null;
+            tokens_consumed_today: number | null;
+            resets_at: null;
             /** Format: uuid */
-            active_job_id?: string | null;
+            active_job_id: string | null;
         };
         HomeCaption: {
             caption: string;
@@ -5322,7 +5328,7 @@ export interface operations {
             };
         };
     };
-    get__me_daily_allowance: {
+    get__me_try_on_allowance: {
         parameters: {
             query?: never;
             header?: never;
@@ -5337,7 +5343,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DailyAllowance"];
+                    "application/json": components["schemas"]["TryOnAllowance"];
                 };
             };
             /** @description Authentication required */

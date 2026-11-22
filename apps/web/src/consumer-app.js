@@ -59,12 +59,14 @@ function randomLocalHomeCaption(previousCaption = readLastHomeCaption()) {
 function captureShopContext(pathname) {
   const match = pathname.match(/^\/shop\/([^/]+)(?:\/([^/]+))?\/?$/);
   if (!match) return;
-  const key = new URLSearchParams(window.location.search).get("key");
+  const parameters = new URLSearchParams(window.location.search);
+  const key = parameters.get("key");
   if (!key) return;
   const nextContext = {
     businessReference: decodeURIComponent(match[1]),
     storeReference: match[2] ? decodeURIComponent(match[2]) : null,
     key,
+    smartAdToken: parameters.get("smart_ad"),
   };
   const previousContext = readShopContext();
   sessionStorage.setItem(SHOP_CONTEXT_KEY, JSON.stringify(nextContext));
@@ -342,7 +344,7 @@ function homeView() {
       <div><h1 id="home-caption" class="home-caption" aria-live="polite">Wear Confidence</h1><p>What would you like to try on today?</p></div>
     </header>
     <section id="sponsored-session-card" class="notice sponsored-session-card" hidden aria-live="polite"></section>
-    <section class="allowance-card allowance-card--modern" aria-label="Try-on balance"><div><span aria-hidden="true" class="allowance-sparkle">✦</span><div><strong><span id="allowance-copy">Loading</span> try-ons</strong><p id="allowance-note">Checking your available balance…</p></div></div><div class="allowance-actions"><span id="allowance-count" class="allowance-count">—</span><button id="refresh-allowance" class="allowance-refresh" type="button" aria-label="Refresh try-on balance" title="Refresh try-on balance">↻</button></div></section>
+    <section class="allowance-card allowance-card--modern" aria-label="Try-on balance"><div><span aria-hidden="true" class="allowance-sparkle">✦</span><div><strong><span id="allowance-copy">Loading</span> try-ons</strong><p id="allowance-note">Checking your available balance…</p></div></div><div class="allowance-actions"><a id="buy-more-tryons" class="allowance-buy" href="/app/payments" hidden>Buy try-ons</a><span id="allowance-count" class="allowance-count">—</span><button id="refresh-allowance" class="allowance-refresh" type="button" aria-label="Refresh try-on balance" title="Refresh try-on balance">↻</button></div></section>
     <section id="tryon-composer" class="tryon-studio tryon-composer--reference" aria-labelledby="tryon-title">
       <div class="tryon-studio__heading"><div><p class="eyebrow">Wearable item</p><h2 id="tryon-title">Choose what you want to wear</h2></div><span>Apparel + jewellery</span></div>
       <div class="tryon-workspace">
@@ -1682,6 +1684,7 @@ function attachHomeFlow(auth) {
   const allowanceCopy = document.querySelector("#allowance-copy");
   const allowanceNote = document.querySelector("#allowance-note");
   const allowanceRefresh = document.querySelector("#refresh-allowance");
+  const buyMoreTryOns = document.querySelector("#buy-more-tryons");
   const homeCaption = document.querySelector("#home-caption");
   let itemPreviewUrl = null;
   let selectedItemFile = null;
@@ -1690,6 +1693,7 @@ function attachHomeFlow(auth) {
   let sponsoredSession = null;
   let sponsoredAdvertisementUrl = null;
   let businessTryOnsAllowed = true;
+  let personalTryOnsRemaining = null;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   const completionAudioContext = AudioContextClass ? new AudioContextClass() : null;
   const fallbackCompletionSound = new Audio(TRY_ON_COMPLETE_SOUND);
@@ -1716,7 +1720,8 @@ function attachHomeFlow(auth) {
       || !businessTryOnsAllowed
       || !selectedItemFile
       || !selectedPersonAssetId
-      || sponsoredLimitReached,
+      || sponsoredLimitReached
+      || (!sponsoredSession && personalTryOnsRemaining === 0),
     );
   };
 
@@ -2014,19 +2019,30 @@ function attachHomeFlow(auth) {
   const refreshAllowance = async () => {
     try {
       if (readShopContext()) {
+        buyMoreTryOns.hidden = true;
         await refreshSponsoredSession();
         return true;
       }
-      const allowance = await api("/me/daily-allowance", {}, auth);
+      const allowance = await api("/me/try-on-allowance", {}, auth);
+      personalTryOnsRemaining = allowance.unlimited ? null : Number(allowance.remaining);
+      const freeRemaining = Number(allowance.free_remaining);
+      const purchasedRemaining = Number(allowance.purchased_try_ons_remaining);
+      const offerExhausted = !allowance.unlimited
+        && freeRemaining === 0
+        && purchasedRemaining === 0;
       allowanceCount.textContent = allowance.unlimited ? "∞" : allowance.remaining;
       allowanceCopy.textContent = allowance.unlimited ? "Unlimited" : allowance.remaining;
+      buyMoreTryOns.hidden = !offerExhausted;
       if (allowance.unlimited) {
         allowanceNote.textContent = `Local testing mode · ${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"}.`;
-      } else if (Number(allowance.purchased_try_ons_remaining) > 0) {
-        allowanceNote.textContent = `${allowance.free_remaining} free today + ${allowance.purchased_try_ons_remaining} purchased · ${Number(allowance.token_balance).toLocaleString("en-IN")} tokens.`;
+      } else if (purchasedRemaining > 0) {
+        allowanceNote.textContent = `${freeRemaining} free registration try-on${freeRemaining === 1 ? "" : "s"} + ${purchasedRemaining} purchased · ${Number(allowance.token_balance).toLocaleString("en-IN")} tokens.`;
+      } else if (freeRemaining > 0) {
+        allowanceNote.textContent = `${freeRemaining} free registration try-on${freeRemaining === 1 ? "" : "s"} remaining · One-time welcome offer.`;
       } else {
-        allowanceNote.textContent = `${allowance.successful_used} successful try-on${allowance.successful_used === 1 ? "" : "s"} · Free allowance resets at midnight IST.`;
+        allowanceNote.textContent = "You’ve used your 3 free try-ons. Buy more to keep creating new looks.";
       }
+      updateSubmitAvailability();
       return true;
     } catch (error) {
       if (error.status === 401) {
@@ -2074,6 +2090,35 @@ function attachHomeFlow(auth) {
     itemThumb.innerHTML = `<img src="${itemPreviewUrl}" alt="Selected wearable" />`;
     updateSubmitAvailability();
     setStatus(status, `${sourceLabel} selected. Press Generate try-on when ready.`, "success");
+  };
+
+  const loadSmartAdItem = async () => {
+    const token = readShopContext()?.smartAdToken;
+    if (!token) return;
+    setStatus(status, "Preparing this collection for your try-on…");
+    try {
+      const response = await fetch(
+        `${API_BASE}/public/smart-ads/${encodeURIComponent(token)}/try-on-item`,
+        { credentials: "same-origin", cache: "no-store" },
+      );
+      if (!response.ok) throw apiError(response, await readApiBody(response));
+      const image = await response.blob();
+      if (!image.type.startsWith("image/")) throw new Error("This collection image is unavailable.");
+      const extension = image.type === "image/png" ? "png" : image.type === "image/webp" ? "webp" : "jpg";
+      selectItemFile(
+        new File([image], `smart-ad-collection.${extension}`, { type: image.type }),
+        "SmartAds collection",
+      );
+      if (sponsoredSession?.try_ons_remaining <= 0) {
+        setStatus(
+          status,
+          "This collection is ready, but no business-sponsored try-ons remain.",
+          "error",
+        );
+      }
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
   };
 
   itemUploadInput.addEventListener("change", () => {
@@ -2180,7 +2225,10 @@ function attachHomeFlow(auth) {
 
   loadHomeCaption();
   loadLatestPreview();
-  loadProfilePhotos().then(refreshAllowance);
+  loadProfilePhotos().then(async () => {
+    await refreshAllowance();
+    await loadSmartAdItem();
+  });
 }
 
 function formatLookDate(value) {

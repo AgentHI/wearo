@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -8,6 +9,8 @@ from uuid import UUID, uuid4
 from .beta_profile import PersonProfile, ProfileError
 from .consent import ConsentError, ConsentPurpose
 from .image_preflight import PreflightResult
+from .person_classification import AgeRange, PersonCategory
+from .product_classification import ProductCategory, ProductKind
 
 
 class RenderPreflightError(ValueError):
@@ -38,6 +41,12 @@ class BetaRenderQuote:
     remaining_before: int
     expires_at: datetime
     limitation: str
+    product_kind: ProductKind | None = None
+    product_category: ProductCategory = "unknown"
+    classification_evidence: dict[str, object] | None = None
+    person_category: PersonCategory = "unknown"
+    age_range: AgeRange = "unknown"
+    estimated_age: int | None = None
 
 
 class RouteRegistry(Protocol):
@@ -64,7 +73,15 @@ class ConsentReader(Protocol):
 
 
 class ImageValidator(Protocol):
-    def validate(self, person_image: bytes, item_image: bytes) -> PreflightResult: ...
+    def validate(
+        self,
+        person_image: bytes,
+        item_image: bytes,
+        *,
+        merchant_attributes: Mapping[str, object] | None = None,
+        price_minor: int | None = None,
+        currency: str | None = None,
+    ) -> PreflightResult: ...
 
 
 class QuotaReader(Protocol):
@@ -97,7 +114,10 @@ class BetaRenderPreflightService:
         item_asset_id: UUID,
         person_image: bytes,
         item_image: bytes,
-        bypass_daily_quota: bool = False,
+        merchant_attributes: Mapping[str, object] | None = None,
+        product_price_minor: int | None = None,
+        product_currency: str | None = None,
+        bypass_free_allowance: bool = False,
         sponsored_remaining: int | None = None,
         now: datetime | None = None,
     ) -> BetaRenderQuote:
@@ -117,22 +137,28 @@ class BetaRenderPreflightService:
             )
         except (ProfileError, ConsentError) as error:
             raise RenderPreflightError("PROFILE_OR_CONSENT_REQUIRED", str(error)) from None
-        result = self.images.validate(person_image, item_image)
+        result = self.images.validate(
+            person_image,
+            item_image,
+            merchant_attributes=merchant_attributes,
+            price_minor=product_price_minor,
+            currency=product_currency,
+        )
         if not result.accepted:
             raise RenderPreflightError(result.code, result.message)
         remaining = (
             sponsored_remaining
-            if bypass_daily_quota and sponsored_remaining is not None
+            if bypass_free_allowance and sponsored_remaining is not None
             else self.quota.remaining(account_id, now=current)
         )
         if remaining < 1:
             raise RenderPreflightError(
-                "SPONSORED_LIMIT_REACHED" if bypass_daily_quota else "DAILY_LIMIT_REACHED",
+                "SPONSORED_LIMIT_REACHED" if bypass_free_allowance else "FREE_TRYONS_USED",
                 (
                     "No try-ons remain in this business-sponsored session."
-                    if bypass_daily_quota
-                    else "You have used all 3 beta previews for today. "
-                    "Try again after midnight IST."
+                    if bypass_free_allowance
+                    else "You have used all 3 free registration try-ons. "
+                    "Buy more try-ons to continue."
                 ),
             )
         route = self.routes.route_for("APPAREL", current)
@@ -152,6 +178,24 @@ class BetaRenderPreflightService:
             remaining_before=remaining,
             expires_at=current + timedelta(minutes=10),
             limitation="AI visual preview only; not a sizing, measurement, or fit guarantee.",
+            product_kind=(
+                result.product_classification.item_kind
+                if result.product_classification is not None
+                else None
+            ),
+            product_category=(
+                result.product_classification.category
+                if result.product_classification is not None
+                else "unknown"
+            ),
+            classification_evidence=(
+                result.product_classification.evidence()
+                if result.product_classification is not None
+                else None
+            ),
+            person_category=result.person_category,
+            age_range=result.age_range,
+            estimated_age=result.estimated_age,
         )
         self.quotes.create(quote)
         return quote

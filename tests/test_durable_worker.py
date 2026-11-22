@@ -87,6 +87,11 @@ class Media:
         self.cleared.append(job_id)
 
 
+class FailingCleanupMedia(Media):
+    def clear_progressive_preview(self, job_id: UUID) -> None:
+        raise OSError("preview delete denied")
+
+
 class Provider:
     provider = "GOOGLE_VERTEX"
     model = "virtual-try-on-001"
@@ -166,6 +171,30 @@ def test_quality_and_provider_failures_are_terminal_without_publication() -> Non
         ).run_once(now=NOW)
         assert result.job is not None
         assert result.job.status == "FAILED" and result.job.error_code == expected
+
+
+def test_preview_cleanup_failure_does_not_mask_render_outcome() -> None:
+    successful_runtime = Runtime(job())
+    successful = DurableRenderWorker(
+        successful_runtime,
+        FailingCleanupMedia(),
+        Provider(),
+        Quality(True),
+        worker_id="worker-1",
+    ).run_once(now=NOW)
+
+    failed_runtime = Runtime(job())
+    failed = DurableRenderWorker(
+        failed_runtime,
+        FailingCleanupMedia(),
+        Provider(ProviderError("OPENAI_READ_TIMEOUT", retryable=False)),
+        Quality(True),
+        worker_id="worker-1",
+    ).run_once(now=NOW)
+
+    assert successful.job is not None and successful.job.status == "DELIVERED"
+    assert failed.job is not None and failed.job.status == "FAILED"
+    assert failed.job.error_code == "OPENAI_READ_TIMEOUT"
 
 
 def test_quality_gate_can_be_bypassed_without_calling_analyzer() -> None:

@@ -79,11 +79,6 @@ class PostgresBusinessAllowances:
             user = None
             if mobile:
                 normalized = normalize_mobile(mobile)
-                legacy_mobile = (
-                    normalized[3:]
-                    if normalized.startswith("+91") and len(normalized) == 13
-                    else normalized
-                )
                 row = (
                     connection.execute(
                         text(
@@ -99,27 +94,7 @@ class PostgresBusinessAllowances:
                     .one_or_none()
                 )
                 adjustment = int(row["limit_adjustment"]) if row else 0
-                allowance_used = int(row["used_count"]) if row else 0
-                consumer_used = int(
-                    connection.execute(
-                        text(
-                            """SELECT COALESCE(SUM(usage.successful_generations), 0)
-                            FROM principal_identities identity
-                            JOIN principals principal
-                              ON principal.principal_id=identity.principal_id
-                             AND principal.account_id=identity.account_id
-                            JOIN generation_daily_usage usage
-                              ON usage.account_id=identity.account_id
-                            WHERE identity.channel='PHONE'
-                              AND identity.normalized_value IN (:mobile, :legacy_mobile)
-                              AND principal.principal_type='CONSUMER'
-                              AND usage.usage_date_ist =
-                                  (now() AT TIME ZONE 'Asia/Kolkata')::date"""
-                        ),
-                        {"mobile": normalized, "legacy_mobile": legacy_mobile},
-                    ).scalar_one()
-                )
-                used = max(allowance_used, consumer_used)
+                used = int(row["used_count"]) if row else 0
                 user = {
                     "normalized_mobile": normalized,
                     "limit_adjustment": adjustment,
@@ -230,10 +205,43 @@ class PostgresBusinessAllowances:
                         """
                         SELECT p.participant_id, p.normalized_mobile, p.first_seen_at,
                                p.latest_seen_at,
+                               COALESCE(demographics.persons, '[]'::jsonb) AS persons,
                                count(*) FILTER (WHERE job.status='DELIVERED') AS try_on_count,
                                max(job.updated_at) FILTER (WHERE job.status='DELIVERED')
                                  AS latest_try_on_at
                         FROM business_participants p
+                        LEFT JOIN LATERAL (
+                          SELECT jsonb_agg(
+                            jsonb_build_object(
+                              'person_id', visible.person_id,
+                              'person_category', visible.person_category,
+                              'gender', visible.gender,
+                              'age_range', visible.age_range,
+                              'estimated_age', visible.estimated_age,
+                              'marketing_eligible', visible.marketing_eligible,
+                              'store_ids', visible.store_ids,
+                              'try_on_count', visible.try_on_count,
+                              'latest_try_on_at', visible.latest_try_on_at
+                            ) ORDER BY visible.latest_try_on_at DESC, visible.person_id
+                          ) AS persons
+                          FROM (
+                            SELECT person.person_id, person.person_category, person.gender,
+                                   person.age_range, person.estimated_age,
+                                   person.marketing_eligible,
+                                   array_agg(DISTINCT observation.store_id)
+                                     FILTER (WHERE observation.store_id IS NOT NULL) AS store_ids,
+                                   count(DISTINCT observation.render_job_id) AS try_on_count,
+                                   max(observation.observed_at) AS latest_try_on_at
+                            FROM account_persons person
+                            JOIN person_tryon_observations observation
+                              ON observation.person_id=person.person_id
+                             AND observation.account_id=person.account_id
+                            WHERE person.account_id=p.consumer_account_id
+                              AND observation.tenant_id=:tenant
+                              AND observation.business_account_id=:account
+                            GROUP BY person.person_id
+                          ) visible
+                        ) demographics ON true
                         LEFT JOIN business_sponsored_sessions session
                           ON session.participant_id=p.participant_id
                         LEFT JOIN business_sponsored_tryons sponsored
@@ -245,7 +253,7 @@ class PostgresBusinessAllowances:
                           AND (CAST(:search AS text) IS NULL
                                OR regexp_replace(p.normalized_mobile, '[^0-9]', '', 'g')
                                   LIKE :search)
-                        GROUP BY p.participant_id
+                        GROUP BY p.participant_id, demographics.persons
                         ORDER BY latest_try_on_at DESC NULLS LAST,
                                  p.latest_seen_at DESC, p.participant_id DESC
                         LIMIT :limit OFFSET :offset
@@ -256,8 +264,11 @@ class PostgresBusinessAllowances:
                 .mappings()
                 .all()
             )
-        return {
-            "items": [
+        items: list[dict[str, object]] = []
+        for row in rows:
+            persons = list(row["persons"] or [])
+            primary = persons[0] if persons else {}
+            items.append(
                 {
                     "participant_id": row["participant_id"],
                     "mobile": row["normalized_mobile"],
@@ -265,9 +276,17 @@ class PostgresBusinessAllowances:
                     "latest_try_on_at": row["latest_try_on_at"],
                     "first_seen_at": row["first_seen_at"],
                     "latest_seen_at": row["latest_seen_at"],
+                    # Keep the flat fields temporarily for older business clients. New clients
+                    # must use persons because one login can represent several family members.
+                    "person_category": primary.get("person_category", "unknown"),
+                    "gender": primary.get("gender", "unknown"),
+                    "age_range": primary.get("age_range", "unknown"),
+                    "estimated_age": primary.get("estimated_age"),
+                    "persons": persons,
                 }
-                for row in rows
-            ],
+            )
+        return {
+            "items": items,
             "page": page,
             "page_size": page_size,
             "total": total,

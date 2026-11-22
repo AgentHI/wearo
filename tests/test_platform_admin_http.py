@@ -29,7 +29,7 @@ class FakeAdminOrganizations:
     def get(self, tenant_id: object) -> dict[str, object]:
         assert tenant_id == self.tenant_id
         organizations = cast(list[dict[str, object]], self.list()["organizations"])
-        return organizations[0]
+        return {**organizations[0], "customer_try_on_limit": 3}
 
     def change_status(self, tenant_id: object, action: str, reason: str) -> dict[str, str]:
         assert tenant_id == self.tenant_id and reason
@@ -38,6 +38,12 @@ class FakeAdminOrganizations:
     def adjust_tokens(self, tenant_id: object, amount: int, reason: str) -> dict[str, int]:
         assert tenant_id == self.tenant_id and reason
         return {"available_tokens": 1000 + amount, "adjustment": amount}
+
+    def update_customer_try_on_limit(
+        self, tenant_id: object, limit: int, reason: str
+    ) -> dict[str, int]:
+        assert tenant_id == self.tenant_id and reason
+        return {"customer_try_on_limit": limit}
 
 
 class FakeAdminDashboard:
@@ -330,6 +336,11 @@ def test_newly_registered_business_appears_in_admin_organization_list_and_detail
             json={"amount": 25, "reason": "Service recovery credit"},
         )
         assert adjustment.json() == {"available_tokens": 1025, "adjustment": 25}
+        allowance = client.put(
+            f"/api/v1/admin/organizations/{organizations.tenant_id}/customer-try-on-limit",
+            json={"limit": 7, "reason": "Approved launch offer"},
+        )
+        assert allowance.json() == {"customer_try_on_limit": 7}
 
 
 def test_platform_dashboard_requires_admin_and_returns_consolidated_metrics() -> None:

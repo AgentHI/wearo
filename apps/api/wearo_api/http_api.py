@@ -11,11 +11,12 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
@@ -53,8 +54,7 @@ from .admin_subscriptions import (
 from .admin_support import AdminSupportError, PostgresAdminSupport
 from .admin_usage_analytics import AdminUsageAnalyticsError, PostgresAdminUsageAnalytics
 from .beta_profile import (
-    IST,
-    DailyQuotaService,
+    FreeTryOnQuotaService,
     PersonProfile,
     PersonProfileService,
     ProfileError,
@@ -96,6 +96,13 @@ from .business_platform import (
 )
 from .business_reports import BusinessReportError, PostgresBusinessReports, reconciliation_csv
 from .business_shop import BusinessShopError, PostgresBusinessShop, qr_poster
+from .business_smart_ads import (
+    DeliveryChannel,
+    OpenAISmartAdGenerator,
+    PostgresBusinessSmartAds,
+    SmartAdError,
+    TargetGender,
+)
 from .business_stores import BusinessStoreError, PostgresBusinessStores
 from .business_tryon_status import (
     BusinessTryOnStatusError,
@@ -193,6 +200,7 @@ from .wallet_transactions import (
     transactions_csv,
 )
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
 
@@ -216,7 +224,7 @@ class ApiContainer:
     media: PostgresMediaRuntime
     consents: ConsentService
     profiles: PersonProfileService
-    quota: DailyQuotaService
+    quota: FreeTryOnQuotaService
     renders: PostgresRenderRuntime
     retention: RetentionService | None = None
     catalog: CatalogService | None = None
@@ -233,6 +241,7 @@ class ApiContainer:
     business_agents: PostgresBusinessAgents | None = None
     business_stores: PostgresBusinessStores | None = None
     store_advertisements: PostgresStoreAdvertisements | None = None
+    business_smart_ads: PostgresBusinessSmartAds | None = None
     business_shop: PostgresBusinessShop | None = None
     business_tryon_status: PostgresBusinessTryOnStatus | None = None
     business_allowances: PostgresBusinessAllowances | None = None
@@ -311,10 +320,10 @@ class RazorpayVerificationBody(BaseModel):
     razorpay_signature: str | None = Field(default=None, max_length=256)
 
 
-class OperatingProfileChangeBody(BaseModel):
+class OperatingProfileUpdateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    requested_profile: OperatingProfile
+    operating_profile: OperatingProfile
     reason: str = Field(min_length=1, max_length=500)
 
 
@@ -363,6 +372,23 @@ class AdvertisementUpdateBody(BaseModel):
 class AdvertisementActivationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     active_date: date
+
+
+class SmartAdUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=2000)
+
+
+class SmartAdScheduleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    smart_ad_id: UUID
+    occasion: str = Field(min_length=1, max_length=160)
+    scheduled_for: datetime
+    channel: DeliveryChannel = "EMAIL"
+    target_gender: TargetGender = "female"
+    target_age_min: int | None = Field(default=None, ge=1, le=120)
+    target_age_max: int | None = Field(default=None, ge=1, le=120)
 
 
 class AgentMoveBody(BaseModel):
@@ -569,6 +595,13 @@ class AdminTokenAdjustmentBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     amount: int = Field(ge=-1_000_000, le=1_000_000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AdminCustomerTryOnLimitBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(ge=0, le=100_000)
     reason: str = Field(min_length=1, max_length=500)
 
 
@@ -1056,6 +1089,7 @@ def create_app(
     @app.exception_handler(BusinessAgentError)
     @app.exception_handler(BusinessStoreError)
     @app.exception_handler(StoreAdvertisementError)
+    @app.exception_handler(SmartAdError)
     @app.exception_handler(BusinessShopError)
     @app.exception_handler(BusinessTryOnStatusError)
     @app.exception_handler(BusinessAllowanceError)
@@ -1101,6 +1135,8 @@ def create_app(
             "CASE_UNAVAILABLE",
             "SUPPORT_GRANT_UNAVAILABLE",
             "TRY_ON_STATUS_UNAVAILABLE",
+            "SMART_AD_UNAVAILABLE",
+            "SMART_AD_IMAGE_UNAVAILABLE",
         }:
             status = 404
         elif code in {
@@ -1112,6 +1148,9 @@ def create_app(
             "LAST_OWNER_REQUIRED",
             "ACCOUNT_CANCELLATION_UNAVAILABLE",
             "TRY_ON_STATUS_CONFLICT",
+            "SMART_AD_ALREADY_ACTIVE",
+            "SMART_AD_DAILY_LIMIT_REACHED",
+            "SMART_AD_SCHEDULE_LOCKED",
         }:
             status = 409
         elif code == "INVALID_PAYMENT_SIGNATURE":
@@ -1148,6 +1187,24 @@ def create_app(
             website_url=body.website_url,
             purpose=body.purpose,
             request_id=_request_id(request),
+        )
+
+    @app.get("/api/v1/public/smart-ads/{public_token}/image")
+    def public_smart_ad_image(public_token: UUID) -> Response:
+        if container.business_smart_ads is None:
+            raise ApiProblem(404, "SMART_AD_IMAGE_UNAVAILABLE", "SmartAds image unavailable.")
+        content, content_type = container.business_smart_ads.public_image(public_token)
+        return Response(content, media_type=content_type)
+
+    @app.get("/api/v1/public/smart-ads/{public_token}/try-on-item")
+    def public_smart_ad_try_on_item(public_token: UUID) -> Response:
+        if container.business_smart_ads is None:
+            raise ApiProblem(404, "SMART_AD_IMAGE_UNAVAILABLE", "SmartAds item unavailable.")
+        content, content_type = container.business_smart_ads.public_try_on_item(public_token)
+        return Response(
+            content,
+            media_type=content_type,
+            headers={"Cache-Control": "private, no-store"},
         )
 
     @app.exception_handler(AnalysisServiceError)
@@ -1932,6 +1989,18 @@ def create_app(
         except AdminOrganizationError as error:
             raise ApiProblem(422, "TOKEN_ADJUSTMENT_REJECTED", str(error)) from None
 
+    @app.put("/api/v1/admin/organizations/{tenant_id}/customer-try-on-limit")
+    def admin_customer_try_on_limit(
+        request: Request, tenant_id: UUID, body: AdminCustomerTryOnLimitBody
+    ) -> dict[str, int]:
+        require_platform_admin(request)
+        try:
+            return admin_organizations.update_customer_try_on_limit(
+                tenant_id, body.limit, body.reason
+            )
+        except AdminOrganizationError as error:
+            raise ApiProblem(422, "TRY_ON_LIMIT_UPDATE_REJECTED", str(error)) from None
+
     @app.post("/api/v1/admin/logout", status_code=204)
     def admin_logout(request: Request, response: Response) -> None:
         token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
@@ -2238,18 +2307,18 @@ def create_app(
             reason=body.reason,
         )
 
-    @app.post("/api/v1/business/tenants/{tenant_id}/operating-profile-change")
-    def request_operating_profile_change(
+    @app.put("/api/v1/business/tenants/{tenant_id}/operating-profile")
+    def update_operating_profile(
         tenant_id: UUID,
-        body: OperatingProfileChangeBody,
+        body: OperatingProfileUpdateBody,
         request: Request,
         x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
     ) -> dict[str, object]:
         session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
         if container.business_platform is None:
             raise ApiProblem(503, "BUSINESS_PLATFORM_UNAVAILABLE", "Workspace is unavailable.")
-        return container.business_platform.request_profile_change(
-            session.principal_id, tenant_id, body.requested_profile, body.reason
+        return container.business_platform.update_operating_profile(
+            session.principal_id, tenant_id, body.operating_profile, body.reason
         )
 
     @app.get("/api/v1/business/tenants/{tenant_id}/audit-events")
@@ -2645,6 +2714,182 @@ def create_app(
             page=page,
             page_size=page_size,
         )
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/smart-ads")
+    def list_business_smart_ads(tenant_id: UUID, request: Request) -> dict[str, object]:
+        session = _authenticate_business(request, container)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        return container.business_smart_ads.list(session.principal_id, tenant_id)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/smart-ads", status_code=201)
+    async def create_business_smart_ad(
+        tenant_id: UUID,
+        request: Request,
+        title: Annotated[str, Form(min_length=1, max_length=120)],
+        prompt: Annotated[str, Form(min_length=1, max_length=2000)],
+        jewellery: Annotated[UploadFile, File()],
+        model_photo: Annotated[UploadFile | None, File()] = None,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        jewellery_content = await jewellery.read()
+        model_content = await model_photo.read() if model_photo is not None else None
+        return container.business_smart_ads.create(
+            session.principal_id,
+            tenant_id,
+            title=title,
+            prompt=prompt,
+            jewellery=jewellery_content,
+            jewellery_type=jewellery.content_type or "",
+            model_photo=model_content,
+            model_type=model_photo.content_type if model_photo is not None else None,
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/smart-ads/{smart_ad_id}/generate")
+    def generate_business_smart_ad(
+        tenant_id: UUID,
+        smart_ad_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        return container.business_smart_ads.generate(
+            session.principal_id, tenant_id, smart_ad_id
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/smart-ads/{smart_ad_id}/accept")
+    def accept_business_smart_ad(
+        tenant_id: UUID,
+        smart_ad_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        return container.business_smart_ads.accept(
+            session.principal_id, tenant_id, smart_ad_id
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/smart-ads/{smart_ad_id}")
+    def update_business_smart_ad(
+        tenant_id: UUID,
+        smart_ad_id: UUID,
+        body: SmartAdUpdateBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        return container.business_smart_ads.update(
+            session.principal_id,
+            tenant_id,
+            smart_ad_id,
+            title=body.title,
+            prompt=body.prompt,
+        )
+
+    @app.delete(
+        "/api/v1/business/tenants/{tenant_id}/smart-ads/{smart_ad_id}", status_code=204
+    )
+    def delete_business_smart_ad(
+        tenant_id: UUID,
+        smart_ad_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        container.business_smart_ads.delete(session.principal_id, tenant_id, smart_ad_id)
+        return Response(status_code=204)
+
+    @app.get("/api/v1/business/tenants/{tenant_id}/smart-ads/{smart_ad_id}/image")
+    def business_smart_ad_image(
+        tenant_id: UUID,
+        smart_ad_id: UUID,
+        request: Request,
+        role: Literal["jewellery", "model", "creative"] = "creative",
+    ) -> Response:
+        session = _authenticate_business(request, container)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        content, content_type = container.business_smart_ads.image(
+            session.principal_id, tenant_id, smart_ad_id, role
+        )
+        return Response(content, media_type=content_type)
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/smart-ad-schedules", status_code=201)
+    def schedule_business_smart_ad(
+        tenant_id: UUID,
+        body: SmartAdScheduleBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        return container.business_smart_ads.schedule(
+            session.principal_id,
+            tenant_id,
+            body.smart_ad_id,
+            occasion=body.occasion,
+            scheduled_for=body.scheduled_for,
+            channel=body.channel,
+            target_gender=body.target_gender,
+            target_age_min=body.target_age_min,
+            target_age_max=body.target_age_max,
+            public_origin=_public_origin(request),
+        )
+
+    @app.put("/api/v1/business/tenants/{tenant_id}/smart-ad-schedules/{schedule_id}")
+    def update_business_smart_ad_schedule(
+        tenant_id: UUID,
+        schedule_id: UUID,
+        body: SmartAdScheduleBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        return container.business_smart_ads.update_schedule(
+            session.principal_id,
+            tenant_id,
+            schedule_id,
+            body.smart_ad_id,
+            occasion=body.occasion,
+            scheduled_for=body.scheduled_for,
+            channel=body.channel,
+            target_gender=body.target_gender,
+            target_age_min=body.target_age_min,
+            target_age_max=body.target_age_max,
+            public_origin=_public_origin(request),
+        )
+
+    @app.delete(
+        "/api/v1/business/tenants/{tenant_id}/smart-ad-schedules/{schedule_id}",
+        status_code=204,
+    )
+    def delete_business_smart_ad_schedule(
+        tenant_id: UUID,
+        schedule_id: UUID,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> Response:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_smart_ads is None:
+            raise ApiProblem(503, "SMART_ADS_UNAVAILABLE", "SmartAds are unavailable.")
+        container.business_smart_ads.delete_schedule(
+            session.principal_id, tenant_id, schedule_id
+        )
+        return Response(status_code=204)
 
     @app.put("/api/v1/business/tenants/{tenant_id}/allowances/policy")
     def update_business_allowance_policy(
@@ -3402,6 +3647,20 @@ def create_app(
             )
         )
 
+    @app.get("/api/v1/business/tenants/{tenant_id}/audience")
+    def business_audience(
+        tenant_id: UUID, request: Request, store_id: UUID | None = None
+    ) -> dict[str, Any]:
+        session = _authenticate_business(request, container)
+        if container.business_platform is None or container.plan_usage is None:
+            raise ApiProblem(503, "USAGE_UNAVAILABLE", "Audience metrics are unavailable.")
+        container.business_platform.overview(session.principal_id, tenant_id)
+        return asdict(
+            container.plan_usage.audience_for_account(
+                session.account_id, tenant_id, store_id=store_id
+            )
+        )
+
     @app.get("/api/v1/business/tenants/{tenant_id}/platform")
     def business_platform_context(tenant_id: UUID, request: Request) -> dict[str, Any]:
         session = _authenticate_business(request, container)
@@ -3921,14 +4180,13 @@ def create_app(
         return {"caption": home_captions.random_caption()}
 
     @app.get("/api/v1/me/daily-allowance")
-    def daily_allowance(request: Request) -> dict[str, Any]:
+    @app.get("/api/v1/me/try-on-allowance")
+    def try_on_allowance(request: Request) -> dict[str, Any]:
         session = _authenticate(request, container)
         current = datetime.now(UTC)
-        usage_date = container.quota.usage_date(current)
-        usage = container.quota.store.get(session.account_id, usage_date)
+        usage = container.quota.store.get(session.account_id)
         used = usage.successful_generations if usage else 0
         ist = current.astimezone(IST)
-        reset_local = datetime.combine(ist.date() + timedelta(days=1), time(), ist.tzinfo)
         token_cost = None
         token_balance = 0
         purchased_try_ons_remaining = 0
@@ -3958,11 +4216,12 @@ def create_app(
             "purchased_try_ons_remaining": purchased_try_ons_remaining,
             "token_balance": token_balance,
             "unlimited": not container.quota.limit_enabled,
+            "grant_type": "ONE_TIME_REGISTRATION",
             "token_cost_per_try_on": token_cost,
             "tokens_consumed_today": (
                 usage_snapshot.provider_total_tokens if container.plan_usage is not None else None
             ),
-            "resets_at": reset_local.astimezone(UTC),
+            "resets_at": None,
             "active_job_id": (
                 usage.active_job_id if usage and container.quota.limit_enabled else None
             ),
@@ -4010,7 +4269,7 @@ def create_app(
             item_asset_id=body.item_asset_id,
             person_image=person_image,
             item_image=item_image,
-            bypass_daily_quota=body.sponsored_session_id is not None,
+            bypass_free_allowance=body.sponsored_session_id is not None,
             sponsored_remaining=sponsored_remaining,
         )
         return {
@@ -4166,7 +4425,10 @@ def create_app_from_env() -> FastAPI:
     embedded_worker_enabled = (
         os.environ.get("WEARO_LOCAL_EMBEDDED_WORKER", "false").casefold() == "true"
     )
-    daily_limit_enabled = os.environ.get("WEARO_DAILY_LIMIT_ENABLED", "true").casefold() == "true"
+    free_tryon_limit_enabled = os.environ.get(
+        "WEARO_FREE_TRYON_LIMIT_ENABLED",
+        os.environ.get("WEARO_DAILY_LIMIT_ENABLED", "true"),
+    ).casefold() == "true"
     if test_auth_enabled and secure_cookie:
         raise RuntimeError("test authentication requires WEARO_SECURE_COOKIE=false")
     if embedded_worker_enabled and not test_auth_enabled:
@@ -4181,7 +4443,9 @@ def create_app_from_env() -> FastAPI:
     drive_config = GoogleDriveConfig.from_env()
     consent_service = ConsentService(PostgresConsentStore(engine), current_version="beta-v1")
     profile_service = PersonProfileService(PostgresProfileStore(engine))
-    quota_service = DailyQuotaService(PostgresQuotaStore(engine), limit_enabled=daily_limit_enabled)
+    quota_service = FreeTryOnQuotaService(
+        PostgresQuotaStore(engine), limit_enabled=free_tryon_limit_enabled
+    )
     analysis_endpoint = os.environ.get("WEARO_ANALYSIS_ENDPOINT", "")
     analysis_token = os.environ.get("WEARO_ANALYSIS_TOKEN", "")
     selected_provider = os.environ.get("WEARO_RENDER_PROVIDER", "GOOGLE_VERTEX").strip().upper()
@@ -4217,7 +4481,7 @@ def create_app_from_env() -> FastAPI:
                 analyzer,
                 enforce_adult_only=not test_auth_enabled,
                 require_full_body=not test_auth_enabled,
-                allow_jewellery=test_auth_enabled,
+                allow_jewellery=True,
             ),
             quota_service,
             PostgresTryOnRouteRegistry(engine),
@@ -4269,7 +4533,7 @@ def create_app_from_env() -> FastAPI:
         consents=consent_service,
         profiles=profile_service,
         quota=quota_service,
-        renders=PostgresRenderRuntime(engine, enforce_daily_allowance=daily_limit_enabled),
+        renders=PostgresRenderRuntime(engine, enforce_free_allowance=free_tryon_limit_enabled),
         retention=RetentionService(PostgresLifecycleStore(engine), blob_store),
         catalog=CatalogService(PostgresCatalogStore(engine)),
         business_platform=PostgresBusinessPlatform(engine),
@@ -4328,6 +4592,19 @@ def create_app_from_env() -> FastAPI:
             OpenAIAdvertisementGenerator(
                 os.environ.get("WEARO_OPENAI_API_KEY", ""),
                 os.environ.get("WEARO_ADVERTISEMENT_AI_MODEL", "gpt-image-2"),
+            ),
+            container.retention,
+        ),
+    )
+    object.__setattr__(
+        container,
+        "business_smart_ads",
+        PostgresBusinessSmartAds(
+            engine,
+            container.media,
+            OpenAISmartAdGenerator(
+                os.environ.get("WEARO_OPENAI_API_KEY", ""),
+                os.environ.get("WEARO_SMART_AD_AI_MODEL", "gpt-image-2.6-sunburst"),
             ),
             container.retention,
         ),

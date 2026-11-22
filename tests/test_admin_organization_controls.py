@@ -36,3 +36,10 @@ def test_admin_organization_reports_advertisement_generations_by_store() -> None
     assert "count(generation.generation_id)" in source
     assert "AS advertisement_generations" in source
     assert "GROUP BY store.store_id" in source
+
+
+def test_platform_admin_can_update_and_audit_b2b2c_customer_allowance() -> None:
+    source = Path("apps/api/wearo_api/admin_organizations.py").read_text()
+    assert "UPDATE business_allowance_policies" in source
+    assert "ADMIN_CUSTOMER_TRYON_LIMIT_UPDATED" in source
+    assert 'before={"customer_try_on_limit": before}' in source

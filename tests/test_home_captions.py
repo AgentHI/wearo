@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, cast
 
 import requests
@@ -108,3 +109,22 @@ def test_missing_openai_configuration_uses_cached_fallbacks() -> None:
     assert second in FALLBACK_CAPTIONS
     assert first != second
     assert session.requests == []
+
+
+def test_openai_http_failure_logs_safe_diagnostics_and_uses_fallbacks(
+    caplog: Any,
+) -> None:
+    failed_response = response([])
+    failed_response.status_code = 401
+    failed_response.url = "https://api.openai.com/v1/responses"
+    service = HomeCaptionService(
+        "invalid-key",
+        "gpt-5-mini",
+        session=Session(failed_response),  # type: ignore[arg-type]
+    )
+
+    with caplog.at_level(logging.WARNING):
+        caption = service.random_caption()
+
+    assert caption in FALLBACK_CAPTIONS
+    assert "error_type=HTTPError status_code=401" in caplog.text

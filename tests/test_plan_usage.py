@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from apps.api.wearo_api.plan_usage import BUSINESS_REPORTING_TIMEZONE, usage_snapshot
+from apps.api.wearo_api.plan_usage import (
+    BUSINESS_REPORTING_TIMEZONE,
+    UserCategoryCounts,
+    usage_snapshot,
+)
 
 
 def test_usage_snapshot_explains_before_and_after_billable_action() -> None:
@@ -42,6 +46,22 @@ def test_unlimited_preview_plan_has_no_misleading_remaining_count() -> None:
     assert snapshot.balance_after_action is None
 
 
+def test_usage_snapshot_carries_lifetime_user_category_totals() -> None:
+    categories = UserCategoryCounts(unknown=2, basic=3, premium=4, luxury=1, ultra_luxury=1)
+    snapshot = usage_snapshot(
+        plan_code="LAUNCH",
+        token_balance=0,
+        tokens_used=0,
+        preview_limit=None,
+        previews_used=0,
+        total_unique_users=11,
+        users_by_category=categories,
+    )
+
+    assert snapshot.total_unique_users == 11
+    assert snapshot.users_by_category == categories
+
+
 def test_business_usage_uses_each_table_actual_timestamp_columns() -> None:
     source = Path("apps/api/wearo_api/plan_usage.py").read_text()
     assert "business_sponsored_tryons sponsored" in source
@@ -54,6 +74,10 @@ def test_business_usage_uses_each_table_actual_timestamp_columns() -> None:
     assert "job.created_at >= :today_start" in source
     assert "OR job.created_at >= :period_start" in source
     assert "OR job.created_at < :period_end" in source
+    assert "participant.anonymized_at IS NULL" in source
+    assert "consumer.product_category = 'ultra_luxury'" in source
+    assert "session.store_id = CAST(:store AS uuid)" in source
+    assert "session.participant_id = participant.participant_id" in source
 
 
 def test_business_reporting_timezone_is_ist() -> None:

@@ -2813,17 +2813,17 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
       security: [{sessionCookie: []}]
-  /me/daily-allowance:
+  /me/try-on-allowance:
     get:
       tags: [Rendering]
-      summary: Read remaining free-beta successful generations for the current IST day
-      operationId: get__me_daily_allowance
+      summary: Read the one-time registration grant and purchased try-on capacity
+      operationId: get__me_try_on_allowance
       responses:
         '200':
           description: Current allowance
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/DailyAllowance'}
+              schema: {$ref: '#/components/schemas/TryOnAllowance'}
         '401':
           description: Authentication required
           content:
@@ -4134,15 +4134,34 @@ components:
           status: {type: string, enum: [ACTIVE, DELETION_REQUESTED]}
           last_used_at: {type: [string, 'null'], format: date-time}
         required: [id, status]
-    DailyAllowance:
+    TryOnAllowance:
       type: object
       properties:
-        successful_limit: {type: integer, const: 3}
+        successful_limit: {type: integer, minimum: 3}
         successful_used: {type: integer, minimum: 0, maximum: 3}
-        remaining: {type: integer, minimum: 0, maximum: 3}
-        resets_at: {type: string, format: date-time}
+        remaining: {type: integer, minimum: 0}
+        free_remaining: {type: integer, minimum: 0, maximum: 3}
+        purchased_try_ons_remaining: {type: integer, minimum: 0}
+        token_balance: {type: integer}
+        unlimited: {type: boolean}
+        grant_type: {type: string, const: ONE_TIME_REGISTRATION}
+        token_cost_per_try_on: {type: [integer, 'null'], minimum: 1}
+        tokens_consumed_today: {type: [integer, 'null'], minimum: 0}
+        resets_at: {type: 'null'}
         active_job_id: {type: [string, 'null'], format: uuid}
-      required: [successful_limit, successful_used, remaining, resets_at]
+      required:
+      - successful_limit
+      - successful_used
+      - remaining
+      - free_remaining
+      - purchased_try_ons_remaining
+      - token_balance
+      - unlimited
+      - grant_type
+      - token_cost_per_try_on
+      - tokens_consumed_today
+      - resets_at
+      - active_job_id
       additionalProperties: false
     HomeCaption:
       type: object

@@ -52,6 +52,16 @@ def test_analysis_client_decodes_preflight_and_quality_signals() -> None:
                     "safe_content": True,
                     "item_kind": "APPAREL",
                     "item_count": 1,
+                    "person_category": "woman",
+                    "age_range": "30_39",
+                    "estimated_age": 34,
+                    "product_signals": {
+                        "material": "premium",
+                        "richness": "luxury",
+                        "stones": "basic",
+                        "craftsmanship": "premium",
+                        "brand_exclusivity": "unknown",
+                    },
                 },
             ),
             response(
@@ -76,6 +86,10 @@ def test_analysis_client_decodes_preflight_and_quality_signals() -> None:
     preflight = client.assess(b"person", b"item")
     quality = client.analyze(b"person", b"item", b"result")
     assert preflight.item_kind == "APPAREL" and preflight.person_count == 1
+    assert preflight.person_category == "woman"
+    assert preflight.age_range == "30_39"
+    assert preflight.estimated_age == 34
+    assert preflight.product_signals.richness == "luxury"
     assert quality.identity_similarity == 0.97 and quality.safe_content
     assert session.requests[0]["timeout"] == 30
 
@@ -117,6 +131,16 @@ def test_openai_analysis_client_uses_responses_vision_and_structured_output() ->
                     "safe_content": True,
                     "item_kind": "APPAREL",
                     "item_count": 1,
+                    "person_category": "woman",
+                    "age_range": "30_39",
+                    "estimated_age": 34,
+                    "product_signals": {
+                        "material": "premium",
+                        "richness": "luxury",
+                        "stones": "basic",
+                        "craftsmanship": "premium",
+                        "brand_exclusivity": "unknown",
+                    },
                 }
             ),
             structured_response(
@@ -138,6 +162,10 @@ def test_openai_analysis_client_uses_responses_vision_and_structured_output() ->
     quality = client.analyze(b"person", b"item", b"result")
 
     assert preflight.item_kind == "APPAREL"
+    assert preflight.person_category == "woman"
+    assert preflight.age_range == "30_39"
+    assert preflight.estimated_age == 34
+    assert preflight.product_signals.richness == "luxury"
     assert quality.identity_similarity == 0.98
     request = session.requests[0]
     assert request["url"] == "https://api.openai.com/v1/responses"
@@ -164,6 +192,12 @@ def test_openai_analysis_client_uses_responses_vision_and_structured_output() ->
     prompt = next(part["text"] for part in content if part["type"] == "input_text")
     assert "Ignore the reference person" in prompt
     assert "earring pair or matching jewellery set" in prompt
+    assert "grade each visible product signal" in prompt
+    assert "visual merchandising label, not a claim about gender identity" in prompt
+    assert "single visual age" in prompt
+    assert "person_category" in output_format["schema"]["required"]
+    assert "age_range" in output_format["schema"]["required"]
+    assert "estimated_age" in output_format["schema"]["required"]
     images = [part for part in content if part["type"] == "input_image"]
     assert len(images) == 2
     assert str(images[0]["image_url"]).startswith("data:image/png;base64,")

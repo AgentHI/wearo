@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
-from zoneinfo import ZoneInfo
-
-IST = ZoneInfo("Asia/Kolkata")
 
 
 class ProfileError(ValueError):
@@ -58,9 +55,8 @@ class PersonProfile:
 
 
 @dataclass(frozen=True)
-class DailyUsage:
+class FreeTryOnUsage:
     account_id: UUID
-    usage_date_ist: date
     successful_generations: int
     active_job_id: UUID | None
 
@@ -75,14 +71,12 @@ class ProfileStore(Protocol):
 
 
 class QuotaStore(Protocol):
-    def reserve(
-        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
-    ) -> DailyUsage | None: ...
+    def reserve(self, account_id: UUID, job_id: UUID, maximum: int) -> FreeTryOnUsage | None: ...
     def settle_success(
-        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
-    ) -> DailyUsage | None: ...
-    def release(self, account_id: UUID, usage_date: date, job_id: UUID) -> DailyUsage | None: ...
-    def get(self, account_id: UUID, usage_date: date) -> DailyUsage | None: ...
+        self, account_id: UUID, job_id: UUID, maximum: int
+    ) -> FreeTryOnUsage | None: ...
+    def release(self, account_id: UUID, job_id: UUID) -> FreeTryOnUsage | None: ...
+    def get(self, account_id: UUID) -> FreeTryOnUsage | None: ...
 
 
 class PersonProfileService:
@@ -133,47 +127,41 @@ class PersonProfileService:
         return self.store.restore_requested(account_id, now or datetime.now(UTC))
 
 
-class DailyQuotaService:
+class FreeTryOnQuotaService:
+    """A registration grant that is consumed once and never renews."""
+
     maximum = 3
 
     def __init__(self, store: QuotaStore, *, limit_enabled: bool = True) -> None:
         self.store = store
         self.limit_enabled = limit_enabled
 
-    @staticmethod
-    def usage_date(now: datetime) -> date:
-        return now.astimezone(IST).date()
-
     def remaining(self, account_id: UUID, *, now: datetime | None = None) -> int:
         if not self.limit_enabled:
             return self.maximum
-        current = now or datetime.now(UTC)
-        usage = self.store.get(account_id, self.usage_date(current))
+        usage = self.store.get(account_id)
         return self.maximum - (usage.successful_generations if usage else 0)
 
-    def reserve(self, account_id: UUID, job_id: UUID, *, now: datetime | None = None) -> DailyUsage:
-        current = now or datetime.now(UTC)
-        result = self.store.reserve(account_id, self.usage_date(current), job_id, self.maximum)
+    def reserve(
+        self, account_id: UUID, job_id: UUID, *, now: datetime | None = None
+    ) -> FreeTryOnUsage:
+        result = self.store.reserve(account_id, job_id, self.maximum)
         if result is None:
-            raise QuotaError("daily allowance unavailable")
+            raise QuotaError("free try-on allowance unavailable")
         return result
 
     def settle_success(
         self, account_id: UUID, job_id: UUID, *, now: datetime | None = None
-    ) -> DailyUsage:
-        current = now or datetime.now(UTC)
-        result = self.store.settle_success(
-            account_id, self.usage_date(current), job_id, self.maximum
-        )
+    ) -> FreeTryOnUsage:
+        result = self.store.settle_success(account_id, job_id, self.maximum)
         if result is None:
-            raise QuotaError("daily allowance unavailable")
+            raise QuotaError("free try-on allowance unavailable")
         return result
 
     def release_failure(
         self, account_id: UUID, job_id: UUID, *, now: datetime | None = None
-    ) -> DailyUsage:
-        current = now or datetime.now(UTC)
-        result = self.store.release(account_id, self.usage_date(current), job_id)
+    ) -> FreeTryOnUsage:
+        result = self.store.release(account_id, job_id)
         if result is None:
-            raise QuotaError("daily allowance unavailable")
+            raise QuotaError("free try-on allowance unavailable")
         return result

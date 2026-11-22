@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any, Literal, Protocol
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import requests
@@ -38,6 +39,7 @@ _TEMPLATE_KEYS = {
     "WELCOME",
     "NEW_FEATURES",
     "MONTHLY_REPORT",
+    "SMART_AD",
     "SUPPORT_DEFAULT_RESPONSE",
     "BILLING_MONTH_START",
     "BILLING_DAY_BEFORE",
@@ -50,6 +52,7 @@ TEMPLATE_DEFINITIONS: dict[str, tuple[str, str]] = {
     "WELCOME": ("NOTIFICATION", "Welcome"),
     "NEW_FEATURES": ("NOTIFICATION", "New features"),
     "MONTHLY_REPORT": ("NOTIFICATION", "Monthly report"),
+    "SMART_AD": ("NOTIFICATION", "SmartAds campaign"),
     "SUPPORT_DEFAULT_RESPONSE": ("SUPPORT", "Default support response"),
     "BILLING_MONTH_START": ("BILLING", "Monthly first billing notification"),
     "BILLING_DAY_BEFORE": ("BILLING", "Day before billing notification"),
@@ -68,7 +71,15 @@ class NotificationError(ValueError):
 
 class EmailSender(Protocol):
     def send(
-        self, *, to_address: str, subject: str, body: str, signature: str, category: str
+        self,
+        *,
+        to_address: str,
+        subject: str,
+        body: str,
+        signature: str,
+        category: str,
+        advertisement_url: str | None = None,
+        action_url: str | None = None,
     ) -> str: ...
 
 
@@ -111,7 +122,15 @@ class SesEmailSender:
         self.campaign_bytes = campaign_bytes
 
     def send(
-        self, *, to_address: str, subject: str, body: str, signature: str, category: str
+        self,
+        *,
+        to_address: str,
+        subject: str,
+        body: str,
+        signature: str,
+        category: str,
+        advertisement_url: str | None = None,
+        action_url: str | None = None,
     ) -> str:
         clean_body = _IMAGE_TAG.sub("", body).strip()
         clean_signature = _IMAGE_TAG.sub("", signature).strip()
@@ -155,9 +174,41 @@ class SesEmailSender:
             if rendered_signature
             else ""
         )
+        advertisement = ""
+        if advertisement_url:
+            parsed = urlsplit(advertisement_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise NotificationError(
+                    "INVALID_ADVERTISEMENT_URL", "The advertisement image URL is invalid."
+                )
+            advertisement = (
+                f'<img src="{html.escape(advertisement_url, quote=True)}" '
+                'alt="Advertisement" width="520" style="display:block;width:100%;'
+                'max-width:520px;height:auto;margin:0 0 24px;border-radius:12px">'
+            )
+        try_on_action = ""
+        if action_url:
+            parsed = urlsplit(action_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise NotificationError(
+                    "INVALID_ACTION_URL", "The SmartAds try-on URL is invalid."
+                )
+            safe_action_url = html.escape(action_url, quote=True)
+            try_on_action = (
+                '<div style="margin:28px 0;padding:20px;border:1px solid #c9a46b;'
+                'border-radius:12px;text-align:center">'
+                '<strong style="display:block;margin-bottom:6px;font-size:19px">'
+                'See how you look in the new collection</strong>'
+                '<span style="display:block;margin-bottom:16px;font-size:14px">'
+                'Open your private Wearo fitting room and use an available try-on.</span>'
+                f'<a href="{safe_action_url}" style="display:inline-block;padding:12px 24px;'
+                'border-radius:999px;color:#251129;background:#e7c57e;text-decoration:none;'
+                'font-weight:700">Try on</a></div>'
+            )
+            text_body = f"{text_body}\n\nSee how you look in the new collection: {action_url}"
         email_content = (
             '<div style="max-width:520px;font-size:17px;line-height:1.6;text-align:left">'
-            f"{body_html}{signature_block}</div>"
+            f"{advertisement}{body_html}{try_on_action}{signature_block}</div>"
         )
         logo_source = (
             "cid:wearo-logo"
@@ -969,6 +1020,16 @@ class NotificationWorker:
                 body=_render(str(template["body"]), variables),
                 signature=_render(str(template.get("signature") or ""), variables),
                 category=str(template["category"]),
+                advertisement_url=(
+                    str(variables["smart_ad_image_url"])
+                    if variables.get("smart_ad_image_url")
+                    else None
+                ),
+                action_url=(
+                    str(variables["smart_ad_try_on_url"])
+                    if variables.get("smart_ad_try_on_url")
+                    else None
+                ),
             )
             self.service.delivered(job.job_id, provider_id)
         except Exception as error:

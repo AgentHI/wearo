@@ -65,6 +65,15 @@ class PostgresBusinessPlatform:
         self.engine = engine
 
     @staticmethod
+    def _recommendation_json(profile: OperatingProfile) -> dict[str, object]:
+        selected = recommendation_for(profile)
+        return {
+            "catalog_label": selected.catalog_label,
+            "eligible_offerings": selected.eligible_offerings,
+            "required_catalog_fields": selected.required_catalog_fields,
+        }
+
+    @staticmethod
     def _require_member(
         connection: Connection, principal_id: UUID, tenant_id: UUID, *, owner: bool = False
     ) -> UUID:
@@ -184,27 +193,10 @@ class PostgresBusinessPlatform:
                 .mappings()
                 .one_or_none()
             )
-            profile_change = (
-                connection.execute(
-                    text(
-                        """SELECT request_id, requested_profile, reason, state, created_at
-                    FROM business_profile_change_requests
-                    WHERE tenant_id=:tenant AND account_id=:account AND state='OPEN'"""
-                    ),
-                    {"tenant": tenant_id, "account": account_id},
-                )
-                .mappings()
-                .one_or_none()
-            )
         profile_json = dict(profile) if profile else None
         recommendation = None
         if profile:
-            selected = recommendation_for(profile["operating_profile"])
-            recommendation = {
-                "catalog_label": selected.catalog_label,
-                "eligible_offerings": selected.eligible_offerings,
-                "required_catalog_fields": selected.required_catalog_fields,
-            }
+            recommendation = self._recommendation_json(profile["operating_profile"])
         return {
             "tenant_id": tenant_id,
             "account_id": account_id,
@@ -213,7 +205,6 @@ class PostgresBusinessPlatform:
             "enabled_offerings": entitlements,
             "wallet": {"unit": "WEARO_TOKEN", "balance": balance, "used": used},
             "allowance": dict(allowance) if allowance else None,
-            "profile_change_request": dict(profile_change) if profile_change else None,
         }
 
     def customer_experience_settings(self, principal_id: UUID, tenant_id: UUID) -> dict[str, int]:
@@ -322,19 +313,19 @@ class PostgresBusinessPlatform:
             "profile_deletion_hours": profile_deletion_hours,
         }
 
-    def request_profile_change(
+    def update_operating_profile(
         self,
         principal_id: UUID,
         tenant_id: UUID,
-        requested_profile: OperatingProfile,
+        operating_profile: OperatingProfile,
         reason: str,
     ) -> dict[str, object]:
         explanation = reason.strip()
         if not explanation or len(explanation) > 500:
             raise BusinessPlatformError("CHANGE_REASON_REQUIRED", "A change reason is required.")
-        if requested_profile not in RECOMMENDATIONS:
+        if operating_profile not in RECOMMENDATIONS:
             raise BusinessPlatformError("INVALID_OPERATING_PROFILE", "Select a supported profile.")
-        now, request_id = datetime.now(UTC), uuid4()
+        now = datetime.now(UTC)
         with self.engine.begin() as connection:
             account_id = self._require_member(connection, principal_id, tenant_id, owner=True)
             current = connection.execute(
@@ -348,62 +339,45 @@ class PostgresBusinessPlatform:
                 raise BusinessPlatformError(
                     "BUSINESS_RESOURCE_UNAVAILABLE", "Resource unavailable."
                 )
-            if current == requested_profile:
-                raise BusinessPlatformError(
-                    "PROFILE_CHANGE_NOT_REQUIRED", "The requested profile is already active."
-                )
-            existing = (
-                connection.execute(
-                    text(
-                        """SELECT request_id, requested_profile, reason, state, created_at
-                    FROM business_profile_change_requests
-                    WHERE tenant_id=:tenant AND account_id=:account AND state='OPEN'"""
-                    ),
-                    {"tenant": tenant_id, "account": account_id},
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if existing:
-                return dict(existing)
-            row = (
-                connection.execute(
-                    text(
-                        """INSERT INTO business_profile_change_requests
-                    (request_id, tenant_id, account_id, requested_by_principal_id,
-                     requested_profile, reason, state, created_at)
-                    VALUES (:request, :tenant, :account, :principal, :profile,
-                            :reason, 'OPEN', :now)
-                    RETURNING request_id, requested_profile, reason, state, created_at"""
-                    ),
-                    {
-                        "request": request_id,
-                        "tenant": tenant_id,
-                        "account": account_id,
-                        "principal": principal_id,
-                        "profile": requested_profile,
-                        "reason": explanation,
-                        "now": now,
-                    },
-                )
-                .mappings()
-                .one()
+            if current == operating_profile:
+                return {
+                    "operating_profile": operating_profile,
+                    "recommendation": self._recommendation_json(operating_profile),
+                }
+            connection.execute(
+                text(
+                    """UPDATE business_profiles
+                    SET operating_profile=:profile, updated_at=:now
+                    WHERE tenant_id=:tenant AND account_id=:account"""
+                ),
+                {
+                    "profile": operating_profile,
+                    "now": now,
+                    "tenant": tenant_id,
+                    "account": account_id,
+                },
             )
             connection.execute(
                 text(
                     """INSERT INTO audit_events
-                    (account_id, tenant_id, actor_type, actor_id, action, target_type,
-                     target_id, reason, occurred_at)
-                    VALUES (:account, :tenant, 'PRINCIPAL', :principal,
-                            'OPERATING_PROFILE_CHANGE_REQUESTED', 'BUSINESS_PROFILE',
-                            :tenant, :reason, :now)"""
+                    (audit_event_id, account_id, tenant_id, actor_type, actor_id, action,
+                     target_type, target_id, reason, before_summary, after_summary, occurred_at)
+                    VALUES (:event, :account, :tenant, 'PRINCIPAL', :principal,
+                            'OPERATING_PROFILE_UPDATED', 'BUSINESS_PROFILE', :tenant, :reason,
+                            CAST(:before AS jsonb), CAST(:after AS jsonb), :now)"""
                 ),
                 {
+                    "event": uuid4(),
                     "account": account_id,
                     "tenant": tenant_id,
                     "principal": principal_id,
                     "reason": explanation,
+                    "before": json.dumps({"operating_profile": current}),
+                    "after": json.dumps({"operating_profile": operating_profile}),
                     "now": now,
                 },
             )
-            return dict(row)
+        return {
+            "operating_profile": operating_profile,
+            "recommendation": self._recommendation_json(operating_profile),
+        }

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 
 from apps.api.wearo_api.beta_profile import (
-    DailyQuotaService,
-    DailyUsage,
+    FreeTryOnQuotaService,
+    FreeTryOnUsage,
     PersonProfile,
     PersonProfileService,
     ProfileError,
@@ -47,39 +47,37 @@ class MemoryProfileStore:
 
 class MemoryQuotaStore:
     def __init__(self) -> None:
-        self.items: dict[tuple[UUID, date], DailyUsage] = {}
+        self.items: dict[UUID, FreeTryOnUsage] = {}
 
-    def get(self, account_id: UUID, usage_date: date) -> DailyUsage | None:
-        return self.items.get((account_id, usage_date))
+    def get(self, account_id: UUID) -> FreeTryOnUsage | None:
+        return self.items.get(account_id)
 
-    def reserve(
-        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
-    ) -> DailyUsage | None:
-        item = self.get(account_id, usage_date) or DailyUsage(account_id, usage_date, 0, None)
+    def reserve(self, account_id: UUID, job_id: UUID, maximum: int) -> FreeTryOnUsage | None:
+        item = self.get(account_id) or FreeTryOnUsage(account_id, 0, None)
         if item.active_job_id is not None or item.successful_generations >= maximum:
             return None
         item = replace(item, active_job_id=job_id)
-        self.items[(account_id, usage_date)] = item
+        self.items[account_id] = item
         return item
 
     def settle_success(
-        self, account_id: UUID, usage_date: date, job_id: UUID, maximum: int
-    ) -> DailyUsage | None:
-        item = self.get(account_id, usage_date)
+        self, account_id: UUID, job_id: UUID, maximum: int
+    ) -> FreeTryOnUsage | None:
+        item = self.get(account_id)
         if item is None or item.active_job_id != job_id or item.successful_generations >= maximum:
             return None
         item = replace(
             item, active_job_id=None, successful_generations=item.successful_generations + 1
         )
-        self.items[(account_id, usage_date)] = item
+        self.items[account_id] = item
         return item
 
-    def release(self, account_id: UUID, usage_date: date, job_id: UUID) -> DailyUsage | None:
-        item = self.get(account_id, usage_date)
+    def release(self, account_id: UUID, job_id: UUID) -> FreeTryOnUsage | None:
+        item = self.get(account_id)
         if item is None or item.active_job_id != job_id:
             return None
         item = replace(item, active_job_id=None)
-        self.items[(account_id, usage_date)] = item
+        self.items[account_id] = item
         return item
 
 
@@ -192,8 +190,8 @@ def test_profile_supports_ten_photos_and_rejects_an_eleventh() -> None:
         )
 
 
-def test_only_successes_consume_three_per_ist_day_and_one_job_is_active() -> None:
-    service = DailyQuotaService(MemoryQuotaStore())
+def test_only_successes_consume_three_registration_tryons_and_one_job_is_active() -> None:
+    service = FreeTryOnQuotaService(MemoryQuotaStore())
     account = uuid4()
     for expected in (2, 1, 0):
         job = uuid4()
@@ -205,24 +203,25 @@ def test_only_successes_consume_three_per_ist_day_and_one_job_is_active() -> Non
     with pytest.raises(QuotaError):
         service.reserve(account, uuid4(), now=NOW)
 
+    assert service.remaining(account, now=NOW + timedelta(days=1)) == 0
+
 
 def test_failure_releases_slot_without_consuming_allowance() -> None:
-    service = DailyQuotaService(MemoryQuotaStore())
+    service = FreeTryOnQuotaService(MemoryQuotaStore())
     account, job = uuid4(), uuid4()
     service.reserve(account, job, now=NOW)
     service.release_failure(account, job, now=NOW)
     assert service.remaining(account, now=NOW) == 3
-    assert DailyQuotaService.usage_date(NOW) == date(2026, 10, 18)
 
 
-def test_disabled_daily_limit_always_reports_available_capacity() -> None:
+def test_disabled_free_limit_always_reports_available_capacity() -> None:
     store = MemoryQuotaStore()
-    service = DailyQuotaService(store, limit_enabled=False)
+    service = FreeTryOnQuotaService(store, limit_enabled=False)
     account = uuid4()
     for _ in range(3):
         job = uuid4()
-        store.reserve(account, service.usage_date(NOW), job, service.maximum)
-        store.settle_success(account, service.usage_date(NOW), job, service.maximum)
+        store.reserve(account, job, service.maximum)
+        store.settle_success(account, job, service.maximum)
 
     assert service.remaining(account, now=NOW) == 3
     assert service.limit_enabled is False

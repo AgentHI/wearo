@@ -23,9 +23,10 @@ one-time consumption and session/CSRF checks remain active. The API refuses to s
 authentication and secure-cookie mode enabled; never use fixed authentication in staging or
 production.
 
-Set `WEARO_DAILY_LIMIT_ENABLED=false` only during local testing to bypass daily quota and
-single-active-generation reservation. The PWA displays an unlimited indicator, but every OpenAI
-analysis and generation still incurs provider usage. Leave this setting enabled in production.
+Set `WEARO_FREE_TRYON_LIMIT_ENABLED=false` only during local testing to bypass the one-time
+registration grant and single-active-generation reservation. The PWA displays an unlimited
+indicator, but every analysis and generation still incurs provider usage. Leave this setting
+enabled in production.
 
 Set `WEARO_RENDER_QUALITY_GATE_ENABLED=false` only during local testing to publish provider
 results without the post-generation quality-analysis call. This can expose inaccurate or unsafe

@@ -4,6 +4,7 @@ from dataclasses import replace
 from PIL import Image
 
 from apps.api.wearo_api.image_preflight import ImagePreflightService, VisionAssessment
+from apps.api.wearo_api.product_classification import ProductSignals
 
 
 class FixedAnalyzer:
@@ -77,6 +78,65 @@ def test_local_testing_accepts_close_up_and_jewellery_while_retaining_safety_che
         allow_jewellery=True,
     ).validate(image_bytes(), image_bytes())
     assert not unsafe.accepted and unsafe.code == "UNSAFE_CONTENT"
+
+
+def test_accepted_jewellery_carries_visual_product_classification() -> None:
+    assessment = replace(
+        valid(),
+        item_kind="JEWELLERY",
+        person_category="woman",
+        age_range="30_39",
+        estimated_age=34,
+        product_signals=ProductSignals(
+            material="luxury",
+            richness="luxury",
+            stones="luxury",
+            craftsmanship="luxury",
+        ),
+    )
+
+    result = ImagePreflightService(FixedAnalyzer(assessment), allow_jewellery=True).validate(
+        image_bytes(), image_bytes()
+    )
+
+    assert result.accepted
+    assert result.product_classification is not None
+    assert result.product_classification.category == "luxury"
+    assert result.person_category == "woman"
+    assert result.age_range == "30_39"
+    assert result.estimated_age == 34
+
+
+def test_preflight_combines_visual_merchant_and_price_evidence() -> None:
+    assessment = replace(
+        valid(),
+        product_signals=ProductSignals(
+            material="basic",
+            richness="luxury",
+            stones="premium",
+            craftsmanship="premium",
+        ),
+    )
+
+    result = ImagePreflightService(FixedAnalyzer(assessment)).validate(
+        image_bytes(),
+        image_bytes(),
+        merchant_attributes={
+            "material": "pure silk",
+            "craftsmanship": "couture",
+            "brand_exclusivity": "bespoke",
+        },
+        price_minor=2_500_000,
+        currency="INR",
+    )
+
+    assert result.product_classification is not None
+    assert result.product_classification.category == "luxury"
+    assert result.product_classification.evidence_sources == (
+        "AI_VISUAL",
+        "MERCHANT_METADATA",
+        "PRICE",
+    )
 
 
 def test_item_is_automatically_classified_and_unsupported_inputs_do_not_pass() -> None:

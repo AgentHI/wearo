@@ -1,11 +1,53 @@
 import { brandMarkup } from "./brand.js";
 import { apiError, networkError, readApiBody } from "./api-messages.js";
 import { razorpayCheckoutLogo } from "./razorpay-brand.js";
+import { wearoConfirm } from "./wearo-dialog.js";
 
 const API_BASE = "/api/v1";
 const BUSINESS_AUTH_KEY = "wearo_business_auth";
 let currentAgentAppUrl = "";
 let pendingAgentMove = null;
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  })[character]);
+}
+
+const OPERATING_PROFILE_LABELS = Object.freeze({
+  BOUTIQUE: "Boutique",
+  CLOTHING_RETAILER: "Clothing retailer",
+  JEWELLERY_RETAILER: "Jewellery retailer",
+  ENTERPRISE_CHAIN: "Enterprise chain",
+  OTHER: "Other",
+});
+
+function operatingProfileLabel(profile) {
+  return OPERATING_PROFILE_LABELS[profile] || "Operating profile";
+}
+
+function personCategoryLabel(category) {
+  return { woman: "Woman", girl: "Girl", unknown: "Unclassified" }[category] || "Unclassified";
+}
+
+function ageRangeLabel(ageRange) {
+  return {
+    under_10: "Under 10",
+    "10_19": "10–19",
+    "20_29": "20–29",
+    "30_39": "30–39",
+    "40_49": "40–49",
+    "50_59": "50–59",
+    "60_plus": "60+",
+    unknown: "Age unclassified",
+  }[ageRange] || "Age unclassified";
+}
+
+function estimatedAgeLabel(estimatedAge, ageRange) {
+  return Number.isInteger(estimatedAge)
+    ? `Approx. ${estimatedAge} years`
+    : ageRangeLabel(ageRange);
+}
 
 async function copyToClipboard(value) {
   if (navigator.clipboard?.writeText) {
@@ -30,10 +72,20 @@ function fileToDataUrl(file) {
   });
 }
 
+function smartAdsMark(className = "") {
+  return `<svg class="smart-ads-mark ${className}" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <rect x="6.25" y="7.25" width="19.5" height="18.5" rx="5.25" stroke="currentColor" stroke-width="1.5"/>
+    <path d="m16 11.25 3.65 4.2L16 21.2l-3.65-5.75L16 11.25Z" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+    <path d="M16 11.25v9.95m-3.65-5.75h7.3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+    <path d="M24.5 3.75v3.5M22.75 5.5h3.5M8.5 3.5v2M7.5 4.5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  </svg>`;
+}
+
 const sections = [
   ["dashboard", "Overview", "▦"],
   ["experience", "Wearo experience", "◇"],
   ["customers", "Customers", "♙"],
+  ["smart-ads", "SmartAds", smartAdsMark("smart-ads-mark--nav")],
   ["stores", "Stores", "⌂"],
   ["agents", "Agent transfers", "♧"],
   ["billing", "Plans & billing", "▤"],
@@ -240,6 +292,17 @@ function dashboardView() {
         <article class="metric-card--activity"><div><p>Average try-ons</p><span class="metric-icon">↗</span></div><strong id="overview-average-tryons">—</strong><small id="overview-average-hourly">Per day · per hour</small></article>
       </div>
     </section>
+    <section class="dashboard-metric-group dashboard-metric-group--activity" aria-labelledby="customer-category-heading">
+      <div class="dashboard-metric-group__heading"><div><p class="eyebrow">Lifetime audience</p><h2 id="customer-category-heading">Customer categories</h2></div><div class="audience-store-filter"><label for="audience-store">Store</label><select id="audience-store"><option value="">All stores</option></select><small id="audience-store-context">All stores · unique customers · all time</small></div></div>
+      <div class="metric-grid overview-metrics">
+        <article class="metric-card--activity"><div><p>Total unique users</p><span class="metric-icon">U</span></div><strong id="overview-total-unique-users">—</strong><small>All non-anonymized customers seen by your business</small></article>
+        <article class="metric-card--activity"><div><p>Basic</p><span class="metric-icon">B</span></div><strong id="overview-category-basic">—</strong><small>Customers currently classified as basic</small></article>
+        <article class="metric-card--activity"><div><p>Premium</p><span class="metric-icon">P</span></div><strong id="overview-category-premium">—</strong><small>Customers currently classified as premium</small></article>
+        <article class="metric-card--activity"><div><p>Luxury</p><span class="metric-icon">L</span></div><strong id="overview-category-luxury">—</strong><small>Customers currently classified as luxury</small></article>
+        <article class="metric-card--activity"><div><p>Ultra luxury</p><span class="metric-icon">UL</span></div><strong id="overview-category-ultra-luxury">—</strong><small>Customers currently classified as ultra_luxury</small></article>
+        <article class="metric-card--activity"><div><p>Unclassified</p><span class="metric-icon">?</span></div><strong id="overview-category-unknown">—</strong><small>Customers whose category is still unknown</small></article>
+      </div>
+    </section>
     <section class="dashboard-grid">
       <article class="panel"><div class="panel__heading"><div><h2>Launch readiness</h2><p>Complete these before customer traffic.</p></div></div><ul class="readiness-list"><li class="done"><span>✓</span>Workspace created</li><li><span>2</span>Connect billing</li><li><span>3</span>Connect your business app</li><li><span>4</span>Pass quality evaluation</li></ul></article>
       <article class="panel panel--wide"><div class="panel__heading"><div><h2>Recent activity</h2><p>Operational events, never private customer photos.</p></div></div><div class="table-empty"><span aria-hidden="true">◎</span><strong>Your activity feed is ready</strong><p>Events will appear when your team starts configuring the workspace.</p></div></article>
@@ -318,6 +381,61 @@ async function loadOverviewUsage(dateRange = {}) {
   }
 }
 
+function audienceFields() {
+  return {
+    total: document.querySelector("#overview-total-unique-users"),
+    basic: document.querySelector("#overview-category-basic"),
+    premium: document.querySelector("#overview-category-premium"),
+    luxury: document.querySelector("#overview-category-luxury"),
+    ultra_luxury: document.querySelector("#overview-category-ultra-luxury"),
+    unknown: document.querySelector("#overview-category-unknown"),
+  };
+}
+
+async function loadAudience(storeId = "", storeName = "All stores") {
+  const fields = audienceFields();
+  const context = document.querySelector("#audience-store-context");
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  if (!tenantId || !fields.total) return;
+  try {
+    const query = new URLSearchParams();
+    if (storeId) query.set("store_id", storeId);
+    const suffix = storeId ? `?${query}` : "";
+    const audience = await businessApi(`/business/tenants/${tenantId}/audience${suffix}`);
+    const categories = audience.users_by_category || {};
+    fields.total.textContent = String(audience.total_unique_users ?? 0);
+    fields.basic.textContent = String(categories.basic ?? 0);
+    fields.premium.textContent = String(categories.premium ?? 0);
+    fields.luxury.textContent = String(categories.luxury ?? 0);
+    fields.ultra_luxury.textContent = String(categories.ultra_luxury ?? 0);
+    fields.unknown.textContent = String(categories.unknown ?? 0);
+    if (context) context.textContent = `${storeName} · unique customers · all time`;
+  } catch {
+    Object.values(fields).forEach((field) => { if (field) field.textContent = "Unavailable"; });
+  }
+}
+
+async function setupAudienceStoreFilter() {
+  const select = document.querySelector("#audience-store");
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  if (!select || !tenantId) return;
+  try {
+    const result = await businessApi(`/business/tenants/${tenantId}/stores`);
+    for (const store of result.items) {
+      const option = document.createElement("option");
+      option.value = store.store_id;
+      option.textContent = store.status === "ACTIVE" ? store.name : `${store.name} (${store.status.toLowerCase()})`;
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      loadAudience(select.value, select.selectedOptions[0]?.textContent || "All stores");
+    });
+  } catch {
+    select.disabled = true;
+  }
+  await loadAudience();
+}
+
 function experienceView() {
   return `
     <header class="page-heading"><div><p class="eyebrow">Wearo experience</p><h1>Connect your customer experience</h1><p>Your existing app owns its inventory and commerce flow. This workspace only manages the Wearo try-on service.</p></div></header>
@@ -359,12 +477,27 @@ async function loadCustomers({ page = 1, search = "" } = {}) {
       row.className = "customer-row";
       const identity = document.createElement("div");
       const mobile = document.createElement("strong");
+      const demographics = document.createElement("div");
       const activity = document.createElement("small");
       mobile.textContent = customer.mobile;
+      demographics.className = "customer-row__people";
+      const persons = customer.persons?.length ? customer.persons : [customer];
+      persons.forEach((person, index) => {
+        const personSummary = document.createElement("span");
+        personSummary.className = "customer-row__person";
+        const personCategory = document.createElement("span");
+        const ageRange = document.createElement("span");
+        personCategory.className = "status-chip";
+        personCategory.textContent = `${persons.length > 1 ? `Person ${index + 1}: ` : ""}${personCategoryLabel(person.person_category)}`;
+        ageRange.className = "status-chip";
+        ageRange.textContent = estimatedAgeLabel(person.estimated_age, person.age_range);
+        personSummary.append(personCategory, ageRange);
+        demographics.append(personSummary);
+      });
       activity.textContent = customer.latest_try_on_at
         ? `Latest try-on ${new Date(customer.latest_try_on_at).toLocaleString()}`
         : `Joined ${new Date(customer.first_seen_at).toLocaleString()} · No completed try-ons`;
-      identity.append(mobile, activity);
+      identity.append(mobile, demographics, activity);
       const count = document.createElement("div");
       count.className = "customer-row__count";
       count.innerHTML = `<strong>${customer.try_on_count}</strong><span>successful try-on${customer.try_on_count === 1 ? "" : "s"}</span>`;
@@ -383,6 +516,201 @@ async function loadCustomers({ page = 1, search = "" } = {}) {
     next.disabled = true;
     return null;
   }
+}
+
+function smartAdsView() {
+  return `
+    <header class="smart-ads-hero">
+      <div class="smart-ads-hero__identity">
+        <span class="smart-ads-hero__mark">${smartAdsMark("smart-ads-mark--hero")}</span>
+        <div><p class="eyebrow">Campaign intelligence</p><h1>Smart<span>Ads</span></h1><p>Create jewellery campaigns with AI, then reach the right consented audience at the right moment.</p></div>
+      </div>
+      <div class="smart-ads-hero__note"><span>Independent workspace</span><p>SmartAds campaigns stay separate from your store try-on advertisements.</p></div>
+    </header>
+    <section class="smart-ads-summary" aria-label="SmartAds summary">
+      <article class="smart-ads-stat smart-ads-stat--audience"><div class="smart-ads-stat__top"><span>Unique female users</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 18c.4-3.1 2.2-4.7 5.5-4.7s5.1 1.6 5.5 4.7M17 8.5a2.5 2.5 0 1 0 0-5M16 13c2.7 0 4.2 1.3 4.5 4"/></svg></div><strong id="smart-ads-female-users">—</strong><small>Individual women, including multiple people saved in one profile.</small></article>
+      <article class="smart-ads-stat"><div class="smart-ads-stat__top"><span>Ready to reach</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg></div><strong id="smart-ads-eligible-users">—</strong><small>Female users who have given marketing consent.</small></article>
+      <article class="smart-ads-stat smart-ads-stat--tries"><div class="smart-ads-stat__top"><span>AI generations today</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="3.5"/></svg></div><strong id="smart-ads-attempts">—</strong><small>Two creative concepts are available each India calendar day.</small></article>
+    </section>
+    <section class="smart-ads-workspace">
+      <form id="smart-ad-create-form" class="panel smart-ad-editor smart-ad-editor--create">
+        <div class="smart-ad-editor__heading"><span class="smart-ad-step">01</span><div><p class="eyebrow">Creative studio</p><h2>Create a campaign</h2><p>Start with the jewellery, add an optional model, and guide the look with a prompt.</p></div></div>
+        <label class="smart-ad-field"><span>Campaign name</span><input name="title" maxlength="120" required placeholder="e.g. Diwali heritage collection" /></label>
+        <fieldset class="smart-ad-upload-group"><legend>Campaign imagery</legend><div class="smart-ad-upload-grid">
+          <label class="smart-ad-upload" data-smart-upload><input name="jewellery" type="file" accept="image/jpeg,image/png,image/webp" required /><span class="smart-ad-upload__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5m0 0L8 9m4-4 4 4M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg></span><strong>Jewellery set</strong><small data-smart-file-name>Choose the hero product image</small><em>Required</em></label>
+          <label class="smart-ad-upload" data-smart-upload><input name="modelPhoto" type="file" accept="image/jpeg,image/png,image/webp" /><span class="smart-ad-upload__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.5-4.5 2.7-6.7 6.5-6.7s6 2.2 6.5 6.7"/></svg></span><strong>Model photo</strong><small data-smart-file-name>Add a preferred model reference</small><em>Optional</em></label>
+        </div><p>JPEG, PNG or WebP · Maximum 5 MB per image</p></fieldset>
+        <label class="smart-ad-field"><span>Creative direction</span><textarea name="prompt" maxlength="2000" rows="5" required placeholder="Describe the mood, setting, lighting and styling you want…"></textarea><small>Be specific about the occasion and visual mood. You can generate again before accepting.</small></label>
+        <div class="smart-ad-tryon-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14v15H5zM8 8h8m-8 4h5m-5 4h3"/><path d="m15 15 4 2-2 1-1 2-1-5Z"/></svg><div><strong>Built-in “Try on” action</strong><span>Every scheduled email invites customers into your B2B2C fitting room with this jewellery already selected. Their sponsored balance is checked before generation.</span></div></div>
+        <button class="button button--primary smart-ad-primary-action" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="3.5"/></svg>Upload and generate concept</button>
+        <p id="smart-ad-create-status" class="form-status" role="status" aria-live="polite"></p>
+      </form>
+      <form id="smart-ad-schedule-form" class="panel smart-ad-editor smart-ad-editor--schedule">
+        <div class="smart-ad-editor__heading"><span class="smart-ad-step">02</span><div><p class="eyebrow">Delivery planner</p><h2>Schedule a campaign</h2><p>Select an accepted creative, define the audience, and choose when it should arrive.</p></div></div>
+        <label class="smart-ad-field"><span>Occasion</span><input name="occasion" maxlength="160" required placeholder="e.g. Diwali private preview" /></label>
+        <label class="smart-ad-field"><span>Advertisement</span><select name="smartAdId" required><option value="">Select an accepted advertisement</option></select></label>
+        <label class="smart-ad-field"><span>Delivery date and time</span><input name="scheduledFor" type="datetime-local" required /></label>
+        <fieldset class="smart-ad-audience"><legend><span>Target audience</span><small>Only customers with marketing consent will receive this campaign.</small></legend><div class="smart-ad-target-grid"><label><span>Gender</span><select name="targetGender"><option value="female">Female</option><option value="all">All consented users</option><option value="male">Male</option><option value="non_binary">Non-binary</option></select></label><label><span>Minimum age</span><input name="ageMin" type="number" min="1" max="120" placeholder="Any" /></label><label><span>Maximum age</span><input name="ageMax" type="number" min="1" max="120" placeholder="Any" /></label></div></fieldset>
+        <label class="smart-ad-field"><span>Delivery channel</span><select name="channel"><option value="EMAIL">Email</option><option value="WHATSAPP" disabled>WhatsApp · coming soon</option></select></label>
+        <div class="smart-ad-channel-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16v11H4zM4.5 7l7.5 6 7.5-6"/></svg><div><strong>Email is ready</strong><span>WhatsApp delivery will be available in a future release.</span></div></div>
+        <div class="smart-ad-schedule-actions"><button class="button button--primary smart-ad-primary-action" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v14H5zM8 3v5m8-5v5M5 10h14m-10 3h2m2 0h2m-6 3h2"/></svg><span>Schedule email</span></button><button id="smart-ad-schedule-cancel" class="button button--quiet" type="button" hidden>Cancel editing</button></div>
+        <p id="smart-ad-schedule-status" class="form-status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    <section class="panel smart-ad-library"><div class="panel__heading"><div><p class="eyebrow">Creative library</p><h2>Your advertisements</h2><p>Review drafts, try another concept, or accept a creative to make it available for scheduling.</p></div><span id="smart-ad-count" class="status-chip">Loading</span></div><div id="smart-ad-list" class="smart-ad-grid" aria-live="polite"></div></section>
+    <section class="panel smart-ad-schedules"><div class="panel__heading"><div><p class="eyebrow">Campaign calendar</p><h2>Scheduled delivery</h2><p>Email is queued once for every reachable, consented account at the selected time.</p></div></div><div id="smart-ad-schedule-list" class="smart-ad-schedule-list" aria-live="polite">Loading schedules…</div></section>`;
+}
+
+function smartAdImageUrl(tenantId, item, role = "creative") {
+  return `${API_BASE}/business/tenants/${encodeURIComponent(tenantId)}/smart-ads/${encodeURIComponent(item.smart_ad_id)}/image?role=${role}`;
+}
+
+function renderSmartAds(result) {
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  document.querySelector("#smart-ads-female-users").textContent = String(result.female_unique_users ?? 0);
+  document.querySelector("#smart-ads-eligible-users").textContent = String(result.female_marketing_eligible_users ?? 0);
+  document.querySelector("#smart-ads-attempts").textContent = `${result.attempts_remaining_today ?? 0} of ${result.maximum_daily_attempts ?? 2} left`;
+  document.querySelector("#smart-ad-count").textContent = `${result.items.length} advertisement${result.items.length === 1 ? "" : "s"}`;
+  const list = document.querySelector("#smart-ad-list");
+  list.innerHTML = result.items.length ? result.items.map((item) => {
+    const previewRole = item.creative_asset_id ? "creative" : "jewellery";
+    const canGenerate = item.status === "DRAFT" && Number(result.attempts_remaining_today) > 0;
+    return `<article class="smart-ad-card" data-smart-ad="${escapeHtml(item.smart_ad_id)}"><img src="${smartAdImageUrl(tenantId, item, previewRole)}" alt="${escapeHtml(item.title)} advertisement preview" /><div class="smart-ad-card__body"><div><span class="status-chip">${escapeHtml(item.status)}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.prompt)}</p></div><div class="smart-ad-card__actions">${item.status === "DRAFT" ? `<button class="button button--quiet" type="button" data-smart-generate="${escapeHtml(item.smart_ad_id)}" ${canGenerate ? "" : "disabled"}>Generate${item.creative_asset_id ? " again" : " concept"}</button>${item.creative_asset_id ? `<button class="button button--primary" type="button" data-smart-accept="${escapeHtml(item.smart_ad_id)}">Accept</button>` : ""}` : ""}<button class="button button--quiet" type="button" data-smart-edit="${escapeHtml(item.smart_ad_id)}">Edit</button><button class="button button--danger" type="button" data-smart-delete="${escapeHtml(item.smart_ad_id)}">Delete</button></div></div></article>`;
+  }).join("") : '<p class="admin-empty">No SmartAds created yet.</p>';
+
+  const select = document.querySelector("#smart-ad-schedule-form").elements.smartAdId;
+  const selected = select.value;
+  select.innerHTML = '<option value="">Select an accepted advertisement</option>' + result.items.filter((item) => item.status === "ACTIVE").map((item) => `<option value="${escapeHtml(item.smart_ad_id)}">${escapeHtml(item.title)}</option>`).join("");
+  if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+
+  const schedules = document.querySelector("#smart-ad-schedule-list");
+  schedules.innerHTML = result.schedules.length ? result.schedules.map((item) => `<article><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.occasion)}</span></div><div><span>${new Date(item.scheduled_for).toLocaleString()}</span><small>${escapeHtml(item.target_gender)} · ages ${item.target_age_min ?? "any"}–${item.target_age_max ?? "any"}</small></div><div><strong>${item.queued_recipient_count}</strong><span>emails queued</span><small>${item.target_user_count} people matched · ${item.delivered} delivered · ${item.failed} failed</small></div></article>`).join("") : '<p class="admin-empty">No advertisements scheduled.</p>';
+}
+
+async function loadSmartAds() {
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  if (!tenantId) return null;
+  const result = await businessApi(`/business/tenants/${tenantId}/smart-ads`);
+  renderSmartAds(result);
+  return result;
+}
+
+function setupSmartAds() {
+  const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  const createForm = document.querySelector("#smart-ad-create-form");
+  const createStatus = document.querySelector("#smart-ad-create-status");
+  const scheduleForm = document.querySelector("#smart-ad-schedule-form");
+  const scheduleStatus = document.querySelector("#smart-ad-schedule-status");
+  if (!tenantId || !createForm || !scheduleForm) return;
+  const resetUploadLabels = () => {
+    createForm.querySelectorAll("[data-smart-upload]").forEach((upload) => {
+      const input = upload.querySelector('input[type="file"]');
+      const fileName = upload.querySelector("[data-smart-file-name]");
+      const fallback = input.name === "jewellery" ? "Choose the hero product image" : "Add a preferred model reference";
+      fileName.textContent = input.files?.[0]?.name || fallback;
+      upload.classList.toggle("has-file", Boolean(input.files?.length));
+    });
+  };
+  createForm.querySelectorAll('[data-smart-upload] input[type="file"]').forEach((input) => {
+    input.addEventListener("change", resetUploadLabels);
+  });
+  const now = new Date(Date.now() + 60_000);
+  now.setSeconds(0, 0);
+  scheduleForm.elements.scheduledFor.min = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+
+  createForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = createForm.querySelector("button[type=submit]");
+    button.disabled = true;
+    createStatus.textContent = "Uploading reference photos…";
+    try {
+      const data = new FormData();
+      data.set("title", createForm.elements.title.value);
+      data.set("prompt", createForm.elements.prompt.value);
+      data.set("jewellery", createForm.elements.jewellery.files[0]);
+      const model = createForm.elements.modelPhoto.files[0];
+      if (model) data.set("model_photo", model);
+      const created = await businessApi(`/business/tenants/${tenantId}/smart-ads`, { method: "POST", body: data });
+      createStatus.textContent = "Generating your advertisement concept…";
+      try {
+        await businessApi(`/business/tenants/${tenantId}/smart-ads/${created.smart_ad_id}/generate`, { method: "POST" });
+        createStatus.textContent = "Concept generated. Review it below and accept it when ready.";
+        createForm.reset();
+        resetUploadLabels();
+      } catch (error) {
+        createStatus.textContent = `Draft saved, but generation did not finish: ${error.message}`;
+      }
+      await loadSmartAds();
+    } catch (error) { createStatus.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+
+  document.querySelector("#smart-ad-list").addEventListener("click", async (event) => {
+    const action = event.target.closest("button");
+    if (!action) return;
+    const id = action.dataset.smartGenerate || action.dataset.smartAccept || action.dataset.smartEdit || action.dataset.smartDelete;
+    if (!id) return;
+    action.disabled = true;
+    createStatus.textContent = "Saving SmartAds changes…";
+    try {
+      if (action.dataset.smartGenerate) {
+        createStatus.textContent = "Generating another concept…";
+        await businessApi(`/business/tenants/${tenantId}/smart-ads/${id}/generate`, { method: "POST" });
+      } else if (action.dataset.smartAccept) {
+        await businessApi(`/business/tenants/${tenantId}/smart-ads/${id}/accept`, { method: "POST" });
+        createStatus.textContent = "Advertisement accepted and added to the active list.";
+      } else if (action.dataset.smartEdit) {
+        const current = action.closest(".smart-ad-card");
+        const currentTitle = current.querySelector("h3").textContent;
+        const currentPrompt = current.querySelector("p").textContent;
+        const title = window.prompt("Advertisement title", currentTitle);
+        if (title == null) return;
+        const prompt = window.prompt("Creative prompt", currentPrompt);
+        if (prompt == null) return;
+        await businessApi(`/business/tenants/${tenantId}/smart-ads/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, prompt }) });
+      } else if (action.dataset.smartDelete) {
+        const confirmed = await wearoConfirm({
+          eyebrow: "SmartAds",
+          title: "Delete this advertisement?",
+          message: "Its queued deliveries will be cancelled and its private images scheduled for deletion.",
+          confirmLabel: "Delete advertisement",
+          cancelLabel: "Keep advertisement",
+        });
+        if (!confirmed) return;
+        await businessApi(`/business/tenants/${tenantId}/smart-ads/${id}`, { method: "DELETE" });
+        createStatus.textContent = "Advertisement deleted.";
+      }
+      await loadSmartAds();
+    } catch (error) { createStatus.textContent = error.message; }
+    finally { action.disabled = false; }
+  });
+
+  scheduleForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = scheduleForm.querySelector("button[type=submit]");
+    button.disabled = true;
+    scheduleStatus.textContent = "Scheduling delivery…";
+    try {
+      const result = await businessApi(`/business/tenants/${tenantId}/smart-ad-schedules`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smart_ad_id: scheduleForm.elements.smartAdId.value,
+          occasion: scheduleForm.elements.occasion.value,
+          scheduled_for: new Date(scheduleForm.elements.scheduledFor.value).toISOString(),
+          channel: scheduleForm.elements.channel.value,
+          target_gender: scheduleForm.elements.targetGender.value,
+          target_age_min: scheduleForm.elements.ageMin.value ? Number(scheduleForm.elements.ageMin.value) : null,
+          target_age_max: scheduleForm.elements.ageMax.value ? Number(scheduleForm.elements.ageMax.value) : null,
+        }),
+      });
+      scheduleStatus.textContent = `${result.target_user_count} consented people matched; ${result.queued_recipient_count} unique email recipients queued.`;
+      scheduleForm.reset();
+      await loadSmartAds();
+    } catch (error) { scheduleStatus.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+
+  loadSmartAds().catch((error) => { createStatus.textContent = error.message; });
 }
 
 function agentsView() {
@@ -772,7 +1100,7 @@ async function loadPaymentReconciliation() {
 function settingsView() {
   return `
     <header class="page-heading"><div><p class="eyebrow">Settings</p><h1>Workspace controls</h1><p>Keep product identity, team access, and privacy expectations clear.</p></div></header>
-    <section class="settings-grid"><article class="panel"><h2>Billing and tax profile</h2><form id="business-billing-form"><label>Legal business name<input name="legalName" required /></label><label>Billing email<input name="billingEmail" type="email" required /></label><label>Billing phone <span>(optional)</span><input name="billingPhone" /></label><label class="check"><input name="taxInvoiceRequested" type="checkbox" /> Tax-ready invoices required</label><label>Tax identifier<input name="taxIdentifier" /></label><label>Billing address<input name="line1" /></label><label>City<input name="city" /></label><label>Postal code<input name="postalCode" /></label><label>Reason for change<input name="reason" required maxlength="500" /></label><button class="button button--primary" type="submit">Save for future invoices</button><p id="billing-profile-status" class="form-status" role="status" aria-live="polite"></p></form></article><article class="panel"><h2>Operating profile</h2><p id="operating-profile-summary">Loading profile-specific workspace details…</p><form id="operating-profile-form"><label>Request a different profile<select name="requestedProfile" required><option value="">Select type</option><option value="BOUTIQUE">Boutique</option><option value="CLOTHING_RETAILER">Clothing retailer</option><option value="JEWELLERY_RETAILER">Jewellery retailer</option><option value="ENTERPRISE_CHAIN">Enterprise chain</option><option value="OTHER">Other</option></select></label><label>Reason<input name="reason" required maxlength="500" /></label><button class="button button--quiet" type="submit">Request profile change</button><p id="operating-profile-status" class="form-status" role="status"></p></form></article><article class="panel"><h2>Owner sign-in contacts</h2><p>Update the main administrator email and mobile without changing workspace ownership. Both contacts must be OTP verified.</p><form id="owner-contact-form"><label>Owner email<input name="email" type="email" required /></label><div class="owner-otp"><label>Email OTP<input name="emailOtp" inputmode="numeric" minlength="4" maxlength="8" required /></label><button class="button button--quiet owner-verify" data-channel="email" type="button">Verify email</button></div><label>Owner mobile<input name="mobile" type="tel" required /></label><div class="owner-otp"><label>Mobile OTP<input name="mobileOtp" inputmode="numeric" minlength="4" maxlength="8" required /></label><button class="button button--quiet owner-verify" data-channel="mobile" type="button">Verify mobile</button></div><p class="field-help">Use test OTP 9876. Verified contacts will sign in to this same workspace.</p><label>Reason for update<input name="reason" required maxlength="500" /></label><button class="button button--primary" type="submit">Update sign-in contacts</button><p id="owner-contact-status" class="form-status" role="status" aria-live="polite"></p></form></article><article class="panel"><h2>Sensitive action audit</h2><p>Owner-only history of billing, access, and wallet changes.</p><div id="sensitive-audit-list" class="settings-list" aria-live="polite">Loading audit history…</div></article><article class="panel"><h2>Customer experience</h2><dl class="settings-list"><div><dt>Jewellery generation</dt><dd><span class="status-chip">Disabled</span></dd></div><div><dt>Image retention</dt><dd>30 days</dd></div><div><dt>Profile deletion</dt><dd>Within 24 hours</dd></div><div><dt>Model training</dt><dd>Not authorised</dd></div></dl></article></section>`;
+    <section class="settings-grid"><article class="panel"><h2>Billing and tax profile</h2><form id="business-billing-form"><label>Legal business name<input name="legalName" required /></label><label>Billing email<input name="billingEmail" type="email" required /></label><label>Billing phone <span>(optional)</span><input name="billingPhone" /></label><label class="check"><input name="taxInvoiceRequested" type="checkbox" /> Tax-ready invoices required</label><label>Tax identifier<input name="taxIdentifier" /></label><label>Billing address<input name="line1" /></label><label>City<input name="city" /></label><label>Postal code<input name="postalCode" /></label><label>Reason for change<input name="reason" required maxlength="500" /></label><button class="button button--primary" type="submit">Save for future invoices</button><p id="billing-profile-status" class="form-status" role="status" aria-live="polite"></p></form></article><article class="panel"><h2>Operating profile</h2><p id="operating-profile-summary">Loading profile-specific workspace details…</p><form id="operating-profile-form"><label>Profile type<select name="operatingProfile" required><option value="BOUTIQUE">Boutique</option><option value="CLOTHING_RETAILER">Clothing retailer</option><option value="JEWELLERY_RETAILER">Jewellery retailer</option><option value="ENTERPRISE_CHAIN">Enterprise chain</option><option value="OTHER">Other</option></select></label><label>Reason for change<input name="reason" required maxlength="500" /></label><button class="button button--primary" type="submit">Save operating profile</button><p id="operating-profile-status" class="form-status" role="status" aria-live="polite"></p></form></article><article class="panel"><h2>Owner sign-in contacts</h2><p>Update the main administrator email and mobile without changing workspace ownership. Both contacts must be OTP verified.</p><form id="owner-contact-form"><label>Owner email<input name="email" type="email" required /></label><div class="owner-otp"><label>Email OTP<input name="emailOtp" inputmode="numeric" minlength="4" maxlength="8" required /></label><button class="button button--quiet owner-verify" data-channel="email" type="button">Verify email</button></div><label>Owner mobile<input name="mobile" type="tel" required /></label><div class="owner-otp"><label>Mobile OTP<input name="mobileOtp" inputmode="numeric" minlength="4" maxlength="8" required /></label><button class="button button--quiet owner-verify" data-channel="mobile" type="button">Verify mobile</button></div><p class="field-help">Use test OTP 9876. Verified contacts will sign in to this same workspace.</p><label>Reason for update<input name="reason" required maxlength="500" /></label><button class="button button--primary" type="submit">Update sign-in contacts</button><p id="owner-contact-status" class="form-status" role="status" aria-live="polite"></p></form></article><article class="panel"><h2>Sensitive action audit</h2><p>Owner-only history of billing, access, and wallet changes.</p><div id="sensitive-audit-list" class="settings-list" aria-live="polite">Loading audit history…</div></article><article class="panel"><h2>Customer experience</h2><dl class="settings-list"><div><dt>Jewellery generation</dt><dd><span class="status-chip">Disabled</span></dd></div><div><dt>Image retention</dt><dd>30 days</dd></div><div><dt>Profile deletion</dt><dd>Within 24 hours</dd></div><div><dt>Model training</dt><dd>Not authorised</dd></div></dl></article></section>`;
 }
 
 async function loadOperatingProfile() {
@@ -783,10 +1111,9 @@ async function loadOperatingProfile() {
   try {
     const overview = await businessApi(`/business/tenants/${tenantId}/overview`);
     const recommendation = overview.recommendation;
-    summary.textContent = `${overview.profile.operating_profile.replaceAll("_", " ")} · Eligible Wearo offerings: ${recommendation.eligible_offerings.join(", ") || "none"}. Your existing app remains the source of truth for business data.`;
-    if (overview.profile_change_request) {
-      status.textContent = `Change to ${overview.profile_change_request.requested_profile.replaceAll("_", " ")} is pending review.`;
-    }
+    summary.textContent = `${operatingProfileLabel(overview.profile.operating_profile)} · Eligible Wearo offerings: ${recommendation.eligible_offerings.join(", ") || "none"}. Your existing app remains the source of truth for business data.`;
+    const form = document.querySelector("#operating-profile-form");
+    if (form) form.elements.operatingProfile.value = overview.profile.operating_profile;
   } catch (error) { summary.textContent = error.message; }
 }
 
@@ -1354,6 +1681,7 @@ function attachBusinessInteractions(section) {
       if (periodForm.reportValidity()) loadOverviewUsage(selectedRange());
     });
     loadOverviewUsage(selectedRange());
+    setupAudienceStoreFilter();
   }
   if (section === "billing") {
     loadBusinessUsage();
@@ -1451,6 +1779,7 @@ function attachBusinessInteractions(section) {
     });
     refresh();
   }
+  if (section === "smart-ads") setupSmartAds();
   if (section === "settings") {
     setupBusinessAdminPanels();
     loadBillingProfile();
@@ -1562,12 +1891,15 @@ function attachBusinessInteractions(section) {
       const status = document.querySelector("#operating-profile-status");
       const tenantId = localStorage.getItem("wearo_business_tenant_id");
       try {
-        const result = await businessApi(`/business/tenants/${tenantId}/operating-profile-change`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requested_profile: form.elements.requestedProfile.value,
+        status.textContent = "Saving…";
+        const result = await businessApi(`/business/tenants/${tenantId}/operating-profile`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ operating_profile: form.elements.operatingProfile.value,
             reason: form.elements.reason.value }),
         });
-        status.textContent = `Change to ${result.requested_profile.replaceAll("_", " ")} is pending review.`;
+        status.textContent = `${operatingProfileLabel(result.operating_profile)} is now active.`;
+        form.elements.reason.value = "";
+        await loadOperatingProfile();
       } catch (error) { status.textContent = error.message; }
     });
     document.querySelector("#business-billing-form")?.addEventListener("submit", async (event) => {
@@ -1624,6 +1956,7 @@ export function renderBusinessApp(root, pathname) {
     dashboard: dashboardView,
         experience: experienceView,
         customers: customersView,
+        "smart-ads": smartAdsView,
         stores: storesView,
         agents: agentsView,
         billing: billingView,

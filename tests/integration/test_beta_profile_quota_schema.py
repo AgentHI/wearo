@@ -85,20 +85,21 @@ def test_profile_rejects_impossible_guidance_values(connection: Connection) -> N
         )
 
 
-def test_daily_success_limit_is_database_enforced(connection: Connection) -> None:
+def test_one_time_free_tryon_limit_is_database_enforced(connection: Connection) -> None:
     account_id, _, _, _ = seed_profile_dependencies(connection)
     connection.execute(
         text(
-            "INSERT INTO generation_daily_usage "
-            "(account_id, usage_date_ist, successful_generations) "
-            "VALUES (:a, DATE '2026-10-17', 3)"
+            "INSERT INTO consumer_free_tryon_grants "
+            "(account_id, grant_limit, successful_generations) "
+            "VALUES (:a, 3, 3)"
         ),
         {"a": account_id},
     )
     with pytest.raises(IntegrityError), connection.begin_nested():
         connection.execute(
             text(
-                "UPDATE generation_daily_usage SET successful_generations = 4 WHERE account_id = :a"
+                "UPDATE consumer_free_tryon_grants "
+                "SET successful_generations = 4 WHERE account_id = :a"
             ),
             {"a": account_id},
         )

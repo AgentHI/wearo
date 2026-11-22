@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,6 +13,8 @@ from .image_watermark import ImageWatermarkError, apply_generated_image_watermar
 from .render_provider import ProviderError, RenderRequest, RenderResponse
 from .render_quality import QualityDecision
 from .render_runtime import DurableRenderJob, LeasedRenderWork, RecoverySummary
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerRuntime(Protocol):
@@ -89,6 +92,17 @@ class DurableRenderWorker:
     def recover_stale(self, *, now: datetime | None = None) -> RecoverySummary:
         return self.runtime.recover_expired(now=now)
 
+    def _clear_progressive_preview(self, job_id: UUID) -> None:
+        try:
+            self.media.clear_progressive_preview(job_id)
+        except Exception as error:
+            logger.warning(
+                "Render preview cleanup failed job_id=%s error_type=%s",
+                job_id,
+                type(error).__name__,
+                exc_info=True,
+            )
+
     def run_once(self, *, now: datetime | None = None) -> WorkerOutcome:
         current = now or datetime.now(UTC)
         work = self.runtime.claim_next(self.worker_id, now=current)
@@ -133,12 +147,12 @@ class DurableRenderWorker:
                 else QualityDecision(True, False, ())
             )
             if not decision.accepted:
-                self.media.clear_progressive_preview(job.job_id)
                 failed = self.runtime.complete_failure(
                     job.job_id,
                     "QUALITY_REJECTED",
                     now=current,
                 )
+                self._clear_progressive_preview(job.job_id)
                 return WorkerOutcome(True, failed)
             watermarked, watermarked_type = apply_generated_image_watermark(
                 response.image, response.mime_type, company_name=job.company_name
@@ -157,17 +171,17 @@ class DurableRenderWorker:
                 },
                 now=current,
             )
-            self.media.clear_progressive_preview(job.job_id)
+            self._clear_progressive_preview(job.job_id)
             return WorkerOutcome(True, delivered)
         except ProviderError as error:
-            self.media.clear_progressive_preview(job.job_id)
             failed = self.runtime.complete_failure(job.job_id, error.code, now=current)
+            self._clear_progressive_preview(job.job_id)
             return WorkerOutcome(True, failed)
         except AnalysisServiceError:
-            self.media.clear_progressive_preview(job.job_id)
             failed = self.runtime.complete_failure(job.job_id, "ANALYSIS_UNAVAILABLE", now=current)
+            self._clear_progressive_preview(job.job_id)
             return WorkerOutcome(True, failed)
         except ImageWatermarkError:
-            self.media.clear_progressive_preview(job.job_id)
             failed = self.runtime.complete_failure(job.job_id, "WATERMARK_FAILED", now=current)
+            self._clear_progressive_preview(job.job_id)
             return WorkerOutcome(True, failed)

@@ -182,6 +182,13 @@ class PostgresAdminOrganizations:
                 ),
                 {"account": row["account_id"], "tenant": tenant_id},
             ).mappings()
+            customer_try_on_limit = connection.execute(
+                text(
+                    "SELECT default_try_on_limit FROM business_allowance_policies "
+                    "WHERE tenant_id=:tenant AND account_id=:account"
+                ),
+                {"account": row["account_id"], "tenant": tenant_id},
+            ).scalar_one_or_none()
         result = dict(row)
         result.update(dict(metrics))
         result["billing_status"] = (
@@ -189,8 +196,65 @@ class PostgresAdminOrganizations:
         )
         result["payment_history"] = [dict(payment) for payment in payments]
         result["stores"] = [dict(store) for store in stores]
+        result["customer_try_on_limit"] = (
+            int(customer_try_on_limit) if customer_try_on_limit is not None else None
+        )
         result.pop("account_id", None)
         return result
+
+    def update_customer_try_on_limit(
+        self, tenant_id: UUID, limit: int, reason: str
+    ) -> dict[str, int]:
+        explanation = reason.strip()
+        if not explanation:
+            raise AdminOrganizationError("A reason is required.")
+        if not 0 <= limit <= 100_000:
+            raise AdminOrganizationError("Customer try-on allowance is out of range.")
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            policy = (
+                connection.execute(
+                    text(
+                        """SELECT policy.account_id, policy.default_try_on_limit
+                        FROM business_allowance_policies policy
+                        JOIN business_tenants tenant
+                          ON tenant.tenant_id=policy.tenant_id
+                         AND tenant.account_id=policy.account_id
+                        WHERE policy.tenant_id=:tenant
+                        FOR UPDATE OF policy"""
+                    ),
+                    {"tenant": tenant_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if policy is None:
+                raise AdminOrganizationError("Organization allowance policy is unavailable.")
+            before = int(policy["default_try_on_limit"])
+            connection.execute(
+                text(
+                    """UPDATE business_allowance_policies
+                    SET default_try_on_limit=:limit, updated_at=:now
+                    WHERE tenant_id=:tenant AND account_id=:account"""
+                ),
+                {
+                    "limit": limit,
+                    "now": now,
+                    "tenant": tenant_id,
+                    "account": policy["account_id"],
+                },
+            )
+            self._audit(
+                connection,
+                account_id=policy["account_id"],
+                tenant_id=tenant_id,
+                action="ADMIN_CUSTOMER_TRYON_LIMIT_UPDATED",
+                reason=explanation,
+                before={"customer_try_on_limit": before},
+                after={"customer_try_on_limit": limit},
+                now=now,
+            )
+        return {"customer_try_on_limit": limit}
 
     def change_status(
         self, tenant_id: UUID, action: OrganizationAction, reason: str

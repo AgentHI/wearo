@@ -26,7 +26,17 @@ def engine() -> Iterator[Engine]:
         database_engine.dispose()
 
 
-def _seed_quote(engine: Engine, ids: dict[str, UUID], quote_id: UUID) -> None:
+def _seed_quote(
+    engine: Engine,
+    ids: dict[str, UUID],
+    quote_id: UUID,
+    *,
+    product_kind: str | None = None,
+    product_category: str = "unknown",
+    person_category: str = "unknown",
+    age_range: str = "unknown",
+    estimated_age: int | None = None,
+) -> None:
     with engine.begin() as connection:
         connection.execute(
             text("INSERT INTO accounts (account_id, kind) VALUES (:account, 'CONSUMER')"),
@@ -92,10 +102,29 @@ def _seed_quote(engine: Engine, ids: dict[str, UUID], quote_id: UUID) -> None:
             ),
             ids,
         )
-        _insert_quote(connection, ids, quote_id)
+        _insert_quote(
+            connection,
+            ids,
+            quote_id,
+            product_kind=product_kind,
+            product_category=product_category,
+            person_category=person_category,
+            age_range=age_range,
+            estimated_age=estimated_age,
+        )
 
 
-def _insert_quote(connection: Connection, ids: dict[str, UUID], quote_id: UUID) -> None:
+def _insert_quote(
+    connection: Connection,
+    ids: dict[str, UUID],
+    quote_id: UUID,
+    *,
+    product_kind: str | None = None,
+    product_category: str = "unknown",
+    person_category: str = "unknown",
+    age_range: str = "unknown",
+    estimated_age: int | None = None,
+) -> None:
     connection.execute(
         text(
             """
@@ -112,6 +141,11 @@ def _insert_quote(connection: Connection, ids: dict[str, UUID], quote_id: UUID) 
                     provider,
                     model_version,
                     provider_region,
+                    product_kind,
+                    product_category,
+                    person_category,
+                    age_range,
+                    estimated_age,
                     expires_at
                 )
             VALUES
@@ -127,11 +161,24 @@ def _insert_quote(connection: Connection, ids: dict[str, UUID], quote_id: UUID) 
                     'GOOGLE_VERTEX',
                     'virtual-try-on-001',
                     'asia-southeast1',
+                    :product_kind,
+                    :product_category,
+                    :person_category,
+                    :age_range,
+                    :estimated_age,
                     now() + interval '10 minutes'
                 )
             """
         ),
-        {**ids, "quote": quote_id},
+        {
+            **ids,
+            "quote": quote_id,
+            "product_kind": product_kind,
+            "product_category": product_category,
+            "person_category": person_category,
+            "age_range": age_range,
+            "estimated_age": estimated_age,
+        },
     )
 
 
@@ -144,7 +191,7 @@ def _cleanup(engine: Engine, account_id: UUID) -> None:
             for statement in (
                 "DELETE FROM render_results WHERE account_id = :account",
                 "DELETE FROM render_work_items WHERE account_id = :account",
-                "DELETE FROM generation_daily_usage WHERE account_id = :account",
+                "DELETE FROM consumer_free_tryon_grants WHERE account_id = :account",
                 "DELETE FROM render_jobs WHERE account_id = :account",
                 "DELETE FROM render_quotes WHERE account_id = :account",
                 "DELETE FROM person_profiles WHERE account_id = :account",
@@ -164,10 +211,20 @@ def test_runtime_persists_exactly_once_success_and_releases_failure(engine: Engi
     ids = {
         name: uuid4() for name in ("account", "principal", "person", "item", "consent", "profile")
     }
-    quote_one, quote_two, quote_three, result_asset = uuid4(), uuid4(), uuid4(), uuid4()
+    quote_one, quote_two, quote_three, downgrade_quote = uuid4(), uuid4(), uuid4(), uuid4()
+    result_asset, downgrade_result_asset = uuid4(), uuid4()
     runtime = PostgresRenderRuntime(engine)
     now = datetime.now(UTC)
-    _seed_quote(engine, ids, quote_one)
+    _seed_quote(
+        engine,
+        ids,
+        quote_one,
+        product_kind="JEWELLERY",
+        product_category="ultra_luxury",
+        person_category="woman",
+        age_range="30_39",
+        estimated_age=34,
+    )
     try:
         created = runtime.create_job(
             quote_id=quote_one,
@@ -278,6 +335,52 @@ def test_runtime_persists_exactly_once_success_and_releases_failure(engine: Engi
         assert runtime.list_gallery(ids["account"], now=now) == ()
         assert runtime.delete_saved_look(created.job_id, ids["account"], now=now) is False
 
+        with engine.begin() as connection:
+            _insert_quote(
+                connection,
+                ids,
+                downgrade_quote,
+                product_kind="APPAREL",
+                product_category="basic",
+                person_category="girl",
+                age_range="20_29",
+                estimated_age=24,
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO media_assets
+                        (asset_id, account_id, object_key, content_hash, mime_type, purpose,
+                         retention_state, delete_after)
+                    VALUES
+                        (:asset, :account, :key, :hash, 'image/png', 'RENDER_RESULT',
+                         'EXPIRING', :delete_after)
+                    """
+                ),
+                {
+                    "asset": downgrade_result_asset,
+                    "account": ids["account"],
+                    "key": f"private/{downgrade_result_asset.hex}",
+                    "hash": downgrade_result_asset.hex,
+                    "delete_after": now + timedelta(days=30),
+                },
+            )
+        downgrade_job = runtime.create_job(
+            quote_id=downgrade_quote,
+            account_id=ids["account"],
+            principal_id=ids["principal"],
+            idempotency_key="girl-after-woman-command",
+            now=now,
+        )
+        assert runtime.claim_next("integration-worker", now=now) is not None
+        runtime.complete_success(
+            job_id=downgrade_job.job_id,
+            result_asset_id=downgrade_result_asset,
+            provider_request_id="provider-request-2",
+            quality_details={"accepted": True},
+            now=now,
+        )
+
         failed_job = runtime.create_job(
             quote_id=quote_two,
             account_id=ids["account"],
@@ -310,14 +413,46 @@ def test_runtime_persists_exactly_once_success_and_releases_failure(engine: Engi
                 text(
                     """
                     SELECT successful_generations, active_job_id
-                    FROM generation_daily_usage
+                    FROM consumer_free_tryon_grants
                     WHERE account_id = :account
                     """
                 ),
                 ids,
             ).one()
-            assert usage.successful_generations == 1
+            assert usage.successful_generations == 2
             assert usage.active_job_id is None
+            account_categories = connection.execute(
+                text(
+                    "SELECT product_category, person_category, age_range, estimated_age "
+                    "FROM accounts WHERE account_id = :account"
+                ),
+                ids,
+            ).one()
+            result_categories = connection.execute(
+                text(
+                    "SELECT product_category, person_category, age_range, estimated_age "
+                    "FROM render_results WHERE job_id = :job"
+                ),
+                {"job": created.job_id},
+            ).one()
+            assert account_categories.product_category == "ultra_luxury"
+            assert account_categories.person_category == "woman"
+            assert account_categories.age_range == "30_39"
+            assert account_categories.estimated_age == 34
+            assert result_categories.product_category == "ultra_luxury"
+            assert result_categories.person_category == "woman"
+            assert result_categories.age_range == "30_39"
+            assert result_categories.estimated_age == 34
+            downgrade_result_category = connection.execute(
+                text(
+                    "SELECT person_category, age_range, estimated_age "
+                    "FROM render_results WHERE job_id = :job"
+                ),
+                {"job": downgrade_job.job_id},
+            ).one()
+            assert downgrade_result_category.person_category == "girl"
+            assert downgrade_result_category.age_range == "20_29"
+            assert downgrade_result_category.estimated_age == 24
     finally:
         _cleanup(engine, ids["account"])
 
@@ -327,7 +462,7 @@ def test_disabled_allowance_allows_multiple_queued_jobs(engine: Engine) -> None:
         name: uuid4() for name in ("account", "principal", "person", "item", "consent", "profile")
     }
     quote_one, quote_two = uuid4(), uuid4()
-    runtime = PostgresRenderRuntime(engine, enforce_daily_allowance=False)
+    runtime = PostgresRenderRuntime(engine, enforce_free_allowance=False)
     now = datetime.now(UTC)
     _seed_quote(engine, ids, quote_one)
     try:
@@ -353,7 +488,7 @@ def test_disabled_allowance_allows_multiple_queued_jobs(engine: Engine) -> None:
         assert all(item.status == "PENDING" and item.attempts == 0 for item in queue)
         with engine.connect() as connection:
             usage_count: int = connection.execute(
-                text("SELECT count(*) FROM generation_daily_usage WHERE account_id = :account"),
+                text("SELECT count(*) FROM consumer_free_tryon_grants WHERE account_id = :account"),
                 ids,
             ).scalar_one()
         assert usage_count == 0
@@ -417,7 +552,8 @@ def test_queued_job_can_only_be_cancelled_by_owner_after_one_minute(engine: Engi
             ).scalar_one()
             active_job_id: UUID | None = connection.execute(
                 text(
-                    "SELECT active_job_id FROM generation_daily_usage WHERE account_id = :account"
+                    "SELECT active_job_id FROM consumer_free_tryon_grants "
+                    "WHERE account_id = :account"
                 ),
                 ids,
             ).scalar_one()

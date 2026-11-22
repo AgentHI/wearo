@@ -1,13 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 
 BUSINESS_REPORTING_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+@dataclass(frozen=True)
+class UserCategoryCounts:
+    unknown: int = 0
+    basic: int = 0
+    premium: int = 0
+    luxury: int = 0
+    ultra_luxury: int = 0
+
+
+@dataclass(frozen=True)
+class AudienceSnapshot:
+    total_unique_users: int
+    users_by_category: UserCategoryCounts
+    store_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +49,8 @@ class UsageSnapshot:
     average_previews_per_hour: float | None
     provider_cost_usd_micros: int = 0
     average_provider_cost_usd_micros: float | None = None
+    total_unique_users: int = 0
+    users_by_category: UserCategoryCounts = field(default_factory=UserCategoryCounts)
 
 
 def usage_snapshot(
@@ -52,6 +70,8 @@ def usage_snapshot(
     tokens_purchased: int = 0,
     reporting_hours: float | None = None,
     provider_cost_usd_micros: int = 0,
+    total_unique_users: int = 0,
+    users_by_category: UserCategoryCounts | None = None,
 ) -> UsageSnapshot:
     remaining = None if preview_limit is None else max(preview_limit - previews_used, 0)
     after = None if action_cost is None else max(token_balance - action_cost, 0)
@@ -83,12 +103,82 @@ def usage_snapshot(
         average_provider_cost_usd_micros=(
             provider_cost_usd_micros / previews_used if previews_used > 0 else None
         ),
+        total_unique_users=total_unique_users,
+        users_by_category=users_by_category or UserCategoryCounts(),
     )
 
 
 class PostgresPlanUsage:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
+
+    @staticmethod
+    def _audience_snapshot(
+        connection: Connection,
+        account_id: UUID,
+        tenant_id: UUID,
+        store_id: UUID | None = None,
+    ) -> AudienceSnapshot:
+        lifetime_users = (
+            connection.execute(
+                text(
+                    """
+                    SELECT count(*) AS total,
+                           count(*) FILTER (
+                             WHERE COALESCE(consumer.product_category, 'unknown') = 'unknown'
+                           ) AS unknown,
+                           count(*) FILTER (
+                             WHERE consumer.product_category = 'basic'
+                           ) AS basic,
+                           count(*) FILTER (
+                             WHERE consumer.product_category = 'premium'
+                           ) AS premium,
+                           count(*) FILTER (
+                             WHERE consumer.product_category = 'luxury'
+                           ) AS luxury,
+                           count(*) FILTER (
+                             WHERE consumer.product_category = 'ultra_luxury'
+                           ) AS ultra_luxury
+                    FROM business_participants participant
+                    LEFT JOIN accounts consumer
+                      ON consumer.account_id = participant.consumer_account_id
+                    WHERE participant.business_account_id = :account
+                      AND participant.tenant_id = :tenant
+                      AND participant.anonymized_at IS NULL
+                      AND (
+                        CAST(:store AS uuid) IS NULL OR EXISTS (
+                          SELECT 1
+                          FROM business_sponsored_sessions session
+                          WHERE session.participant_id = participant.participant_id
+                            AND session.business_account_id = participant.business_account_id
+                            AND session.tenant_id = participant.tenant_id
+                            AND session.store_id = CAST(:store AS uuid)
+                        )
+                      )
+                    """
+                ),
+                {"account": account_id, "tenant": tenant_id, "store": store_id},
+            )
+            .mappings()
+            .one()
+        )
+        return AudienceSnapshot(
+            total_unique_users=int(lifetime_users["total"]),
+            users_by_category=UserCategoryCounts(
+                unknown=int(lifetime_users["unknown"]),
+                basic=int(lifetime_users["basic"]),
+                premium=int(lifetime_users["premium"]),
+                luxury=int(lifetime_users["luxury"]),
+                ultra_luxury=int(lifetime_users["ultra_luxury"]),
+            ),
+            store_id=store_id,
+        )
+
+    def audience_for_account(
+        self, account_id: UUID, tenant_id: UUID, *, store_id: UUID | None = None
+    ) -> AudienceSnapshot:
+        with self.engine.connect() as connection:
+            return self._audience_snapshot(connection, account_id, tenant_id, store_id)
 
     def for_account(
         self,
@@ -184,15 +274,25 @@ class PostgresPlanUsage:
                     connection.execute(
                         text(
                             """
-                            SELECT COALESCE(sum(successful_generations), 0) AS selected,
-                                   COALESCE(sum(successful_generations) FILTER (
-                                     WHERE usage_date_ist = :reporting_today
-                                   ), 0) AS today
-                            FROM generation_daily_usage WHERE account_id = :account
-                              AND (CAST(:date_from AS date) IS NULL
-                                   OR usage_date_ist >= :date_from)
-                              AND (CAST(:date_to AS date) IS NULL
-                                   OR usage_date_ist <= :date_to)
+                            SELECT count(*) FILTER (
+                                     WHERE (CAST(:date_from AS date) IS NULL
+                                            OR (job.created_at AT TIME ZONE 'Asia/Kolkata')::date
+                                               >= :date_from)
+                                       AND (CAST(:date_to AS date) IS NULL
+                                            OR (job.created_at AT TIME ZONE 'Asia/Kolkata')::date
+                                               <= :date_to)
+                                   ) AS selected,
+                                   count(*) FILTER (
+                                     WHERE (job.created_at AT TIME ZONE 'Asia/Kolkata')::date
+                                           = :reporting_today
+                                   ) AS today
+                            FROM render_jobs job
+                            WHERE job.account_id = :account
+                              AND job.status = 'DELIVERED'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM business_sponsored_tryons sponsored
+                                  WHERE sponsored.render_job_id=job.job_id
+                              )
                             """
                         ),
                         {
@@ -271,6 +371,12 @@ class PostgresPlanUsage:
                 tokens_used = int(delivered_usage["tokens_used"])
             if tenant_id is None:
                 unique_participants = 0
+                total_unique_users = 0
+                users_by_category = UserCategoryCounts()
+            else:
+                audience = self._audience_snapshot(connection, account_id, tenant_id)
+                total_unique_users = audience.total_unique_users
+                users_by_category = audience.users_by_category
             if tenant_id is None:
                 provider_usage = (
                     connection.execute(
@@ -416,4 +522,6 @@ class PostgresPlanUsage:
                 else None
             ),
             provider_cost_usd_micros=int(provider_cost),
+            total_unique_users=total_unique_users,
+            users_by_category=users_by_category,
         )

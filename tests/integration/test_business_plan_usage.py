@@ -63,7 +63,7 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
             );
             CREATE TEMP TABLE business_sponsored_sessions (
               session_id uuid, business_account_id uuid, tenant_id uuid,
-              consumer_account_id uuid, participant_id uuid
+              consumer_account_id uuid, participant_id uuid, store_id uuid
             );
             CREATE TEMP TABLE billable_usage_records (
               usage_id uuid, account_id uuid, tenant_id uuid, action_code text, token_cost bigint
@@ -73,7 +73,11 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
               status text, created_at timestamptz
             );
             CREATE TEMP TABLE business_participants (
-              business_account_id uuid, tenant_id uuid, first_seen_at timestamptz
+              participant_id uuid, business_account_id uuid, tenant_id uuid,
+              consumer_account_id uuid, first_seen_at timestamptz, anonymized_at timestamptz
+            );
+            CREATE TEMP TABLE accounts (
+              account_id uuid, product_category text
             );
             CREATE TEMP TABLE render_results (
               job_id uuid, provider_usage jsonb
@@ -109,11 +113,41 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
     )
 
     participant_ids = (uuid4(), uuid4())
+    consumer_account_ids = (uuid4(), uuid4())
+    store_ids = (uuid4(), uuid4())
+    participant_values = {
+        **scope,
+        "participant_basic": participant_ids[0],
+        "participant_luxury": participant_ids[1],
+        "consumer_basic": consumer_account_ids[0],
+        "consumer_luxury": consumer_account_ids[1],
+    }
+    connection.execute(
+        text(
+            """
+            INSERT INTO accounts VALUES
+              (:consumer_basic, 'basic'),
+              (:consumer_luxury, 'luxury')
+            """
+        ),
+        participant_values,
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO business_participants VALUES
+              (:participant_basic, :account, :tenant, :consumer_basic, now(), NULL),
+              (:participant_luxury, :account, :tenant, :consumer_luxury, now(), NULL)
+            """
+        ),
+        participant_values,
+    )
     for index, (action, status, cost) in enumerate(
         (("TRY_ON", "DELIVERED", 20),) * 3
         + (("TRY_ON", "FAILED", 20), ("IMAGE_VARIANT", "DELIVERED", 15))
     ):
-        usage_id, job_id, session_id, consumer_account_id = uuid4(), uuid4(), uuid4(), uuid4()
+        usage_id, job_id, session_id = uuid4(), uuid4(), uuid4()
+        consumer_account_id = consumer_account_ids[index % 2]
         request_key = f"sponsored:dashboard-{index}"
         values = {
             "account": account_id,
@@ -121,6 +155,7 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
             "session": session_id,
             "consumer": consumer_account_id,
             "participant": participant_ids[index % 2],
+            "store": store_ids[index % 2],
             "request": request_key,
             "usage": usage_id,
             "action": action,
@@ -132,7 +167,7 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
         connection.execute(
             text(
                 "INSERT INTO business_sponsored_sessions VALUES "
-                "(:session, :account, :tenant, :consumer, :participant)"
+                "(:session, :account, :tenant, :consumer, :participant, :store)"
             ),
             values,
         )
@@ -170,12 +205,24 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
     assert snapshot.token_balance == 925
     assert snapshot.tokens_used == 60
     assert snapshot.previews_used == 3
-    assert snapshot.previews_today == 3
+    assert snapshot.previews_today == 0
     assert snapshot.unique_participants == 2
+    assert snapshot.total_unique_users == 2
+    assert snapshot.users_by_category.basic == 1
+    assert snapshot.users_by_category.luxury == 1
+    assert snapshot.users_by_category.unknown == 0
     assert snapshot.average_tokens_per_preview == 20
     assert snapshot.estimated_previews == 46
     assert snapshot.average_previews_per_day == 1.5
     assert snapshot.average_previews_per_hour == 0.0625
+
+    store_audience = PostgresPlanUsage(  # type: ignore[arg-type]
+        BoundConnectionEngine(connection)
+    ).audience_for_account(account_id, tenant_id, store_id=store_ids[0])
+    assert store_audience.total_unique_users == 1
+    assert store_audience.users_by_category.basic == 1
+    assert store_audience.users_by_category.luxury == 0
+    assert store_audience.store_id == store_ids[0]
 
     connection.execute(
         text(
@@ -192,4 +239,5 @@ def test_business_dashboard_metrics_use_delivered_try_ons_only(connection: Conne
     )
     assert anonymized_snapshot.previews_used == 3
     assert anonymized_snapshot.unique_participants == 2
+    assert anonymized_snapshot.total_unique_users == 2
     assert anonymized_snapshot.tokens_used == 60

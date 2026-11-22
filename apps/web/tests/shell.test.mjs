@@ -117,6 +117,16 @@ test("public marketing site is isolated and links into existing apps", () => {
 
 test("business and consumer route families are separated", () => {
   assert.match(business, /brandMarkup\("\/business", "white"\)/);
+  assert.match(business, /\["smart-ads", "SmartAds", smartAdsMark\("smart-ads-mark--nav"\)\]/);
+  assert.match(business, /class="smart-ads-mark/);
+  assert.match(business, /Unique female users/);
+  assert.match(business, /Upload and generate concept/);
+  assert.match(business, /smart-ad-schedules/);
+  assert.match(business, /target_gender/);
+  assert.match(business, /wearoConfirm/);
+  assert.match(consumer, /parameters\.get\("smart_ad"\)/);
+  assert.match(consumer, /\/public\/smart-ads\/\$\{encodeURIComponent\(token\)\}\/try-on-item/);
+  assert.match(consumer, /business-sponsored try-ons remain/);
   assert.match(brand, /wearo-brand_white_bg\.png\?v=20261108-white-2/);
   assert.match(main, /pathname\.startsWith\("\/business"\)/);
   assert.match(main, /renderBusinessApp/);
@@ -259,6 +269,24 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(business, /Try-ons remaining/);
   assert.match(business, /Average try-ons/);
   assert.match(business, /Unique users/);
+  assert.match(business, /Total unique users/);
+  assert.match(business, /Customer categories/);
+  assert.match(business, /customer\.persons\?\.length/);
+  assert.match(business, /personCategoryLabel\(person\.person_category\)/);
+  assert.match(business, /ageRangeLabel\(ageRange\)/);
+  assert.match(business, /estimatedAgeLabel\(person\.estimated_age, person\.age_range\)/);
+  assert.match(business, /Approx\. \$\{estimatedAge\} years/);
+  assert.match(business, /woman: "Woman", girl: "Girl"/);
+  assert.match(business, /"30_39": "30–39"/);
+  for (const category of ["Basic", "Premium", "Luxury", "Ultra luxury", "Unclassified"]) {
+    assert.match(business, new RegExp(category));
+  }
+  assert.match(business, /audience\.users_by_category/);
+  assert.match(business, /audience\.total_unique_users/);
+  assert.match(business, /id="audience-store"/);
+  assert.match(business, /All stores/);
+  assert.match(business, /query\.set\("store_id", storeId\)/);
+  assert.match(business, /\/audience/);
   assert.match(business, /Try-ons today/);
   assert.match(business, /Try-ons in selected period/);
   assert.match(business, /Try-ons from \$\{dateRange\.label\}/);
@@ -320,7 +348,13 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.match(business, /topup-orders/);
   assert.match(business, /Payment reconciliation/);
   assert.match(business, /Sensitive action audit/);
-  assert.match(business, /Request profile change/);
+  assert.match(business, /Save operating profile/);
+  assert.match(business, /JEWELLERY_RETAILER: "Jewellery retailer"/);
+  assert.match(business, /operatingProfileLabel\(result\.operating_profile\).*is now active/);
+  assert.match(business, /\/operating-profile/);
+  assert.match(business, /method: "PUT"/);
+  assert.doesNotMatch(business, /Request profile change/);
+  assert.doesNotMatch(business, /pending review/);
   assert.match(business, /actual token costs vary by action/i);
   assert.match(business, /verified work email or primary mobile/i);
   assert.match(business, /Business agents/);
@@ -581,6 +615,9 @@ test("B2C checkout and B2B payment information stay backend-priced", () => {
   assert.match(consumer, /`\+91\$\{compactContact\}`/);
   assert.match(consumer, /backdrop_color: "#f4edf6"/);
   assert.match(consumer, /<span>Buy<\/span>/);
+  assert.match(consumer, /id="buy-more-tryons"[^>]*href="\/app\/payments"[^>]*>Buy try-ons<\/a>/);
+  assert.match(consumer, /You’ve used your 3 free try-ons\. Buy more to keep creating new looks\./);
+  assert.match(consumer, /personalTryOnsRemaining === 0/);
   assert.doesNotMatch(consumer, /₹3(?:\.00)?\b/);
   assert.match(business, /Platform access and try-on usage stay separate/);
   assert.match(business, /15%/);

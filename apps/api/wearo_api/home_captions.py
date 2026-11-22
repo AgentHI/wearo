@@ -79,8 +79,18 @@ class HomeCaptionService:
             return FALLBACK_CAPTIONS
         try:
             captions = self._generate_library()
-        except (KeyError, StopIteration, TypeError, ValueError, requests.RequestException):
-            logger.warning("OpenAI home-caption generation failed; using curated fallbacks")
+        except (KeyError, StopIteration, TypeError, ValueError, requests.RequestException) as error:
+            status_code = (
+                error.response.status_code
+                if isinstance(error, requests.HTTPError) and error.response is not None
+                else None
+            )
+            logger.warning(
+                "OpenAI home-caption generation failed; using curated fallbacks "
+                "error_type=%s status_code=%s",
+                type(error).__name__,
+                status_code,
+            )
             return FALLBACK_CAPTIONS
         if len(captions) != 100 or len(set(captions)) != 100:
             logger.warning("OpenAI home-caption library was invalid; using curated fallbacks")

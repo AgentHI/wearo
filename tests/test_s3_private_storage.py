@@ -57,6 +57,13 @@ class FakeS3Client:
         return {"Deleted": Delete["Objects"]}
 
 
+class DeleteDeniedS3Client(FakeS3Client):
+    def delete_objects(
+        self, *, Bucket: str, Delete: dict[str, list[dict[str, str]]]
+    ) -> dict[str, list[dict[str, str]]]:  # noqa: N803
+        return {"Errors": [{"Key": Delete["Objects"][0]["Key"], "Code": "AccessDenied"}]}
+
+
 def test_s3_store_round_trip_and_family_deletion() -> None:
     client = FakeS3Client()
     store = S3PrivateBlobStore("wearo-private", client=client)
@@ -101,3 +108,10 @@ def test_s3_render_preview_deletion() -> None:
     store.put(key, b"preview")
     store.delete_render_preview(job_id)
     assert store.get(key) is None
+
+
+def test_s3_delete_failure_reports_safe_error_codes() -> None:
+    store = S3PrivateBlobStore("wearo-private", client=DeleteDeniedS3Client())
+
+    with pytest.raises(OSError, match=r"error_codes=AccessDenied"):
+        store.delete_asset_family("private/previews/example")

@@ -1079,7 +1079,8 @@ async function loadOrganizationDetail(root) {
     <form id="subscription-transition-form"><label>Reason<input name="reason" required maxlength="500" /></label><div class="admin-action-row"><button name="action" value="START_TRIAL" class="button button--quiet">Start trial</button><button name="action" value="ACTIVATE" class="button button--quiet">Activate / Reactivate</button><button name="action" value="MARK_PAYMENT_DUE" class="button button--quiet">Mark payment due</button><button name="action" value="PAUSE" class="button button--quiet">Customer pause</button><button name="action" value="CANCEL" class="button button--danger">Cancel</button><button name="action" value="EXPIRE" class="button button--quiet">Expire</button></div><p class="form-status" role="status"></p></form>
     <div class="admin-control-grid"><form id="subscription-plan-form"><h3>Assign or change plan</h3><label>Plan code<input name="planCode" value="${escapeHtml(subscription.plan_code)}" required maxlength="40" /></label><label>Next billing date<input name="nextBilling" type="datetime-local" /></label><label>Reason<input name="reason" required maxlength="500" /></label><button class="button button--primary">Save plan</button><p class="form-status" role="status"></p></form><form id="trial-extension-form"><h3>Extend trial</h3><label>Additional days<input name="days" type="number" min="1" max="365" required /></label><label>Reason<input name="reason" required maxlength="500" /></label><button class="button button--primary">Extend trial</button><p class="form-status" role="status"></p></form></div></section>` : ""}
     <section class="admin-control-grid"><form id="organization-status-control"><h3>Admin operational controls</h3><p class="field-help">This pause is independent from a customer-paused subscription.</p><label>Reason<input name="reason" required maxlength="500" /></label><div class="admin-action-row"><button name="action" value="ACTIVATE" class="button button--quiet">Activate</button><button name="action" value="PAUSE" class="button button--quiet">Admin pause</button><button name="action" value="RESUME" class="button button--quiet">Resume</button><button name="action" value="DEACTIVATE" class="button button--danger">Deactivate</button></div><p class="form-status" role="status"></p></form>
-    <form id="organization-token-control"><h3>Manual token adjustment</h3><label>Token amount<input name="amount" type="number" min="-1000000" max="1000000" required /></label><label>Reason<input name="reason" required maxlength="500" /></label><button class="button button--primary">Apply adjustment</button><p class="form-status" role="status"></p></form></section>
+    <form id="organization-token-control"><h3>Manual token adjustment</h3><label>Token amount<input name="amount" type="number" min="-1000000" max="1000000" required /></label><label>Reason<input name="reason" required maxlength="500" /></label><button class="button button--primary">Apply adjustment</button><p class="form-status" role="status"></p></form>
+    <form id="organization-tryon-limit-control"><h3>B2B2C customer allowance</h3><p class="field-help">Set the free try-ons available to each customer in this business's 24-hour session.</p><label>Try-ons per customer<input name="limit" type="number" min="0" max="100000" value="${escapeHtml(organization.customer_try_on_limit ?? 0)}" required /></label><label>Reason<input name="reason" required maxlength="500" /></label><button class="button button--primary">Update allowance</button><p class="form-status" role="status"></p></form></section>
     <section class="admin-payment-history"><h3>Advertisement generations by store</h3><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Store</th><th>Status</th><th>AI advertisements generated</th></tr></thead><tbody>${stores}</tbody></table></div></section>
     <section class="admin-payment-history"><h3>Payment history</h3><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Receipt</th><th>Date</th><th>Amount</th><th>Tokens</th></tr></thead><tbody>${payments}</tbody></table></div></section>`;
   panel.querySelector(".admin-back-link").addEventListener("click", (event) => {
@@ -1111,6 +1112,18 @@ async function loadOrganizationDetail(root) {
     panel.querySelector("#detail-token-balance").textContent = result.available_tokens;
     status.textContent = "Token balance adjusted and audited.";
     tokenForm.reset();
+  });
+  const tryOnLimitForm = panel.querySelector("#organization-tryon-limit-control");
+  tryOnLimitForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(tryOnLimitForm);
+    const status = tryOnLimitForm.querySelector(".form-status");
+    const update = await fetch(`${API_ROOT}/admin/organizations/${encodeURIComponent(panel.dataset.tenantId)}/customer-try-on-limit`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: Number(data.get("limit")), reason: data.get("reason") }) });
+    const result = await update.json();
+    if (!update.ok) return void (status.textContent = result.message || "Allowance update failed.");
+    tryOnLimitForm.elements.limit.value = result.customer_try_on_limit;
+    tryOnLimitForm.elements.reason.value = "";
+    status.textContent = "B2B2C customer allowance updated and audited.";
   });
   const postSubscription = async (path, body, form) => {
     const status = form.querySelector(".form-status");

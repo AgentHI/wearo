@@ -26,6 +26,12 @@ def test_business_financial_and_aggregate_rows_are_retained() -> None:
         assert forbidden_statement not in lifecycle
 
 
+def test_final_consumer_deletion_removes_person_demographics_and_photo_links() -> None:
+    lifecycle = Path("apps/api/wearo_api/account_lifecycle.py").read_text()
+
+    assert "DELETE FROM account_persons WHERE account_id = :account" in lifecycle
+
+
 def test_b2b2c_schema_allows_identity_links_to_be_cleared() -> None:
     migration = Path(
         "apps/api/migrations/versions/20261025_0040_b2b2c_customer_anonymization.py"

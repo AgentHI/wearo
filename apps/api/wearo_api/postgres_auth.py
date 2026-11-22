@@ -387,6 +387,13 @@ class DevelopmentPostgresOtpStore(PostgresEmailOtpStore):
             )
             connection.execute(
                 text(
+                    "INSERT INTO consumer_free_tryon_grants "
+                    "(account_id, grant_limit) VALUES (:account, 3)"
+                ),
+                {"account": account_id},
+            )
+            connection.execute(
+                text(
                     """
                     INSERT INTO principals
                         (principal_id, account_id, account_kind, principal_type)

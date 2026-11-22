@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from apps.api.wearo_api.browser_sessions import BrowserSession
 from apps.api.wearo_api.http_api import ApiContainer, create_app
-from apps.api.wearo_api.plan_usage import UsageSnapshot
+from apps.api.wearo_api.plan_usage import AudienceSnapshot, UsageSnapshot, UserCategoryCounts
 
 
 class StaticBusinessSessions:
@@ -66,6 +66,28 @@ class RecordingPlanUsage:
             20.0,
             0.1,
             0.004,
+            total_unique_users=12,
+            users_by_category=UserCategoryCounts(
+                unknown=1,
+                basic=3,
+                premium=4,
+                luxury=3,
+                ultra_luxury=1,
+            ),
+        )
+
+    def audience_for_account(
+        self, account_id: UUID, tenant_id: UUID, *, store_id: UUID | None = None
+    ) -> AudienceSnapshot:
+        self.arguments = {
+            "account_id": account_id,
+            "tenant_id": tenant_id,
+            "store_id": store_id,
+        }
+        return AudienceSnapshot(
+            total_unique_users=4,
+            users_by_category=UserCategoryCounts(basic=1, premium=2, luxury=1),
+            store_id=store_id,
         )
 
 
@@ -99,6 +121,14 @@ def test_business_usage_endpoint_forwards_tenant_action_and_reporting_dates() ->
 
     assert response.status_code == 200
     assert response.json()["average_tokens_per_preview"] == 20.0
+    assert response.json()["total_unique_users"] == 12
+    assert response.json()["users_by_category"] == {
+        "unknown": 1,
+        "basic": 3,
+        "premium": 4,
+        "luxury": 3,
+        "ultra_luxury": 1,
+    }
     assert usage.arguments == {
         "account_id": account_id,
         "tenant_id": tenant_id,
@@ -133,3 +163,38 @@ def test_business_usage_endpoint_rejects_reversed_date_range() -> None:
 
     assert response.status_code == 422
     assert response.json()["code"] == "INVALID_DATE_RANGE"
+
+
+def test_business_audience_endpoint_filters_unique_users_by_store() -> None:
+    account_id, principal_id, tenant_id, store_id = uuid4(), uuid4(), uuid4(), uuid4()
+    usage = RecordingPlanUsage()
+    unavailable = cast(Any, None)
+    container = ApiContainer(
+        engine=unavailable,
+        otp=unavailable,
+        sessions=cast(Any, StaticBusinessSessions(account_id, principal_id)),
+        media=unavailable,
+        consents=unavailable,
+        profiles=unavailable,
+        quota=unavailable,
+        renders=unavailable,
+        business_platform=cast(Any, AllowedBusinessPlatform(tenant_id)),
+        plan_usage=cast(Any, usage),
+    )
+
+    with TestClient(create_app(container)) as client:
+        client.cookies.set("wearo_business_session", "session")
+        response = client.get(
+            f"/api/v1/business/tenants/{tenant_id}/audience",
+            params={"store_id": str(store_id)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["total_unique_users"] == 4
+    assert response.json()["users_by_category"]["premium"] == 2
+    assert response.json()["store_id"] == str(store_id)
+    assert usage.arguments == {
+        "account_id": account_id,
+        "tenant_id": tenant_id,
+        "store_id": store_id,
+    }

@@ -154,6 +154,31 @@ def test_ses_sender_removes_template_images_and_duplicate_wearo_signature_line()
     assert "<p>wearo.ai</p>" not in html_body
 
 
+def test_ses_sender_adds_only_the_trusted_smart_ad_image() -> None:
+    client = FakeSes()
+    sender = SesEmailSender(
+        client, from_address="notify@example.com", asset_origin="https://wearo.example"
+    )
+
+    sender.send(
+        to_address="customer@example.com",
+        subject="New collection",
+        body='<p>See the collection</p><img src="https://untrusted.example/ad.png">',
+        signature="Team Wearo.ai",
+        category="NOTIFICATION",
+        advertisement_url="https://wearo.example/api/v1/public/smart-ads/token/image",
+        action_url="https://wearo.example/shop/madhu-jewels?key=public&smart_ad=token",
+    )
+
+    assert client.request is not None
+    html_body = client.request["Content"]["Simple"]["Body"]["Html"]["Data"]
+    assert "untrusted.example" not in html_body
+    assert "https://wearo.example/api/v1/public/smart-ads/token/image" in html_body
+    assert "See how you look in the new collection" in html_body
+    assert ">Try on</a>" in html_body
+    assert "https://wearo.example/shop/madhu-jewels?key=public&amp;smart_ad=token" in html_body
+
+
 def test_ses_sender_embeds_brand_assets_in_raw_email() -> None:
     client = FakeSes()
     sender = SesEmailSender(
@@ -236,6 +261,35 @@ def test_worker_renders_active_template_and_marks_delivery() -> None:
 
     assert worker.run_once() is True
     assert service.delivery == (service.job.job_id, "provider-1")
+
+
+def test_worker_forwards_smart_ad_image_and_try_on_urls() -> None:
+    service = FakeService()
+    service.job = ClaimedNotification(
+        uuid4(),
+        "EMAIL",
+        "SMART_AD",
+        "person@example.com",
+        {
+            "name": "A",
+            "smart_ad_image_url": "https://wearo.example/api/v1/public/smart-ads/token/image",
+            "smart_ad_try_on_url": "https://wearo.example/shop/store?key=public&smart_ad=token",
+        },
+        1,
+        5,
+    )
+    message: dict[str, object] = {}
+
+    class SmartAdEmail:
+        def send(self, **values: object) -> str:
+            message.update(values)
+            return "provider-smart-ad"
+
+    worker = NotificationWorker(service, SmartAdEmail(), "worker-1")
+
+    assert worker.run_once() is True
+    assert message["advertisement_url"] == service.job.variables["smart_ad_image_url"]
+    assert message["action_url"] == service.job.variables["smart_ad_try_on_url"]
 
 
 def test_worker_uses_exact_saved_version_for_test_email() -> None:

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, Engine, text
 from sqlalchemy.engine import RowMapping
@@ -15,8 +14,6 @@ from .tryon_authorization import (
     SubscriptionState,
     authorize_business_try_on,
 )
-
-IST = ZoneInfo("Asia/Kolkata")
 
 
 class DurableRenderError(ValueError):
@@ -89,10 +86,6 @@ class RecoverySummary:
     failed: int
 
 
-def _usage_date(now: datetime) -> date:
-    return now.astimezone(IST).date()
-
-
 def _job_from_row(row: RowMapping) -> DurableRenderJob:
     return DurableRenderJob(
         job_id=row["job_id"],
@@ -148,7 +141,7 @@ JOB_SELECT = """
 class PostgresRenderRuntime:
     """Transactional job, quota, and queue persistence for the upload-first beta."""
 
-    maximum_daily_generations = 3
+    maximum_free_generations = 3
 
     @staticmethod
     def _link_sponsored_render(
@@ -170,9 +163,9 @@ class PostgresRenderRuntime:
         )
         return links.rowcount > 0
 
-    def __init__(self, engine: Engine, *, enforce_daily_allowance: bool = True) -> None:
+    def __init__(self, engine: Engine, *, enforce_free_allowance: bool = True) -> None:
         self.engine = engine
-        self.enforce_daily_allowance = enforce_daily_allowance
+        self.enforce_free_allowance = enforce_free_allowance
 
     def create_job(
         self,
@@ -301,34 +294,34 @@ class PostgresRenderRuntime:
 
             sponsored = self._link_sponsored_render(connection, job_id, account_id, key)
             usage = None
-            if self.enforce_daily_allowance and not sponsored:
+            if self.enforce_free_allowance and not sponsored:
                 usage = connection.execute(
                     text(
                         """
-                    INSERT INTO generation_daily_usage
-                        (account_id, usage_date_ist, active_job_id)
+                    INSERT INTO consumer_free_tryon_grants
+                        (account_id, grant_limit, active_job_id)
                     VALUES
-                        (:account, :usage_date, :job)
-                    ON CONFLICT (account_id, usage_date_ist) DO UPDATE
+                        (:account, :maximum, :job)
+                    ON CONFLICT (account_id) DO UPDATE
                     SET active_job_id = EXCLUDED.active_job_id,
                         updated_at = :now
-                    WHERE generation_daily_usage.successful_generations < :maximum
-                      AND generation_daily_usage.active_job_id IS NULL
-                    RETURNING usage_id
+                    WHERE consumer_free_tryon_grants.successful_generations
+                            < consumer_free_tryon_grants.grant_limit
+                      AND consumer_free_tryon_grants.active_job_id IS NULL
+                    RETURNING grant_id
                     """
                     ),
                     {
                         "account": account_id,
-                        "usage_date": _usage_date(current),
                         "job": job_id,
-                        "maximum": self.maximum_daily_generations,
+                        "maximum": self.maximum_free_generations,
                         "now": current,
                     },
                 ).scalar_one_or_none()
-            if self.enforce_daily_allowance and not sponsored and usage is None:
+            if self.enforce_free_allowance and not sponsored and usage is None:
                 raise DurableRenderError(
-                    "DAILY_ALLOWANCE_UNAVAILABLE",
-                    "Daily allowance is used or another generation is active.",
+                    "FREE_ALLOWANCE_UNAVAILABLE",
+                    "Free try-ons are used or another generation is active.",
                 )
 
             connection.execute(
@@ -657,7 +650,7 @@ class PostgresRenderRuntime:
             connection.execute(
                 text(
                     """
-                    UPDATE generation_daily_usage
+                    UPDATE consumer_free_tryon_grants
                     SET active_job_id = NULL, updated_at = :now
                     WHERE account_id = :account AND active_job_id = :job
                     """
@@ -792,7 +785,7 @@ class PostgresRenderRuntime:
                 connection.execute(
                     text(
                         """
-                        UPDATE generation_daily_usage
+                        UPDATE consumer_free_tryon_grants
                         SET active_job_id = NULL, updated_at = :now
                         WHERE account_id = :account AND active_job_id = :job
                         """
@@ -841,7 +834,13 @@ class PostgresRenderRuntime:
                             provider,
                             provider_region,
                             provider_request_id,
-                            provider_usage
+                            provider_usage,
+                            product_kind,
+                            product_category,
+                            classification_evidence,
+                            person_category,
+                            age_range,
+                            estimated_age
                         )
                     SELECT
                         :result,
@@ -857,7 +856,13 @@ class PostgresRenderRuntime:
                         q.provider,
                         q.provider_region,
                         :provider_request,
-                        CAST(:provider_usage AS jsonb)
+                        CAST(:provider_usage AS jsonb),
+                        q.product_kind,
+                        q.product_category,
+                        q.classification_evidence,
+                        q.person_category,
+                        q.age_range,
+                        q.estimated_age
                     FROM render_jobs AS j
                     JOIN render_quotes AS q ON q.quote_id = j.quote_id
                     WHERE j.job_id = :job
@@ -911,6 +916,114 @@ class PostgresRenderRuntime:
                 },
             )
             self._finish_job(connection, job_id, "DELIVERED", None, current)
+            connection.execute(
+                text(
+                    """
+                    UPDATE accounts AS account
+                    SET product_category = quote.product_category,
+                        updated_at = :now
+                    FROM render_jobs AS job
+                    JOIN render_quotes AS quote ON quote.quote_id = job.quote_id
+                    WHERE job.job_id = :job
+                      AND account.account_id = job.account_id
+                      AND account.kind = 'CONSUMER'
+                      AND quote.product_kind IN ('APPAREL', 'JEWELLERY')
+                      AND CASE quote.product_category
+                            WHEN 'ultra_luxury' THEN 4
+                            WHEN 'luxury' THEN 3
+                            WHEN 'premium' THEN 2
+                            WHEN 'basic' THEN 1
+                            ELSE 0
+                          END
+                          > CASE account.product_category
+                              WHEN 'ultra_luxury' THEN 4
+                              WHEN 'luxury' THEN 3
+                              WHEN 'premium' THEN 2
+                              WHEN 'basic' THEN 1
+                              ELSE 0
+                            END
+                    """
+                ),
+                {"job": job_id, "now": current},
+            )
+            # A login may upload photos of several family members. Keep person attributes
+            # on a source-photo-backed person record instead of conflating them on accounts.
+            # Identical uploads already reuse one media asset, so this upsert is idempotent.
+            connection.execute(
+                text(
+                    """
+                    WITH context AS (
+                        SELECT job.job_id,
+                               job.account_id,
+                               quote.person_asset_id,
+                               quote.person_category,
+                               quote.age_range,
+                               quote.estimated_age,
+                               sponsored_session.tenant_id,
+                               sponsored_session.business_account_id,
+                               sponsored_session.store_id
+                        FROM render_jobs AS job
+                        JOIN render_quotes AS quote ON quote.quote_id = job.quote_id
+                        LEFT JOIN business_sponsored_tryons AS sponsored
+                          ON sponsored.render_job_id = job.job_id
+                        LEFT JOIN business_sponsored_sessions AS sponsored_session
+                          ON sponsored_session.session_id = sponsored.session_id
+                        WHERE job.job_id = :job
+                          AND quote.product_kind IN ('APPAREL', 'JEWELLERY')
+                    ), recorded_person AS (
+                        INSERT INTO account_persons AS existing
+                            (account_id, source_person_asset_id, person_category, gender,
+                             age_range, estimated_age, marketing_eligible,
+                             first_seen_at, last_seen_at, created_at, updated_at)
+                        SELECT account_id,
+                               person_asset_id,
+                               person_category,
+                               CASE WHEN person_category IN ('girl', 'woman')
+                                    THEN 'female' ELSE 'unknown' END,
+                               age_range,
+                               estimated_age,
+                               false,
+                               :now,
+                               :now,
+                               :now,
+                               :now
+                        FROM context
+                        ON CONFLICT (account_id, source_person_asset_id) DO UPDATE SET
+                            person_category = CASE
+                              WHEN existing.person_category = 'unknown'
+                              THEN EXCLUDED.person_category ELSE existing.person_category END,
+                            gender = CASE
+                              WHEN existing.gender = 'unknown'
+                              THEN EXCLUDED.gender ELSE existing.gender END,
+                            age_range = CASE
+                              WHEN existing.age_range = 'unknown'
+                              THEN EXCLUDED.age_range ELSE existing.age_range END,
+                            estimated_age = COALESCE(
+                              existing.estimated_age, EXCLUDED.estimated_age
+                            ),
+                            last_seen_at = EXCLUDED.last_seen_at,
+                            updated_at = EXCLUDED.updated_at
+                        RETURNING person_id, account_id
+                    )
+                    INSERT INTO person_tryon_observations
+                        (person_id, account_id, render_job_id, tenant_id,
+                         business_account_id, store_id, observed_at, created_at, updated_at)
+                    SELECT person.person_id,
+                           context.account_id,
+                           context.job_id,
+                           context.tenant_id,
+                           context.business_account_id,
+                           context.store_id,
+                           :now,
+                           :now,
+                           :now
+                    FROM recorded_person AS person
+                    JOIN context ON context.account_id = person.account_id
+                    ON CONFLICT (render_job_id) DO NOTHING
+                    """
+                ),
+                {"job": job_id, "now": current},
+            )
             sponsored = bool(
                 connection.execute(
                     text(
@@ -926,36 +1039,35 @@ class PostgresRenderRuntime:
                 ).scalar_one()
             )
             usage_updated = None
-            if self.enforce_daily_allowance and not sponsored:
+            if self.enforce_free_allowance and not sponsored:
                 usage_updated = connection.execute(
                     text(
                         """
-                    UPDATE generation_daily_usage
+                    UPDATE consumer_free_tryon_grants
                     SET successful_generations = successful_generations + 1,
                         active_job_id = NULL,
                         updated_at = :now
                     WHERE account_id = :account
-                      AND usage_date_ist = :usage_date
                       AND active_job_id = :job
-                      AND successful_generations < :maximum
-                    RETURNING usage_id
+                      AND successful_generations < grant_limit
+                    RETURNING grant_id
                     """
                     ),
                     {
                         "account": locked["account_id"],
-                        "usage_date": _usage_date(current),
                         "job": job_id,
-                        "maximum": self.maximum_daily_generations,
                         "now": current,
                     },
                 ).scalar_one_or_none()
-            if self.enforce_daily_allowance and not sponsored and usage_updated is None:
-                raise DurableRenderError("QUOTA_STATE_CONFLICT", "Daily allowance cannot settle.")
-            if not self.enforce_daily_allowance or sponsored:
+            if self.enforce_free_allowance and not sponsored and usage_updated is None:
+                raise DurableRenderError(
+                    "QUOTA_STATE_CONFLICT", "Free try-on allowance cannot settle."
+                )
+            if not self.enforce_free_allowance or sponsored:
                 connection.execute(
                     text(
                         """
-                        UPDATE generation_daily_usage
+                        UPDATE consumer_free_tryon_grants
                         SET active_job_id = NULL, updated_at = :now
                         WHERE account_id = :account AND active_job_id = :job
                         """
@@ -996,7 +1108,7 @@ class PostgresRenderRuntime:
             connection.execute(
                 text(
                     """
-                    UPDATE generation_daily_usage
+                    UPDATE consumer_free_tryon_grants
                     SET active_job_id = NULL, updated_at = :now
                     WHERE account_id = :account AND active_job_id = :job
                     """

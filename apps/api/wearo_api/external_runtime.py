@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import google.auth
 import requests
@@ -15,6 +15,8 @@ from google.auth.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleAuthRequest
 
 from .image_preflight import VisionAssessment
+from .person_classification import AGE_RANGES, AgeRange, PersonCategory, age_range_for_estimate
+from .product_classification import ProductCategory, ProductSignals
 from .render_preflight import ModelRoute
 from .render_provider import HttpResponse, MultipartFile, ProviderError
 from .render_quality import QualitySignals
@@ -38,6 +40,59 @@ PREFLIGHT_SCHEMA: dict[str, object] = {
             "enum": ["APPAREL", "JEWELLERY", "AMBIGUOUS", "UNSUPPORTED"],
         },
         "item_count": {"type": "integer", "minimum": 0},
+        "person_category": {
+            "type": "string",
+            "enum": ["unknown", "girl", "woman"],
+        },
+        "age_range": {
+            "type": "string",
+            "enum": [
+                "unknown",
+                "under_10",
+                "10_19",
+                "20_29",
+                "30_39",
+                "40_49",
+                "50_59",
+                "60_plus",
+            ],
+        },
+        "estimated_age": {
+            "anyOf": [
+                {"type": "integer", "minimum": 1, "maximum": 120},
+                {"type": "null"},
+            ]
+        },
+        "product_signals": {
+            "type": "object",
+            "properties": {
+                name: {
+                    "type": "string",
+                    "enum": [
+                        "unknown",
+                        "basic",
+                        "premium",
+                        "luxury",
+                        "ultra_luxury",
+                    ],
+                }
+                for name in (
+                    "material",
+                    "richness",
+                    "stones",
+                    "craftsmanship",
+                    "brand_exclusivity",
+                )
+            },
+            "required": [
+                "material",
+                "richness",
+                "stones",
+                "craftsmanship",
+                "brand_exclusivity",
+            ],
+            "additionalProperties": False,
+        },
     },
     "required": [
         "person_count",
@@ -46,9 +101,51 @@ PREFLIGHT_SCHEMA: dict[str, object] = {
         "safe_content",
         "item_kind",
         "item_count",
+        "person_category",
+        "age_range",
+        "estimated_age",
+        "product_signals",
     ],
     "additionalProperties": False,
 }
+
+
+def _product_signals(body: dict[str, Any]) -> ProductSignals:
+    raw = body.get("product_signals")
+    if not isinstance(raw, dict):
+        return ProductSignals()
+    allowed = {"unknown", "basic", "premium", "luxury", "ultra_luxury"}
+
+    def category(name: str) -> ProductCategory:
+        value = raw.get(name)
+        return cast(ProductCategory, value if value in allowed else "unknown")
+
+    return ProductSignals(
+        material=category("material"),
+        richness=category("richness"),
+        stones=category("stones"),
+        craftsmanship=category("craftsmanship"),
+        brand_exclusivity=category("brand_exclusivity"),
+    )
+
+
+def _person_category(body: dict[str, Any]) -> PersonCategory:
+    value = body.get("person_category")
+    return cast(PersonCategory, value if value in {"unknown", "girl", "woman"} else "unknown")
+
+
+def _age_range(body: dict[str, Any]) -> AgeRange:
+    estimated_age = _estimated_age(body)
+    if estimated_age is not None:
+        return age_range_for_estimate(estimated_age)
+    value = body.get("age_range")
+    return cast(AgeRange, value if value in AGE_RANGES else "unknown")
+
+
+def _estimated_age(body: dict[str, Any]) -> int | None:
+    value = body.get("estimated_age")
+    return value if type(value) is int and 1 <= value <= 120 else None
+
 
 QUALITY_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -114,13 +211,26 @@ class OpenAIAnalysisClient:
                 "the person profile; image 2 is the uploaded wearable. Count visible people, "
                 "check whether one person's full body is visible, flag clearly child-like "
                 "subjects, check basic content safety, and classify the primary featured wearable. "
+                "For the single person, assign a visual presentation category: woman for a clearly "
+                "adult feminine-presenting person, girl for a clearly younger feminine-presenting "
+                "person, and unknown for masculine-presenting, ambiguous, obscured, or uncertain "
+                "cases. This is a visual merchandising label, not a claim about gender identity. "
+                "Estimate a single visual age and its broad band: under_10, 10_19, 20_29, 30_39, "
+                "40_49, 50_59, or 60_plus. Set estimated_age to null and age_range to unknown "
+                "when the face is obscured or the estimate is uncertain. The single number is an "
+                "approximation for merchandising, never a verified or actual age. "
                 "For image 2, identify the product the photo is primarily presenting. Ignore the "
                 "reference person, mannequin, clothing used only to display jewellery, hands, "
                 "props, and background when counting products. Treat an earring pair or matching "
                 "jewellery set presented as one product. "
                 "APPAREL includes clothing such as shirts, jeans, sarees, dresses, and blouses. "
                 "JEWELLERY includes necklaces, chains, earrings, rings, and similar accessories. "
-                "Use AMBIGUOUS whenever uncertain and UNSUPPORTED for non-wearable objects."
+                "Use AMBIGUOUS whenever uncertain and UNSUPPORTED for non-wearable objects. "
+                "For APPAREL or JEWELLERY, grade each visible product signal as basic, premium, "
+                "luxury, ultra_luxury, or unknown: material; size/richness; stones, beads, or "
+                "sequins; "
+                "craftsmanship; and brand/exclusivity. Judge only visible evidence and use "
+                "unknown when an attribute such as brand cannot be seen reliably."
             ),
             images=(person_image, item_image),
         )
@@ -135,6 +245,10 @@ class OpenAIAnalysisClient:
                 safe_content=body["safe_content"] is True,
                 item_kind=item_kind,
                 item_count=int(body["item_count"]),
+                person_category=_person_category(body),
+                age_range=_age_range(body),
+                estimated_age=_estimated_age(body),
+                product_signals=_product_signals(body),
             )
         except (KeyError, TypeError, ValueError):
             raise AnalysisServiceError("OpenAI analysis returned invalid preflight data") from None
@@ -479,6 +593,10 @@ class HttpAnalysisClient:
                 safe_content=body["safe_content"] is True,
                 item_kind=item_kind,
                 item_count=int(body["item_count"]),
+                person_category=_person_category(body),
+                age_range=_age_range(body),
+                estimated_age=_estimated_age(body),
+                product_signals=_product_signals(body),
             )
         except (KeyError, TypeError, ValueError):
             raise AnalysisServiceError(
