@@ -1,11 +1,13 @@
 import base64
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
 
 import pytest
 import requests
+from PIL import Image, ImageDraw
 from pytest import MonkeyPatch
 
 from apps.cost_lab_api.adapters import (
@@ -16,10 +18,21 @@ from apps.cost_lab_api.adapters import (
     normalize_openai_usage,
 )
 from apps.cost_lab_api.app import (
+    _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT,
+    _RUNWARE_EARRINGS_ONLY_PROMPT,
     _RUNWARE_JEWELLERY_NEGATIVE_PROMPT,
+    _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT,
+    _RUNWARE_NECKLACE_ONLY_PROMPT,
+    _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT,
+    _RUNWARE_SPLIT_JEWELLERY_PROMPT,
     _benchmark_category_instruction,
     _benchmark_prompt,
     reproducible_combinations,
+)
+from apps.cost_lab_api.jewellery_references import (
+    plan_runware_jewellery_references,
+    runware_jewellery_reference_images,
+    split_lower_earring_reference,
 )
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
 
@@ -55,13 +68,20 @@ def test_cost_lab_combinations_are_reproducible_and_quality_scoped() -> None:
 def test_jewellery_benchmark_prompt_replaces_existing_set_and_wears_earrings() -> None:
     prompt = _benchmark_prompt("JEWELLERY")
 
-    assert "remove every jewellery item currently worn" in prompt
-    assert "Any two matching, separate pieces" in prompt
-    assert "exactly one supplied earring on the left earlobe" in prompt
-    assert "earrings are allowed only on the two ears" in prompt
-    assert "STEP 4 — CLEAN THE CHEST" in prompt
-    assert "restore the original bare skin or clothing" in prompt
-    assert "zero unattached jewellery pieces" in prompt
+    assert "remove all jewellery originally worn" in prompt
+    assert "product inventory, not a scene" in prompt
+    assert "Every smaller jewellery piece physically disconnected" in prompt
+    assert "even when it is displayed directly below the necklace" in prompt
+    assert "FINAL PLACEMENT CONTRACT" in prompt
+    assert "exactly two matching earrings" in prompt
+    assert "one attached to the left earlobe" in prompt
+    assert "one attached to the right earlobe" in prompt
+    assert "If IMAGE 2 shows only one earring, use its design for both ears" in prompt
+    assert "CONSUME, DO NOT COPY" in prompt
+    assert "not allowed to contain the source pair below the necklace" in prompt
+    assert "zero earrings on the chest or clothing" in prompt
+    assert "Apart from using one visible earring design for the required matching pair" in prompt
+    assert "Do not recolour, redesign, simplify, duplicate" not in prompt
     assert len(prompt) < 4_000
 
 
@@ -77,8 +97,239 @@ def test_benchmark_prompt_does_not_invent_spectacles() -> None:
 def test_runware_jewellery_negative_prompt_forbids_displayed_earrings() -> None:
     assert "original earrings" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
     assert "earrings on chest" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "earrings below necklace" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "product earrings copied to chest" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
     assert "loose earrings" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
-    assert "duplicate earrings" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "extra earrings beyond one pair" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "single worn earring" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "one bare ear" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+    assert "earring used as pendant" in _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+
+
+def test_runware_split_jewellery_prompt_assigns_each_reference_one_role() -> None:
+    assert "REFERENCE IMAGE 2 contains only the new necklace" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert (
+        "REFERENCE IMAGE 3 contains one isolated earring design"
+        in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    )
+    assert "exactly one supplied necklace" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert "exactly two supplied earrings" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert "literal design blueprint" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert "every gemstone's exact colour, count, cut, shape" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert "Derive the necklace only from REFERENCE IMAGE 2" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert "Never transfer an earring detail onto the necklace" in _RUNWARE_SPLIT_JEWELLERY_PROMPT
+    assert "earring below necklace" in _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT
+    assert "bare neck" in _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT
+    assert "wrong stone colour" in _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT
+    assert "altered stone placement" in _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT
+
+
+def test_runware_necklace_only_prompt_requires_no_earrings() -> None:
+    assert (
+        "REFERENCE IMAGE 2 contains one necklace and no earrings"
+        in _RUNWARE_NECKLACE_ONLY_PROMPT
+    )
+    assert "exactly one supplied necklace" in _RUNWARE_NECKLACE_ONLY_PROMPT
+    assert "zero earrings" in _RUNWARE_NECKLACE_ONLY_PROMPT
+    assert "literal design blueprint" in _RUNWARE_NECKLACE_ONLY_PROMPT
+    assert "exact metal colour, chain-link pattern" in _RUNWARE_NECKLACE_ONLY_PROMPT
+    assert "bare neck" in _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT
+    assert "earrings" in _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT
+    assert "changed chain links" in _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT
+
+
+def test_runware_earrings_only_prompt_requires_a_pair_and_no_necklace() -> None:
+    assert "one isolated earring design and no necklace" in _RUNWARE_EARRINGS_ONLY_PROMPT
+    assert "exactly one to the left earlobe" in _RUNWARE_EARRINGS_ONLY_PROMPT
+    assert "exactly one to the right earlobe" in _RUNWARE_EARRINGS_ONLY_PROMPT
+    assert "bare neck with zero necklaces" in _RUNWARE_EARRINGS_ONLY_PROMPT
+    assert "literal design blueprint" in _RUNWARE_EARRINGS_ONLY_PROMPT
+    assert "Do not recolour, swap, add, remove" in _RUNWARE_EARRINGS_ONLY_PROMPT
+    assert "necklace" in _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT
+    assert "single earring" in _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT
+    assert "changed earring design" in _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT
+
+
+def _catalogue_jewellery_image(*, earrings: bool = True) -> bytes:
+    image = Image.new("RGB", (320, 320), (242, 230, 207))
+    drawing = ImageDraw.Draw(image)
+    gold = (185, 118, 20)
+    drawing.arc((38, 25, 282, 180), 180, 360, fill=gold, width=10)
+    drawing.line((38, 102, 138, 150, 182, 150, 282, 102), fill=gold, width=10)
+    drawing.ellipse((137, 130, 183, 176), fill=(20, 125, 70), outline=gold, width=6)
+    if earrings:
+        for centre in (88, 232):
+            drawing.ellipse(
+                (centre - 13, 218, centre + 13, 244),
+                fill=(20, 125, 70),
+                outline=gold,
+                width=5,
+            )
+            drawing.line((centre, 244, centre, 268), fill=gold, width=6)
+            drawing.ellipse(
+                (centre - 12, 260, centre + 12, 286),
+                fill=(90, 35, 135),
+                outline=gold,
+                width=5,
+            )
+    output = BytesIO()
+    image.save(output, "JPEG", quality=96)
+    return output.getvalue()
+
+
+def _catalogue_earrings_image(*, count: int = 2) -> bytes:
+    image = Image.new("RGB", (320, 320), (242, 230, 207))
+    drawing = ImageDraw.Draw(image)
+    gold = (185, 118, 20)
+    centres = (160,) if count == 1 else (105, 215)
+    for centre in centres:
+        drawing.ellipse(
+            (centre - 17, 105, centre + 17, 139),
+            fill=(20, 125, 70),
+            outline=gold,
+            width=5,
+        )
+        drawing.line((centre, 139, centre, 185), fill=gold, width=7)
+        drawing.ellipse(
+            (centre - 18, 175, centre + 18, 218),
+            fill=(90, 35, 135),
+            outline=gold,
+            width=5,
+        )
+    output = BytesIO()
+    image.save(output, "JPEG", quality=96)
+    return output.getvalue()
+
+
+def _catalogue_near_square_necklace_set() -> bytes:
+    """Model a deep U-shaped necklace whose bounding box is not wider than it is tall."""
+
+    image = Image.new("RGB", (320, 320), (242, 230, 207))
+    drawing = ImageDraw.Draw(image)
+    gold = (185, 118, 20)
+    drawing.ellipse((42, 12, 278, 252), outline=gold, width=10)
+    drawing.ellipse((140, 215, 180, 257), fill=(20, 125, 70), outline=gold, width=5)
+    for centre in (82, 238):
+        drawing.ellipse(
+            (centre - 12, 270, centre + 12, 294),
+            fill=(20, 125, 70),
+            outline=gold,
+            width=5,
+        )
+        drawing.line((centre, 294, centre, 312), fill=gold, width=5)
+    output = BytesIO()
+    image.save(output, "JPEG", quality=96)
+    return output.getvalue()
+
+
+def _catalogue_side_earrings_with_label() -> bytes:
+    image = Image.new("RGB", (400, 400), (242, 230, 207))
+    drawing = ImageDraw.Draw(image)
+    gold = (185, 118, 20)
+    drawing.ellipse((25, 18, 300, 315), outline=gold, width=10)
+    drawing.ellipse((135, 265, 190, 320), fill=(20, 125, 70), outline=gold, width=6)
+    for centre in (330, 370):
+        drawing.ellipse(
+            (centre - 13, 145, centre + 13, 171),
+            fill=(150, 20, 55),
+            outline=gold,
+            width=5,
+        )
+        drawing.ellipse(
+            (centre - 16, 170, centre + 16, 217),
+            fill=(20, 125, 70),
+            outline=gold,
+            width=5,
+        )
+    drawing.line((343, 202, 357, 202), fill=(160, 145, 125), width=3)
+    drawing.rectangle((22, 350, 160, 382), outline=(90, 80, 70), width=3)
+    drawing.line((42, 363, 140, 363), fill=(90, 80, 70), width=4)
+    output = BytesIO()
+    image.save(output, "JPEG", quality=96)
+    return output.getvalue()
+
+
+def test_catalogue_jewellery_reference_is_split_before_one_runware_call() -> None:
+    product = _catalogue_jewellery_image()
+    split = split_lower_earring_reference(product)
+
+    assert split is not None
+    plan = plan_runware_jewellery_references(b"person", product)
+    assert plan.strategy == "person_necklace_earring"
+    references = runware_jewellery_reference_images(b"person", product)
+    assert len(references) == 3
+    assert references[0] == b"person"
+    with Image.open(BytesIO(split.necklace_image)) as necklace:
+        assert max(abs(channel - background) for channel, background in zip(
+            necklace.getpixel((88, 250)), (242, 230, 207), strict=True
+        )) < 20
+        assert necklace.getpixel((160, 150))[1] > necklace.getpixel((160, 150))[0]
+    with Image.open(BytesIO(split.earring_image)) as earring:
+        rgb = earring.convert("RGB")
+        assert any(
+            green > red + 30
+            for y in range(rgb.height)
+            for x in range(rgb.width)
+            for red, green, _blue in [rgb.getpixel((x, y))]
+        )
+
+
+def test_necklace_without_detached_earrings_keeps_combined_reference() -> None:
+    product = _catalogue_jewellery_image(earrings=False)
+    assert split_lower_earring_reference(product) is None
+    plan = plan_runware_jewellery_references(b"person", product)
+    assert plan.strategy == "person_necklace"
+    assert runware_jewellery_reference_images(b"person", product) == [b"person", product]
+
+
+def test_near_square_necklace_with_detached_earrings_is_a_combined_set() -> None:
+    product = _catalogue_near_square_necklace_set()
+    plan = plan_runware_jewellery_references(b"person", product)
+
+    assert plan.strategy == "person_necklace_earring"
+    assert len(plan.images) == 3
+
+
+def test_side_earrings_are_extracted_instead_of_catalogue_label() -> None:
+    product = _catalogue_side_earrings_with_label()
+    plan = plan_runware_jewellery_references(b"person", product)
+
+    assert plan.strategy == "person_necklace_earring"
+    assert len(plan.images) == 3
+    with Image.open(BytesIO(plan.images[1])) as necklace:
+        rgb = necklace.convert("RGB")
+        assert max(
+            abs(channel - background)
+            for channel, background in zip(
+                rgb.getpixel((330, 180)), (242, 230, 207), strict=True
+            )
+        ) < 25
+    with Image.open(BytesIO(plan.images[2])) as earring:
+        rgb = earring.convert("RGB")
+        assert any(
+            green > red + 30
+            for y in range(rgb.height)
+            for x in range(rgb.width)
+            for red, green, _blue in [rgb.getpixel((x, y))]
+        )
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_earrings_only_reference_uses_one_isolated_earring(count: int) -> None:
+    product = _catalogue_earrings_image(count=count)
+    plan = plan_runware_jewellery_references(b"person", product)
+
+    assert plan.strategy == "person_earring"
+    assert len(plan.images) == 2
+    assert plan.images[0] == b"person"
+    with Image.open(BytesIO(plan.images[1])) as earring:
+        rgb = earring.convert("RGB")
+        assert any(
+            green > red + 30
+            for y in range(rgb.height)
+            for x in range(rgb.width)
+            for red, green, _blue in [rgb.getpixel((x, y))]
+        )
 
 
 @pytest.mark.parametrize("category", ["SAREE", "DRESS"])

@@ -23,8 +23,20 @@ from apps.cost_lab_api.adapters import (
     OpenAICompatibleAdapter,
     RunwareAdapter,
 )
-from apps.cost_lab_api.app import CostLab, _provider_quality_parameters
+from apps.cost_lab_api.app import (
+    _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT,
+    _RUNWARE_EARRINGS_ONLY_PROMPT,
+    _RUNWARE_JEWELLERY_NEGATIVE_PROMPT,
+    _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT,
+    _RUNWARE_NECKLACE_ONLY_PROMPT,
+    _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT,
+    _RUNWARE_SPLIT_JEWELLERY_PROMPT,
+    CostLab,
+    _benchmark_prompt,
+    _provider_quality_parameters,
+)
 from apps.cost_lab_api.config import Settings
+from apps.cost_lab_api.jewellery_references import plan_runware_jewellery_references
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
 
 LOGGER = logging.getLogger(__name__)
@@ -74,8 +86,8 @@ class CostLabWorker:
             )
             return dict(
                 connection.execute(
-                    text("""SELECT t.*,r.model_id,r.prompt,r.pricing_snapshot,r.quality_snapshot,r.spending_limit_usd,
-                c.quality,c.output_quality,c.person_asset_id,c.product_asset_id,m.api_identifier,p.* FROM cost_lab.tryon_runs t
+                    text("""SELECT t.*,r.model_id,r.prompt,r.prompt_version,r.pricing_snapshot,r.quality_snapshot,r.spending_limit_usd,
+                r.category,c.quality,c.output_quality,c.person_asset_id,c.product_asset_id,m.api_identifier,p.* FROM cost_lab.tryon_runs t
                 JOIN cost_lab.benchmark_runs r USING(run_id) JOIN cost_lab.benchmark_combinations c USING(combination_id)
                 JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id) WHERE t.tryon_id=:id"""),
                     {"id": row},
@@ -136,15 +148,61 @@ class CostLabWorker:
                 self.service.secret_for(job),
                 int(os.getenv("COST_LAB_REQUEST_TIMEOUT_SECONDS", "120")),
             )
+            person_image = self._asset(job["person_asset_id"], job["quality"])
+            product_image = self._asset(job["product_asset_id"], job["quality"])
+            reference_images = [person_image, product_image]
+            generation_prompt = job["prompt"]
+            reference_strategy = "person_product"
+            effective_prompt_version = job.get("prompt_version")
+            if (
+                job["api_identifier"] == "runware:400@4"
+                and job["category"] == "JEWELLERY"
+            ):
+                plan = plan_runware_jewellery_references(
+                    person_image, product_image
+                )
+                reference_images = list(plan.images)
+                reference_strategy = plan.strategy
+                prompts = {
+                    "person_necklace": _RUNWARE_NECKLACE_ONLY_PROMPT,
+                    "person_earring": _RUNWARE_EARRINGS_ONLY_PROMPT,
+                    "person_necklace_earring": _RUNWARE_SPLIT_JEWELLERY_PROMPT,
+                    "person_combined_product": _benchmark_prompt("JEWELLERY"),
+                }
+                negatives = {
+                    "person_necklace": _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT,
+                    "person_earring": _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT,
+                    "person_necklace_earring": _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT,
+                    "person_combined_product": _RUNWARE_JEWELLERY_NEGATIVE_PROMPT,
+                }
+                prompt_versions = {
+                    "person_necklace": "wearo-necklace-only-v16",
+                    "person_earring": "wearo-earrings-only-v16",
+                    "person_necklace_earring": "wearo-necklace-and-earrings-v16",
+                    "person_combined_product": "wearo-unclassified-jewellery-v16",
+                }
+                generation_prompt = prompts[plan.strategy]
+                effective_prompt_version = prompt_versions[plan.strategy]
+                configured_negative = str(parameters.get("negativePrompt") or "").strip()
+                parameters["negativePrompt"] = (
+                    f"{negatives[plan.strategy]}, {configured_negative}"
+                    if configured_negative
+                    else negatives[plan.strategy]
+                )
+                if plan.strategy == "person_combined_product":
+                    LOGGER.warning(
+                        "Could not classify jewellery reference tryon_id=%s; using combined product reference",
+                        job["tryon_id"],
+                    )
             result = adapter.generate(
                 model=job["api_identifier"],
-                prompt=job["prompt"],
-                images=[
-                    self._asset(job["person_asset_id"], job["quality"]),
-                    self._asset(job["product_asset_id"], job["quality"]),
-                ],
+                prompt=generation_prompt,
+                images=reference_images,
                 parameters=parameters,
             )
+            result.raw_metadata["reference_images"] = len(reference_images)
+            result.raw_metadata["reference_strategy"] = reference_strategy
+            result.raw_metadata["effective_prompt_version"] = effective_prompt_version
             try:
                 with Image.open(BytesIO(result.image_bytes)) as generated:
                     extension = ".png" if generated.format == "PNG" else ".jpg"

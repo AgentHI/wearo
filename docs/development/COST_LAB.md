@@ -89,7 +89,13 @@ pricing**; `WEARO_RUNWARE_MODEL` documents the intended local model but does not
 Cost Lab model catalogue.
 
 Runware `runware:400@4` (FLUX.2 Klein 4B) supports text-to-image with no input and editing with one
-to four ordered reference images. Cost Lab benchmarks use two of those references.
+to four ordered reference images. Jewellery benchmarks locally classify necklace-only,
+earrings-only, and combined necklace-and-earrings catalogue images. Necklace-only and
+earrings-only jobs use two references; combined sets are separated into three ordered references:
+the person, the necklace-only product image, and one isolated earring exemplar. Each class uses a
+matching placement prompt, and all catalogue preprocessing still results in exactly one provider
+inference request. If the deterministic classifier cannot identify a product confidently, the
+worker retains the original two-reference contract and records that fallback in provider metadata.
 
 BFL diagnostics are emitted as structured `bfl_upstream` log entries. They include the phase,
 upstream status, sanitized response, request ID, generation ID, and elapsed time; credentials and

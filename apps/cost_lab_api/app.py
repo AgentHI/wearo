@@ -211,34 +211,31 @@ def _benchmark_category_instruction(
 ) -> str:
     if category == "JEWELLERY":
         return (
-            "CATEGORY: JEWELLERY REPLACEMENT. Complete these edits in order. "
-            "STEP 1 — ERASE OLD JEWELLERY: remove every jewellery item currently worn in IMAGE 1, "
-            "including the old earrings and old necklace. Inpaint clean natural earlobes, neck, "
-            "and skin where those old items were removed. Do not preserve, stack, mix, or blend "
-            "any old jewellery with the new set. "
-            "STEP 2 — INVENTORY IMAGE 2: treat IMAGE 2 only as a parts inventory, never as a "
-            "spatial layout. The central connected piece is the necklace. Any two matching, "
-            "separate pieces displayed to the left and right of or below the necklace are an "
-            "earring pair. They are earrings, not pendants, brooches, or chest ornaments. Ignore "
-            "the product-photo background, spacing, display positions, stand, and shadows. "
-            "STEP 3 — WEAR EVERY NEW COMPONENT: put the necklace once around the neck and "
-            "collarbone at its original length. If IMAGE 2 contains an earring pair, put exactly "
-            "one supplied earring on the left earlobe and exactly one supplied earring on the "
-            "right earlobe. Each earring stud or hook must visibly touch its earlobe and each drop "
-            "must hang downward from that ear. Preserve the product's exact design, colours, "
-            "stones, metal, proportions, and component count. "
-            "HARD PLACEMENT CONSTRAINT: earrings are allowed only on the two ears. Never place an "
-            "earring on or near the necklace, chest, collarbone, shoulder, saree, blouse, hand, "
-            "background, or any other location. Never leave an earring loose, floating, displayed, "
-            "or duplicated. The final image must have zero product-display earrings and zero old "
-            "jewellery. "
-            "STEP 4 — CLEAN THE CHEST: inspect the area from the lower edge of the worn necklace "
-            "down to the waist. Any detached matching pair, dangling cluster, or isolated jewellery "
-            "piece in this area is a catalogue earring copied into the wrong place. Erase it and "
-            "restore the original bare skin or clothing from IMAGE 1. Only the connected necklace "
-            "may occupy the neck or upper chest; all supplied earrings must be attached to ears. "
-            "FINAL COUNT CHECK: one supplied necklace, two supplied earrings when the pair exists "
-            "in IMAGE 2, and zero unattached jewellery pieces. "
+            "CATEGORY: JEWELLERY REPLACEMENT. IMAGE 2 is a product inventory, not a scene, outfit, "
+            "or layout to reproduce. Extract the jewellery designs from IMAGE 2 and place them on "
+            "the person in IMAGE 1; never paste the product-photo arrangement into the portrait. "
+            "First remove all jewellery originally worn in IMAGE 1, including its necklace and both "
+            "earrings, and restore natural skin beneath it. "
+            "OBJECT IDENTITY RULE: the necklace is only the longest continuous chain and the stones, "
+            "pendant, or ornaments physically connected to that chain. Every smaller jewellery "
+            "piece physically disconnected from the chain is an earring, even when it is displayed "
+            "directly below the necklace or visually aligned with the pendant. A disconnected "
+            "earring is never part of the necklace and must never appear as a pendant, chest ornament, "
+            "brooch, or loose object. "
+            "FINAL PLACEMENT CONTRACT: wear the connected necklace exactly once around the neck. If "
+            "at least one earring design is visible in IMAGE 2, the final portrait must wear exactly "
+            "two matching earrings: one attached to the left earlobe and one attached to the right "
+            "earlobe. If IMAGE 2 shows only one earring, use its design for both ears. If it shows a "
+            "pair, use that pair. If it shows none, add none. Preserve the supplied jewellery's exact "
+            "metal, stones, colours, construction, proportions, and realistic scale. "
+            "CONSUME, DO NOT COPY: after using the earring design on the two ears, omit the displayed "
+            "earring objects from every other location. The final portrait is not allowed to contain "
+            "the source pair below the necklace. Below and beside the worn necklace, show only the "
+            "person's natural skin and original clothing from IMAGE 1; show no detached drops, studs, "
+            "hooks, matching motifs, loose jewellery, or extra ornaments. Earrings may exist only on "
+            "the two earlobes. "
+            "FINAL OBJECT COUNT: one necklace on the neck; two matching worn earrings when IMAGE 2 "
+            "contains an earring design; zero earrings on the chest or clothing; zero loose jewellery. "
         )
 
     garment = "saree" if category == "SAREE" else "dress or apparel item"
@@ -261,6 +258,16 @@ def _benchmark_category_instruction(
 
 
 def _benchmark_prompt(category: Literal["JEWELLERY", "SAREE", "DRESS"]) -> str:
+    product_fidelity = (
+        "Use IMAGE 2 as the exact jewellery-design authority. Apart from using one visible earring "
+        "design for the required matching pair, do not recolour, redesign, simplify, omit, or invent "
+        "product details. Match its material, colour placement, stones, construction, realistic scale, "
+        "and proportions while fitting it naturally to the unchanged person. "
+        if category == "JEWELLERY"
+        else "Use IMAGE 2 as the exact product-design authority. Do not recolour, redesign, simplify, "
+        "duplicate, omit, or invent product details. Match its material, colour placement, patterns, "
+        "construction, scale, and proportions while fitting it naturally to the unchanged person. "
+    )
     return (
         "Create one photorealistic virtual try-on by editing IMAGE 1. IMAGE 1 is the immutable "
         "person photograph and output canvas. IMAGE 2 is only the product reference. Keep IMAGE "
@@ -274,19 +281,123 @@ def _benchmark_prompt(category: Literal["JEWELLERY", "SAREE", "DRESS"]) -> str:
         "watermark, or product-display layout. Modify only the minimum pixels required for the "
         "product and its physically correct occlusion. "
         f"{_benchmark_category_instruction(category)}"
-        "Use IMAGE 2 as the exact product-design authority. Do not recolour, redesign, simplify, "
-        "duplicate, omit, or invent product details. Match its material, colour placement, stones, "
-        "patterns, construction, scale, and proportions while fitting it naturally to the unchanged "
-        "person. Return only the final edited IMAGE 1. "
+        f"{product_fidelity}"
+        "Return only the final edited IMAGE 1. "
     )
 
 
 _RUNWARE_JEWELLERY_NEGATIVE_PROMPT = (
     "old jewellery, original earrings, original necklace, mixed jewellery sets, stacked necklaces, "
-    "earrings on chest, earrings on necklace, earrings on collarbone, earrings on shoulders, "
-    "earrings on clothing, earrings on saree, loose earrings, floating earrings, displayed earrings, "
-    "duplicate earrings, extra jewellery, missing earrings, product display layout, jewellery stand, "
-    "catalogue arrangement, altered face, changed person, changed pose, changed clothing, text, watermark"
+    "earrings below necklace, pair of earrings below necklace, earrings on chest, earrings on necklace, "
+    "earrings on collarbone, earrings on shoulders, earrings on clothing, earrings on saree, "
+    "product earrings copied to chest, loose earrings, floating earrings, displayed earrings, "
+    "more than two earrings, extra earrings beyond one pair, single worn earring, one bare ear, "
+    "bare left ear, bare right ear, asymmetric "
+    "earrings, earring used as pendant, second pendant made from an earring, detached chest ornament, "
+    "extra jewellery, missing earrings, product display layout, jewellery stand, catalogue arrangement, "
+    "altered face, changed person, changed pose, changed clothing, text, watermark"
+)
+
+_RUNWARE_JEWELLERY_FIDELITY_INSTRUCTION = (
+    "PRODUCT FIDELITY IS MANDATORY: treat each product reference as a literal design blueprint, "
+    "not as style inspiration. Preserve every gemstone's exact colour, count, cut, shape, size "
+    "order, relative position, symmetry, and setting. Preserve the exact metal colour, chain-link "
+    "pattern, prongs, bezels, pendant outline, drops, motifs, and construction. Do not recolour, "
+    "swap, add, remove, rearrange, merge, enlarge, shrink, simplify, or redesign any stone or "
+    "component. "
+)
+
+_RUNWARE_JEWELLERY_FIDELITY_NEGATIVE_PROMPT = (
+    "wrong stone colour, changed gemstone hue, recoloured gemstones, swapped gemstones, missing "
+    "stones, extra stones, altered stone count, altered stone cut, altered stone shape, altered "
+    "stone placement, altered setting, changed metal colour, changed chain links, simplified "
+    "jewellery, redesigned pendant, changed earring design, mixed product motifs"
+)
+
+_RUNWARE_SPLIT_JEWELLERY_PROMPT = (
+    "Create one photorealistic jewellery try-on using three ordered reference images. "
+    "REFERENCE IMAGE 1 is the immutable person and output canvas: preserve the same identity, "
+    "face, expression, skin tone, hair, body, pose, clothing, bindi, background, lighting, crop, "
+    "and aspect ratio. Never add spectacles when REFERENCE IMAGE 1 has bare eyes. "
+    "REFERENCE IMAGE 2 contains only the new necklace. Replace the person's existing necklace "
+    "directly with that exact necklace and wear it once around the neck at realistic scale. The "
+    "finished portrait must not have a bare neck. "
+    "REFERENCE IMAGE 3 contains one isolated earring design. Replace the person's existing "
+    "earrings with a matching pair of that design: exactly one attached to the left earlobe and "
+    "exactly one attached to the right earlobe. Use REFERENCE IMAGE 3 only as an earring design, "
+    "never as a scene or layout. "
+    f"{_RUNWARE_JEWELLERY_FIDELITY_INSTRUCTION}"
+    "Derive the necklace only from REFERENCE IMAGE 2 and the earrings only from REFERENCE IMAGE "
+    "3. Never transfer an earring detail onto the necklace or a necklace detail onto the earrings. "
+    "FINAL STATE: exactly one supplied necklace on the neck and exactly two supplied earrings on "
+    "the ears. No loose, detached, duplicated, or displayed jewellery may appear on the chest, "
+    "collarbone, shoulders, skin, saree, blouse, or background. Preserve the exact metal, stones, "
+    "colours, construction, scale, and proportions from REFERENCE IMAGES 2 and 3. Return only the "
+    "edited REFERENCE IMAGE 1."
+)
+
+_RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT = (
+    "bare neck, missing necklace, single earring, bare ear, third earring, extra earrings, "
+    "earring on chest, earring below necklace, earring on collarbone, earring on clothing, "
+    "loose jewellery, floating jewellery, product display, catalogue layout, jewellery stand, "
+    "eyeglasses, spectacles, altered face, changed person, changed pose, changed clothing, text, watermark"
+    f", {_RUNWARE_JEWELLERY_FIDELITY_NEGATIVE_PROMPT}"
+)
+
+_RUNWARE_NECKLACE_ONLY_PROMPT = (
+    "Create one photorealistic necklace try-on using two ordered reference images. "
+    "REFERENCE IMAGE 1 is the immutable person and output canvas: preserve the same identity, "
+    "face, expression, skin tone, hair, body, pose, clothing, bindi, background, lighting, crop, "
+    "and aspect ratio. Never add spectacles when REFERENCE IMAGE 1 has bare eyes. "
+    "REFERENCE IMAGE 2 contains one necklace and no earrings. Remove every necklace and every "
+    "earring originally worn by the person, then wear the exact necklace from REFERENCE IMAGE 2 "
+    "once around the neck at realistic scale. "
+    f"{_RUNWARE_JEWELLERY_FIDELITY_INSTRUCTION}"
+    "FINAL STATE: exactly one supplied necklace on the neck and zero earrings. The necklace must "
+    "be visible and the neck must not be bare. No loose, detached, duplicated, or displayed "
+    "jewellery may appear on the chest, collarbone, shoulders, skin, saree, blouse, or background. "
+    "Preserve the exact metal, stones, colours, construction, scale, and proportions from "
+    "REFERENCE IMAGE 2. Return only the edited REFERENCE IMAGE 1."
+)
+
+_RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT = (
+    "bare neck, missing necklace, earrings, single earring, extra necklace, duplicate necklace, "
+    "jewellery on chest, loose jewellery, floating jewellery, product display, catalogue layout, "
+    "jewellery stand, eyeglasses, spectacles, altered face, changed person, changed pose, "
+    "changed clothing, text, watermark"
+    f", {_RUNWARE_JEWELLERY_FIDELITY_NEGATIVE_PROMPT}"
+)
+
+_RUNWARE_EARRINGS_ONLY_PROMPT = (
+    "Create one photorealistic earrings try-on using two ordered reference images. "
+    "REFERENCE IMAGE 1 is the immutable person and output canvas: preserve the same identity, "
+    "face, expression, skin tone, hair, body, pose, clothing, bindi, background, lighting, crop, "
+    "and aspect ratio. Never add spectacles when REFERENCE IMAGE 1 has bare eyes. "
+    "REFERENCE IMAGE 2 contains one isolated earring design and no necklace. Remove every "
+    "necklace and every earring originally worn by the person. Duplicate only the earring design "
+    "to form one matching pair: attach exactly one to the left earlobe and exactly one to the "
+    "right earlobe at realistic scale. "
+    f"{_RUNWARE_JEWELLERY_FIDELITY_INSTRUCTION}"
+    "FINAL STATE: a bare neck with zero necklaces and exactly two supplied earrings, one on each "
+    "ear. No third earring and no loose, detached, duplicated, or displayed jewellery may appear "
+    "on the chest, collarbone, shoulders, skin, saree, blouse, or background. Preserve the exact "
+    "metal, stones, colours, construction, scale, and proportions from REFERENCE IMAGE 2. Return "
+    "only the edited REFERENCE IMAGE 1."
+)
+
+_RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT = (
+    "necklace, pendant, jewellery on neck, single earring, one bare ear, missing earring, third "
+    "earring, extra earrings, earring on chest, earring on collarbone, earring on clothing, loose "
+    "jewellery, floating jewellery, product display, catalogue layout, jewellery stand, "
+    "eyeglasses, spectacles, altered face, changed person, changed pose, changed clothing, text, watermark"
+    f", {_RUNWARE_JEWELLERY_FIDELITY_NEGATIVE_PROMPT}"
+)
+
+_RUNWARE_ADAPTIVE_JEWELLERY_NEGATIVE_PROMPT = (
+    "old jewellery, mixed jewellery sets, jewellery on chest, jewellery on collarbone, jewellery "
+    "on shoulders, jewellery on clothing, loose jewellery, floating jewellery, displayed jewellery, "
+    "product display layout, jewellery stand, catalogue arrangement, eyeglasses, spectacles, "
+    "altered face, changed person, changed pose, changed clothing, text, watermark"
 )
 
 
@@ -1770,7 +1881,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         qualities = [output_quality]
         categories = [body.category]
         tryons_per_quality = body.image_count
-        prompt_version = "wearo-flux-accessory-cleanup-v10"
+        prompt_version = "wearo-single-pass-jewellery-placement-v13"
         prompt = _benchmark_prompt(body.category)
         selected_result: dict[str, Any] | None = None
         with service.engine.begin() as connection:
@@ -1839,14 +1950,16 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         if model is None:
             raise HTTPException(404, "Enabled model not found")
         if body.category == "JEWELLERY" and model["api_identifier"] == "runware:400@4":
+            prompt_version = "wearo-adaptive-jewellery-references-v16"
             for mapping in mappings:
                 request_parameters = dict(mapping.get("request_parameters") or {})
                 configured_negative = str(request_parameters.get("negativePrompt") or "").strip()
                 request_parameters["negativePrompt"] = (
-                    f"{_RUNWARE_JEWELLERY_NEGATIVE_PROMPT}, {configured_negative}"
+                    f"{_RUNWARE_ADAPTIVE_JEWELLERY_NEGATIVE_PROMPT}, {configured_negative}"
                     if configured_negative
-                    else _RUNWARE_JEWELLERY_NEGATIVE_PROMPT
+                    else _RUNWARE_ADAPTIVE_JEWELLERY_NEGATIVE_PROMPT
                 )
+                request_parameters.setdefault("CFGScale", 5.0)
                 mapping["request_parameters"] = request_parameters
         if body.person_asset_id is not None and body.person_result_tryon_id is not None:
             raise HTTPException(422, "Select either a dataset person or a result image, not both")
