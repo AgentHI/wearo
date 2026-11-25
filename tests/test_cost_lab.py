@@ -447,14 +447,18 @@ def test_earrings_only_reference_uses_one_isolated_earring(count: int) -> None:
 
 
 @pytest.mark.parametrize("category", ["SAREE", "DRESS"])
-def test_apparel_benchmark_prompt_preserves_existing_jewellery(category: str) -> None:
+def test_apparel_benchmark_prompt_preserves_non_garment_content(category: str) -> None:
     typed_category = cast(Literal["SAREE", "DRESS"], category)
-    prompt = _benchmark_category_instruction(typed_category)
+    instruction = _benchmark_category_instruction(typed_category)
+    prompt = _benchmark_prompt(typed_category)
 
-    assert "PRESERVE EXISTING JEWELLERY" in prompt
-    assert "retain every jewellery item already worn" in prompt
-    assert "Do not remove, replace, recolour" in prompt
-    assert "remove every jewellery item currently worn" not in prompt
+    assert "PRESERVE ALL NON-GARMENT CONTENT" in instruction
+    assert "exact visible object inventory" in instruction
+    assert "Keep the head, face, ears, neck" in instruction
+    assert "discard every other visual element" in prompt
+    assert "jewellery" not in prompt.casefold()
+    assert "earring" not in prompt.casefold()
+    assert "necklace" not in prompt.casefold()
 
 
 def test_benchmark_accepts_multiple_unique_product_sources() -> None:

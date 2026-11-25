@@ -298,18 +298,30 @@ def _benchmark_category_instruction(
         else "Replace only the existing garment pixels and the minimum edge pixels required for a natural fit."
     )
     return (
-        f"BENCHMARK CATEGORY — {category}. This category is fixed; do not reclassify the product "
-        f"as jewellery. Image 2 is the authoritative {garment} reference. {garment_fit} "
-        "PRESERVE EXISTING JEWELLERY: because Image 2 is not a jewellery product, retain every "
-        "jewellery item already worn in Image 1 exactly as it is. Do not remove, replace, recolour, "
-        "move, resize, duplicate, cover unnecessarily, or redesign the person's existing earrings, "
-        "necklaces, nose jewellery, head jewellery, bangles, bracelets, rings, waist jewellery, or "
-        "anklets. Preserve all other non-garment accessories as well. Do not add any jewellery from "
-        "Image 2. Do not regenerate the person underneath the garment. "
+        f"BENCHMARK CATEGORY — {category}. This category is fixed as clothing; do not reclassify "
+        f"the product. Image 2 is the authoritative {garment} reference. {garment_fit} "
+        "PRESERVE ALL NON-GARMENT CONTENT: retain the exact visible object inventory and styling "
+        "state from Image 1. Keep the head, face, ears, neck, wrists, hands, uncovered skin, and "
+        "every non-garment object exactly unchanged. Do not introduce, remove, replace, recolour, "
+        "move, resize, duplicate, cover unnecessarily, or redesign any non-garment object. Ignore "
+        "and never transfer every non-garment element visible in Image 2. Do not regenerate the "
+        "person underneath the garment. "
     )
 
 
 def _benchmark_prompt(category: Literal["JEWELLERY", "SAREE", "DRESS"]) -> str:
+    non_product_preservation = (
+        "First inventory the non-jewellery accessories actually visible in IMAGE 1. Preserve "
+        "exactly that inventory and introduce no new accessory. If IMAGE 1 has bare eyes without "
+        "spectacles, the output must also have bare eyes without spectacles: never add eyeglasses, "
+        "lenses, rims, or frames. If eyewear is genuinely present in IMAGE 1, preserve it unchanged. "
+        if category == "JEWELLERY"
+        else "Preserve the exact visible non-garment object inventory and styling state from IMAGE "
+        "1. Keep the head, face, ears, neck, wrists, hands, uncovered skin, and every non-garment "
+        "object unchanged. Introduce no new object, adornment, decoration, accessory, or styling "
+        "element. IMAGE 2 supplies only the target garment; discard every other visual element "
+        "from that reference. "
+    )
     product_fidelity = (
         "Use IMAGE 2 as the exact jewellery-design authority. Apart from using one visible earring "
         "design for the required matching pair, do not recolour, redesign, simplify, omit, or invent "
@@ -325,11 +337,8 @@ def _benchmark_prompt(category: Literal["JEWELLERY", "SAREE", "DRESS"]) -> str:
         "person photograph and output canvas. IMAGE 2 is only the product reference. Keep IMAGE "
         "1's person identity, face, expression, skin tone, hair, body, pose, hands, clothing "
         "outside the required edit, bindi, background, lighting, crop, composition, and aspect "
-        "ratio unchanged. First inventory the non-jewellery accessories actually visible in IMAGE "
-        "1. Preserve exactly that inventory and introduce no new accessory. If IMAGE 1 has bare "
-        "eyes without spectacles, the output must also have bare eyes without spectacles: never "
-        "add eyeglasses, lenses, rims, or frames. If eyewear is genuinely present in IMAGE 1, "
-        "preserve it unchanged. Do not create a new portrait, person, pose, background, text, "
+        f"ratio unchanged. {non_product_preservation}"
+        "Do not create a new portrait, person, pose, background, text, "
         "watermark, or product-display layout. Modify only the minimum pixels required for the "
         "product and its physically correct occlusion. "
         f"{_benchmark_category_instruction(category)}"

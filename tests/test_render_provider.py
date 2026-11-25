@@ -180,13 +180,10 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert fields["quality"] == "high" and fields["size"] == "1664x2496"
     assert "stream" not in fields and "partial_images" not in fields
     assert fields["prompt"] == OpenAIImageEditAdapter.prompt
-    assert "first classify the exact jewellery type" in fields["prompt"]
-    assert "Preserve the reference's exact item count" in fields["prompt"]
-    assert "must remain short" in fields["prompt"]
-    assert "Do not redesign" in fields["prompt"]
-    assert "IMAGE 1 IS THE IMMUTABLE BASE PHOTO" in fields["prompt"]
-    assert "Preserve the customer's face exactly and pixel-faithfully" in fields["prompt"]
-    assert "do not edit the face or recreate the body" in fields["prompt"]
+    assert "CATEGORY IS FIXED AS CLOTHING" in fields["prompt"]
+    assert "Extract exactly one garment" in fields["prompt"]
+    assert "discard every other visual element" in fields["prompt"]
+    assert "Do not edit the face or recreate the body" in fields["prompt"]
     assert "dress, saree, blouse" in fields["prompt"]
     assert "authoritative product appearance" in fields["prompt"]
     assert "Do not recolour" in fields["prompt"]
@@ -198,7 +195,10 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert "Never make the person wider, narrower" in fields["prompt"]
     assert "the person must never be changed to fit the wearable" in fields["prompt"]
     assert APPAREL_ACCESSORY_PRESERVATION_PROMPT in fields["prompt"]
-    assert "Bare ears must remain bare" in fields["prompt"]
+    assert "Keep the head, face, ears, neck" in fields["prompt"]
+    assert "jewellery" not in fields["prompt"].casefold()
+    assert "earring" not in fields["prompt"].casefold()
+    assert "necklace" not in fields["prompt"].casefold()
     assert [file.field_name for file in files] == ["image[]", "image[]"]
     assert [file.filename for file in files] == ["person.jpg", "item.png"]
     assert headers == {"Authorization": "Bearer secret-key"} and timeout == (15, 180)

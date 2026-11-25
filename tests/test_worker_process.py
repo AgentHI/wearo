@@ -79,7 +79,10 @@ def test_production_apparel_prompt_locks_face_and_body_structure() -> None:
     assert str(call["prompt"]).startswith(PERSON_PRESERVATION_PROMPT)
     assert "Never make the person wider, narrower" in str(call["prompt"])
     assert APPAREL_ACCESSORY_PRESERVATION_PROMPT in str(call["prompt"])
-    assert "Bare ears must remain bare" in str(call["prompt"])
+    assert "CATEGORY IS FIXED AS CLOTHING" in str(call["prompt"])
+    assert "jewellery" not in str(call["prompt"]).casefold()
+    assert "earring" not in str(call["prompt"]).casefold()
+    assert "necklace" not in str(call["prompt"]).casefold()
     assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
     assert APPAREL_ACCESSORY_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
     assert call["parameters"]["width"] == 1152
