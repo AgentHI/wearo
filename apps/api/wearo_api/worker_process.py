@@ -31,6 +31,8 @@ from .render_provider import (
     RenderRequest,
     RenderResponse,
     VertexTryOnAdapter,
+    person_preserving_negative_prompt,
+    person_preserving_prompt,
 )
 from .render_quality import QualityAnalyzer, RenderQualityGate
 from .render_quality_strategy import quality_parameters
@@ -130,6 +132,11 @@ class _CostLabProductionAdapter:
                 f"{negatives[plan.strategy]}, {configured_negative}"
                 if configured_negative
                 else negatives[plan.strategy]
+            )
+        prompt = person_preserving_prompt(prompt)
+        if self.provider == "RUNWARE":
+            parameters["negativePrompt"] = person_preserving_negative_prompt(
+                str(parameters.get("negativePrompt") or "")
             )
         try:
             result = self.adapter.generate(

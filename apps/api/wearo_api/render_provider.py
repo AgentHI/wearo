@@ -16,6 +16,57 @@ from .render_quality_strategy import RenderQuality, quality_parameters
 logger = logging.getLogger(__name__)
 
 
+PERSON_PRESERVATION_PROMPT = (
+    "PERSON IDENTITY AND ANATOMY LOCK — HIGHEST PRIORITY: treat PERSON IMAGE 1 as a locked "
+    "photographic base, never as loose visual inspiration. The output must contain exactly the "
+    "same person. Preserve the exact face and facial geometry, head shape, facial landmarks and "
+    "their spacing, skin tone and texture, hair and hairline, facial hair, eyewear, expression, "
+    "gaze, and apparent age. Preserve the person's exact anatomical structure and proportions: "
+    "height, head-to-body ratio, neck, shoulder width and slope, torso length and width, chest, "
+    "waist, abdomen, hips, arms, hands, legs, feet, stance, pose, and camera perspective. Never "
+    "make the person wider, narrower, taller, shorter, heavier, thinner, more muscular, or more "
+    "curved; never bulge, inflate, compress, reshape, retouch, or beautify any body part. For "
+    "apparel, fit and drape the garment around the unchanged anatomy; only the garment's outer "
+    "silhouette may vary naturally with its cut and material. For jewellery, change only the "
+    "required jewellery and local occlusion pixels. Keep every visible non-wearable region, the "
+    "background, framing, crop, and viewpoint unchanged. "
+)
+
+PERSON_PRESERVATION_FINAL_CHECK = (
+    "FINAL PERSON CHECK: compare against PERSON IMAGE 1 and reject any face, identity, anatomy, "
+    "body-proportion, pose, or camera-geometry change. The wearable must adapt to the unchanged "
+    "person; the person must never be changed to fit the wearable."
+)
+
+PERSON_PRESERVATION_NEGATIVE_PROMPT = (
+    "different person, changed identity, altered face, face reshaping, changed facial geometry, "
+    "beautified face, retouched face, changed age, changed body, body reshaping, changed body "
+    "proportions, widened body, widened torso, enlarged torso, bulging body, bloated body, "
+    "inflated body, compressed body, weight gain, weight loss, changed shoulder width, changed "
+    "height, changed pose, changed stance, changed camera angle, changed framing"
+)
+
+
+def person_preserving_prompt(prompt: str) -> str:
+    """Wrap a try-on prompt with an idempotent identity and anatomy lock."""
+    cleaned = prompt.strip()
+    if PERSON_PRESERVATION_PROMPT in cleaned:
+        return cleaned
+    return f"{PERSON_PRESERVATION_PROMPT}{cleaned} {PERSON_PRESERVATION_FINAL_CHECK}"
+
+
+def person_preserving_negative_prompt(prompt: str | None) -> str:
+    """Add person-mutation exclusions without replacing provider-specific exclusions."""
+    cleaned = (prompt or "").strip()
+    if PERSON_PRESERVATION_NEGATIVE_PROMPT in cleaned:
+        return cleaned
+    return (
+        f"{PERSON_PRESERVATION_NEGATIVE_PROMPT}, {cleaned}"
+        if cleaned
+        else PERSON_PRESERVATION_NEGATIVE_PROMPT
+    )
+
+
 class ProviderError(RuntimeError):
     def __init__(self, code: str, *, retryable: bool) -> None:
         super().__init__(code)
@@ -232,7 +283,7 @@ class OpenAIImageEditAdapter:
     provider = "OPENAI"
     region = "global"
     endpoint = "https://api.openai.com/v1/images/edits"
-    prompt = (
+    prompt = person_preserving_prompt(
         "Perform a photorealistic virtual try-on using exactly two images. IMAGE 1 (PERSON) is the "
         "original person photo and fixed output canvas. IMAGE 2 (PRODUCT) is the exact wearable to "
         "apply. Replace or add ONLY the target wearable in IMAGE 1 using the product from IMAGE 2. "

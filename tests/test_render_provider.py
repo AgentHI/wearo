@@ -4,6 +4,9 @@ from collections.abc import Callable
 import pytest
 
 from apps.api.wearo_api.render_provider import (
+    PERSON_PRESERVATION_FINAL_CHECK,
+    PERSON_PRESERVATION_NEGATIVE_PROMPT,
+    PERSON_PRESERVATION_PROMPT,
     BytePlusImageGenerationAdapter,
     HttpResponse,
     MultipartFile,
@@ -12,6 +15,8 @@ from apps.api.wearo_api.render_provider import (
     RenderQuality,
     RenderRequest,
     VertexTryOnAdapter,
+    person_preserving_negative_prompt,
+    person_preserving_prompt,
 )
 
 
@@ -182,6 +187,9 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert "PRIORITY ORDER: exact person identity first" in fields["prompt"]
     assert "original composition and aspect ratio" in fields["prompt"]
     assert "modify only pixels necessary for the wearable" in fields["prompt"]
+    assert fields["prompt"].startswith(PERSON_PRESERVATION_PROMPT)
+    assert "Never make the person wider, narrower" in fields["prompt"]
+    assert "the person must never be changed to fit the wearable" in fields["prompt"]
     assert [file.field_name for file in files] == ["image[]", "image[]"]
     assert [file.filename for file in files] == ["person.jpg", "item.png"]
     assert headers == {"Authorization": "Bearer secret-key"} and timeout == (15, 180)
@@ -195,6 +203,21 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
         "input_tokens_details": {"text_tokens": 10, "image_tokens": 40},
     }
     assert partials == []
+
+
+def test_person_preservation_wrappers_are_idempotent_and_keep_existing_instructions() -> None:
+    existing = "Existing jewellery instructions must remain unchanged."
+
+    prompt = person_preserving_prompt(existing)
+    assert prompt.startswith(PERSON_PRESERVATION_PROMPT)
+    assert existing in prompt
+    assert prompt.endswith(PERSON_PRESERVATION_FINAL_CHECK)
+    assert person_preserving_prompt(prompt) == prompt
+
+    negative = person_preserving_negative_prompt("existing jewellery exclusions")
+    assert negative.startswith(PERSON_PRESERVATION_NEGATIVE_PROMPT)
+    assert negative.endswith("existing jewellery exclusions")
+    assert person_preserving_negative_prompt(negative) == negative
 
 
 def test_openai_streaming_mode_remains_compatible() -> None:

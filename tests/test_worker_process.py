@@ -1,12 +1,22 @@
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
 from apps.api.wearo_api.external_runtime import OpenAIAnalysisClient
-from apps.api.wearo_api.render_provider import OpenAIImageEditAdapter
+from apps.api.wearo_api.render_provider import (
+    PERSON_PRESERVATION_NEGATIVE_PROMPT,
+    PERSON_PRESERVATION_PROMPT,
+    OpenAIImageEditAdapter,
+    RenderRequest,
+)
 from apps.api.wearo_api.render_quality import RenderQualityGate
-from apps.api.wearo_api.worker_process import build_worker, worker_concurrency
+from apps.api.wearo_api.worker_process import (
+    _CostLabProductionAdapter,
+    build_worker,
+    worker_concurrency,
+)
 
 
 def configure_common(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -15,6 +25,79 @@ def configure_common(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("WEARO_ANALYSIS_ENDPOINT", "https://analysis.example.test/v1/evaluate")
     monkeypatch.setenv("WEARO_ANALYSIS_TOKEN", "analysis-secret")
     monkeypatch.setenv("WEARO_PRIVATE_STORAGE_ROOT", str(tmp_path))
+
+
+class CaptureGenerationAdapter:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def generate(self, **kwargs: Any) -> SimpleNamespace:
+        self.calls.append(kwargs)
+        return SimpleNamespace(
+            image_bytes=b"\x89PNG\r\n\x1a\nresult",
+            usage={},
+            request_id="runware-request",
+        )
+
+
+def _production_request(product_kind: str) -> RenderRequest:
+    return RenderRequest(
+        person_image=b"person",
+        item_image=b"item",
+        person_mime="image/jpeg",
+        item_mime="image/jpeg",
+        capability="APPAREL",
+        product_kind=product_kind,
+    )
+
+
+def _runware_production_adapter() -> tuple[_CostLabProductionAdapter, CaptureGenerationAdapter]:
+    provider = _CostLabProductionAdapter(
+        provider="RUNWARE",
+        model="runware:400@4",
+        region="global",
+        base_url="https://api.runware.ai/v1",
+        api_key="runware-secret",
+    )
+    capture = CaptureGenerationAdapter()
+    provider.adapter = cast(Any, capture)
+    return provider, capture
+
+
+def test_production_apparel_prompt_locks_face_and_body_structure() -> None:
+    provider, capture = _runware_production_adapter()
+
+    provider.render(_production_request("APPAREL"))
+
+    call = capture.calls[0]
+    assert str(call["prompt"]).startswith(PERSON_PRESERVATION_PROMPT)
+    assert "Never make the person wider, narrower" in str(call["prompt"])
+    assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
+
+
+def test_production_jewellery_keeps_existing_prompt_and_adds_person_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.cost_lab_api.app import (
+        _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT,
+        _RUNWARE_NECKLACE_ONLY_PROMPT,
+    )
+
+    monkeypatch.setattr(
+        "apps.cost_lab_api.jewellery_references.plan_runware_jewellery_references",
+        lambda _person, _item: SimpleNamespace(
+            images=(b"person", b"necklace"), strategy="person_necklace"
+        ),
+    )
+    provider, capture = _runware_production_adapter()
+
+    provider.render(_production_request("JEWELLERY"))
+
+    call = capture.calls[0]
+    assert str(call["prompt"]).startswith(PERSON_PRESERVATION_PROMPT)
+    assert _RUNWARE_NECKLACE_ONLY_PROMPT in str(call["prompt"])
+    assert _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
+    assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
 
 
 def test_worker_builds_openai_provider_without_google_credentials(
