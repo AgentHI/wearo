@@ -260,8 +260,17 @@ class OpenAIAnalysisClient:
             prompt=(
                 "Evaluate a virtual try-on result using exactly three images: original person, "
                 "original wearable, then generated result. Score identity and product similarity "
-                "from 0 to 1. Check color and print preservation, valid human anatomy, content "
-                "safety, and whether unsupported visual details were fabricated. Be conservative."
+                "from 0 to 1. For identity similarity, directly compare head and face shape, "
+                "facial landmarks and their spacing, eyes, eyebrows, nose, mouth, jawline, ears, "
+                "skin tone and natural texture, scars and moles, hair and hairline, facial hair, "
+                "eyewear, "
+                "expression, gaze, eye and mouth openness, and apparent age. Any material change "
+                "to one of these must make identity_similarity lower than 0.90. For anatomy, "
+                "compare the original and result body width, shoulder width, torso, limbs, stance, "
+                "pose, "
+                "and proportions; set anatomy_valid to false for widening, slimming, bulging, or "
+                "reshaping. Check color and print preservation, content safety, and whether "
+                "unsupported visual details were fabricated. Be conservative."
             ),
             images=(person, item, result),
         )

@@ -20,9 +20,16 @@ logger = logging.getLogger(__name__)
 PERSON_PRESERVATION_PROMPT = (
     "PERSON IDENTITY AND ANATOMY LOCK — HIGHEST PRIORITY: treat PERSON IMAGE 1 as a locked "
     "photographic base, never as loose visual inspiration. The output must contain exactly the "
-    "same person. Preserve the exact face and facial geometry, head shape, facial landmarks and "
-    "their spacing, skin tone and texture, hair and hairline, facial hair, eyewear, expression, "
-    "gaze, and apparent age. Preserve the person's exact anatomical structure and proportions: "
+    "same person. Treat the face and head as a protected no-edit region except for the minimum "
+    "contact or occlusion pixels required by an earring or head ornament. Preserve the exact "
+    "head and face shape, facial geometry, facial landmarks and their spacing, eyes, eyelids, "
+    "eyebrows, nose, lips, mouth, teeth, jawline, chin, cheeks, ears, skin tone and natural skin "
+    "texture, scars, moles, makeup, hair and hairline, facial hair, and eyewear. Preserve the "
+    "exact facial expression, including gaze direction, eye openness, eyebrow position, mouth "
+    "openness, "
+    "and lip shape, and preserve the apparent age. Do not regenerate, redraw, reinterpret, "
+    "beautify, retouch, smooth, or replace the face or head. Preserve the person's exact "
+    "anatomical structure and proportions: "
     "height, head-to-body ratio, neck, shoulder width and slope, torso length and width, chest, "
     "waist, abdomen, hips, arms, hands, legs, feet, stance, pose, and camera perspective. Never "
     "make the person wider, narrower, taller, shorter, heavier, thinner, more muscular, or more "
@@ -34,17 +41,23 @@ PERSON_PRESERVATION_PROMPT = (
 )
 
 PERSON_PRESERVATION_FINAL_CHECK = (
-    "FINAL PERSON CHECK: compare against PERSON IMAGE 1 and reject any face, identity, anatomy, "
-    "body-proportion, pose, or camera-geometry change. The wearable must adapt to the unchanged "
-    "person; the person must never be changed to fit the wearable."
+    "FINAL PERSON CHECK: compare the result directly against PERSON IMAGE 1 and reject any change "
+    "to identity, facial features or their spacing, expression, gaze, skin texture, hairline, "
+    "eyewear, apparent age, anatomy, body proportions, pose, or camera geometry. The wearable "
+    "must adapt to the unchanged person; the person must never be changed to fit the wearable."
 )
 
 PERSON_PRESERVATION_NEGATIVE_PROMPT = (
     "different person, changed identity, altered face, face reshaping, changed facial geometry, "
-    "beautified face, retouched face, changed age, changed body, body reshaping, changed body "
-    "proportions, widened body, widened torso, enlarged torso, bulging body, bloated body, "
-    "inflated body, compressed body, weight gain, weight loss, changed shoulder width, changed "
-    "height, changed pose, changed stance, changed camera angle, changed framing"
+    "changed facial landmarks, changed landmark spacing, changed eyes, changed eyebrows, changed "
+    "nose, changed mouth, changed lips, changed teeth, changed jawline, changed ears, altered "
+    "expression, changed gaze, changed eye openness, changed mouth openness, beautified face, "
+    "retouched face, smoothed skin, plastic skin, changed skin tone, changed skin texture, changed "
+    "hair, changed hairline, changed facial hair, changed eyewear, changed age, changed body, body "
+    "reshaping, changed body proportions, widened body, widened torso, enlarged torso, bulging "
+    "body, bloated body, inflated body, compressed body, weight gain, weight loss, changed "
+    "shoulder width, changed height, changed pose, changed stance, changed camera angle, changed "
+    "framing"
 )
 
 

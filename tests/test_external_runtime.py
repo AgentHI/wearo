@@ -201,7 +201,14 @@ def test_openai_analysis_client_uses_responses_vision_and_structured_output() ->
     images = [part for part in content if part["type"] == "input_image"]
     assert len(images) == 2
     assert str(images[0]["image_url"]).startswith("data:image/png;base64,")
-    assert len(session.requests[1]["json"]["input"][0]["content"]) == 4  # type: ignore[index]
+    quality_content = session.requests[1]["json"]["input"][0]["content"]  # type: ignore[index]
+    assert len(quality_content) == 4
+    quality_prompt = next(
+        part["text"] for part in quality_content if part["type"] == "input_text"
+    )
+    assert "facial landmarks and their spacing" in quality_prompt
+    assert "expression, gaze, eye and mouth openness" in quality_prompt
+    assert "set anatomy_valid to false for widening" in quality_prompt
 
 
 def test_openai_analysis_client_fails_closed_on_provider_or_output_error() -> None:

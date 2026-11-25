@@ -215,11 +215,17 @@ def test_person_preservation_wrappers_are_idempotent_and_keep_existing_instructi
     assert prompt.startswith(PERSON_PRESERVATION_PROMPT)
     assert existing in prompt
     assert prompt.endswith(PERSON_PRESERVATION_FINAL_CHECK)
+    assert "protected no-edit region" in prompt
+    assert "eye openness" in prompt
+    assert "Do not regenerate, redraw, reinterpret" in prompt
     assert person_preserving_prompt(prompt) == prompt
 
     negative = person_preserving_negative_prompt("existing jewellery exclusions")
     assert negative.startswith(PERSON_PRESERVATION_NEGATIVE_PROMPT)
     assert negative.endswith("existing jewellery exclusions")
+    assert "altered expression" in negative
+    assert "changed hairline" in negative
+    assert "changed eyewear" in negative
     assert person_preserving_negative_prompt(negative) == negative
 
 

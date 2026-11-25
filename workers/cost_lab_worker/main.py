@@ -16,6 +16,11 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.wearo_api.database import create_database_engine
+from apps.api.wearo_api.render_provider import (
+    person_preserving_negative_prompt,
+    person_preserving_prompt,
+    runware_aspect_dimensions,
+)
 from apps.api.wearo_api.worker_health import start_worker_health_server
 from apps.cost_lab_api.adapters import (
     BFLAdapter,
@@ -40,6 +45,27 @@ from apps.cost_lab_api.jewellery_references import plan_runware_jewellery_refere
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _prepare_tryon_generation(
+    prompt: str,
+    parameters: dict[str, Any],
+    person_image: bytes,
+    *,
+    is_runware: bool,
+) -> tuple[str, dict[str, Any]]:
+    """Apply the production person lock to Cost Lab try-on requests."""
+    prepared = dict(parameters)
+    if is_runware:
+        target_dimension = int(prepared["width"])
+        prepared |= runware_aspect_dimensions(
+            person_image,
+            target_dimension=target_dimension,
+        )
+        prepared["negativePrompt"] = person_preserving_negative_prompt(
+            str(prepared.get("negativePrompt") or "")
+        )
+    return person_preserving_prompt(prompt), prepared
 
 
 class CostLabWorker:
@@ -194,6 +220,12 @@ class CostLabWorker:
                         "Could not classify jewellery reference tryon_id=%s; using combined product reference",
                         job["tryon_id"],
                     )
+            generation_prompt, parameters = _prepare_tryon_generation(
+                str(generation_prompt),
+                parameters,
+                person_image,
+                is_runware=adapter_type is RunwareAdapter,
+            )
             result = adapter.generate(
                 model=job["api_identifier"],
                 prompt=generation_prompt,
@@ -203,6 +235,7 @@ class CostLabWorker:
             result.raw_metadata["reference_images"] = len(reference_images)
             result.raw_metadata["reference_strategy"] = reference_strategy
             result.raw_metadata["effective_prompt_version"] = effective_prompt_version
+            result.raw_metadata["person_preservation_prompt_version"] = "v2"
             result.raw_metadata["file_size_bytes"] = len(result.image_bytes)
             try:
                 with Image.open(BytesIO(result.image_bytes)) as generated:

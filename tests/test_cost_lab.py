@@ -11,6 +11,10 @@ import requests
 from PIL import Image, ImageDraw
 from pytest import MonkeyPatch
 
+from apps.api.wearo_api.render_provider import (
+    PERSON_PRESERVATION_NEGATIVE_PROMPT,
+    PERSON_PRESERVATION_PROMPT,
+)
 from apps.cost_lab_api.adapters import (
     BFLAdapter,
     BFLUpstreamError,
@@ -37,6 +41,7 @@ from apps.cost_lab_api.jewellery_references import (
     split_lower_earring_reference,
 )
 from apps.cost_lab_api.pricing import calculate_cost, normalized_total_tokens
+from workers.cost_lab_worker.main import _prepare_tryon_generation
 
 
 def test_cost_lab_pricing_supports_disjoint_units() -> None:
@@ -167,6 +172,27 @@ def test_benchmark_prompt_does_not_invent_spectacles() -> None:
     assert "bare eyes without spectacles" in prompt
     assert "never add eyeglasses, lenses, rims, or frames" in prompt
     assert "If eyewear is genuinely present" in prompt
+
+
+def test_cost_lab_runware_tryon_uses_person_lock_and_input_aspect_ratio() -> None:
+    person = Image.new("RGB", (1152, 2048), "white")
+    encoded = BytesIO()
+    person.save(encoded, format="JPEG")
+    jewellery_prompt = _benchmark_prompt("JEWELLERY")
+
+    prompt, parameters = _prepare_tryon_generation(
+        jewellery_prompt,
+        {"width": 1536, "height": 1536, "negativePrompt": "existing exclusions"},
+        encoded.getvalue(),
+        is_runware=True,
+    )
+
+    assert prompt.startswith(PERSON_PRESERVATION_PROMPT)
+    assert jewellery_prompt in prompt
+    assert parameters["width"] == 1152
+    assert parameters["height"] == 2048
+    assert parameters["negativePrompt"].startswith(PERSON_PRESERVATION_NEGATIVE_PROMPT)
+    assert parameters["negativePrompt"].endswith("existing exclusions")
 
 
 def test_runware_jewellery_negative_prompt_forbids_displayed_earrings() -> None:
