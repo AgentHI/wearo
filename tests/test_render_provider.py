@@ -1,7 +1,9 @@
 import base64
+import io
 from collections.abc import Callable
 
 import pytest
+from PIL import Image
 
 from apps.api.wearo_api.render_provider import (
     PERSON_PRESERVATION_FINAL_CHECK,
@@ -17,6 +19,7 @@ from apps.api.wearo_api.render_provider import (
     VertexTryOnAdapter,
     person_preserving_negative_prompt,
     person_preserving_prompt,
+    runware_aspect_dimensions,
 )
 
 
@@ -218,6 +221,19 @@ def test_person_preservation_wrappers_are_idempotent_and_keep_existing_instructi
     assert negative.startswith(PERSON_PRESERVATION_NEGATIVE_PROMPT)
     assert negative.endswith("existing jewellery exclusions")
     assert person_preserving_negative_prompt(negative) == negative
+
+
+def test_runware_dimensions_preserve_person_aspect_ratio_and_pixel_budget() -> None:
+    image = Image.new("RGB", (1152, 2048), "white")
+    encoded = io.BytesIO()
+    image.save(encoded, format="JPEG")
+
+    assert runware_aspect_dimensions(
+        encoded.getvalue(), target_dimension=1536
+    ) == {"width": 1152, "height": 2048}
+    assert runware_aspect_dimensions(
+        encoded.getvalue(), target_dimension=1024
+    ) == {"width": 768, "height": 1344}
 
 
 def test_openai_streaming_mode_remains_compatible() -> None:

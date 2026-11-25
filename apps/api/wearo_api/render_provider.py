@@ -3,13 +3,14 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import math
 import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .render_quality_strategy import RenderQuality, quality_parameters
 
@@ -65,6 +66,48 @@ def person_preserving_negative_prompt(prompt: str | None) -> str:
         if cleaned
         else PERSON_PRESERVATION_NEGATIVE_PROMPT
     )
+
+
+def runware_aspect_dimensions(
+    person_image: bytes,
+    *,
+    target_dimension: int,
+) -> dict[str, int]:
+    """Preserve the person's aspect ratio within Runware's FLUX-safe dimension limits."""
+    if target_dimension <= 0:
+        raise ValueError("target dimension must be positive")
+    try:
+        with Image.open(io.BytesIO(person_image)) as source:
+            oriented = ImageOps.exif_transpose(source)
+            source_width, source_height = oriented.size
+    except (OSError, UnidentifiedImageError):
+        raise ProviderError("PROVIDER_IMAGE_INVALID", retryable=False) from None
+    if source_width <= 0 or source_height <= 0:  # pragma: no cover - Pillow guarantees this.
+        raise ProviderError("PROVIDER_IMAGE_INVALID", retryable=False)
+
+    target_area = target_dimension * target_dimension
+    scale = math.sqrt(target_area / (source_width * source_height))
+    width = source_width * scale
+    height = source_height * scale
+
+    maximum_edge = 2048
+    minimum_edge = 128
+    multiple = 64
+    if max(width, height) > maximum_edge:
+        downscale = maximum_edge / max(width, height)
+        width *= downscale
+        height *= downscale
+    if min(width, height) < minimum_edge:
+        upscale = minimum_edge / min(width, height)
+        if max(width, height) * upscale <= maximum_edge:
+            width *= upscale
+            height *= upscale
+
+    def safe_edge(value: float) -> int:
+        rounded = round(value / multiple) * multiple
+        return min(max(rounded, minimum_edge), maximum_edge)
+
+    return {"width": safe_edge(width), "height": safe_edge(height)}
 
 
 class ProviderError(RuntimeError):

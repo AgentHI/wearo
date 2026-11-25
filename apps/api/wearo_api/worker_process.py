@@ -33,6 +33,7 @@ from .render_provider import (
     VertexTryOnAdapter,
     person_preserving_negative_prompt,
     person_preserving_prompt,
+    runware_aspect_dimensions,
 )
 from .render_quality import QualityAnalyzer, RenderQualityGate
 from .render_quality_strategy import quality_parameters
@@ -107,6 +108,12 @@ class _CostLabProductionAdapter:
         parameters = dict(self.request_parameters)
         strategy_provider = "OPENAI" if self.provider == "OPENAI_COMPATIBLE" else self.provider
         parameters |= quality_parameters(strategy_provider, self.model, request.quality)
+        if self.provider == "RUNWARE":
+            target_dimension = int(parameters["width"])
+            parameters |= runware_aspect_dimensions(
+                request.person_image,
+                target_dimension=target_dimension,
+            )
         if (
             self.provider == "RUNWARE"
             and self.model == "runware:400@4"

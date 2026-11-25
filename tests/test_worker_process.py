@@ -1,8 +1,10 @@
+import io
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from PIL import Image
 
 from apps.api.wearo_api.external_runtime import OpenAIAnalysisClient
 from apps.api.wearo_api.render_provider import (
@@ -41,8 +43,10 @@ class CaptureGenerationAdapter:
 
 
 def _production_request(product_kind: str) -> RenderRequest:
+    person = io.BytesIO()
+    Image.new("RGB", (1152, 2048), "white").save(person, format="JPEG")
     return RenderRequest(
-        person_image=b"person",
+        person_image=person.getvalue(),
         item_image=b"item",
         person_mime="image/jpeg",
         item_mime="image/jpeg",
@@ -73,6 +77,8 @@ def test_production_apparel_prompt_locks_face_and_body_structure() -> None:
     assert str(call["prompt"]).startswith(PERSON_PRESERVATION_PROMPT)
     assert "Never make the person wider, narrower" in str(call["prompt"])
     assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
+    assert call["parameters"]["width"] == 1152
+    assert call["parameters"]["height"] == 2048
 
 
 def test_production_jewellery_keeps_existing_prompt_and_adds_person_lock(
@@ -98,6 +104,8 @@ def test_production_jewellery_keeps_existing_prompt_and_adds_person_lock(
     assert _RUNWARE_NECKLACE_ONLY_PROMPT in str(call["prompt"])
     assert _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
     assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
+    assert call["parameters"]["width"] == 1152
+    assert call["parameters"]["height"] == 2048
 
 
 def test_worker_builds_openai_provider_without_google_credentials(
