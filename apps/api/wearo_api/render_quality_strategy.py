@@ -39,15 +39,42 @@ class VertexTryOnQualityStrategy:
 
 
 class BytePlusQualityStrategy:
-    _SIZES: dict[RenderQuality, str] = {
-        RenderQuality.LOW: "1K",
-        RenderQuality.MEDIUM: "1.5K",
-        RenderQuality.HIGH: "2K",
+    # Explicit portrait dimensions avoid resolution-tier differences between
+    # BytePlus models (for example, Seedream 4.5 does not accept the 1.5K tier).
+    _SEEDREAM_5_PRO_FLASH_SIZES: dict[RenderQuality, str] = {
+        RenderQuality.LOW: "832x1248",
+        RenderQuality.MEDIUM: "1248x1872",
+        RenderQuality.HIGH: "1664x2496",
+    }
+    _SEEDREAM_4_5_AND_5_LITE_SIZES: dict[RenderQuality, str] = {
+        RenderQuality.LOW: "1664x2496",
+        RenderQuality.MEDIUM: "2496x3744",
+        RenderQuality.HIGH: "3328x4992",
+    }
+    _SEEDREAM_4_0_SIZES: dict[RenderQuality, str] = {
+        RenderQuality.LOW: "832x1248",
+        RenderQuality.MEDIUM: "1664x2496",
+        RenderQuality.HIGH: "3328x4992",
+    }
+    # These dimensions are in the intersection of the documented pixel ranges
+    # for current Seedream families, making unknown deployment IDs conservative.
+    _COMPATIBLE_SIZES: dict[RenderQuality, str] = {
+        RenderQuality.LOW: "1568x2352",
+        RenderQuality.MEDIUM: "1600x2400",
+        RenderQuality.HIGH: "1664x2496",
     }
 
     def parameters(self, model: str, quality: RenderQuality) -> dict[str, str | int]:
-        del model
-        return {"size": self._SIZES[quality]}
+        normalized_model = model.casefold()
+        if "seedream-4-5" in normalized_model or "seedream-5-0-lite" in normalized_model:
+            sizes = self._SEEDREAM_4_5_AND_5_LITE_SIZES
+        elif "seedream-4-0" in normalized_model:
+            sizes = self._SEEDREAM_4_0_SIZES
+        elif "seedream-5-0" in normalized_model:
+            sizes = self._SEEDREAM_5_PRO_FLASH_SIZES
+        else:
+            sizes = self._COMPATIBLE_SIZES
+        return {"size": sizes[quality]}
 
 
 class BFLQualityStrategy:

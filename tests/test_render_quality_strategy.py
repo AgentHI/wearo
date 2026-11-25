@@ -15,8 +15,24 @@ def test_openai_maps_wearo_quality_to_provider_quality(quality: str, expected: s
 @pytest.mark.parametrize(
     ("provider", "model", "field", "values"),
     [
-        ("BYTEPLUS", "dola-seedream-5-0-flash-260915", "size", ("1K", "1.5K", "2K")),
-        ("BYTEPLUS", "custom-deployment-id", "size", ("1K", "1.5K", "2K")),
+        (
+            "BYTEPLUS",
+            "dola-seedream-5-0-flash-260915",
+            "size",
+            ("832x1248", "1248x1872", "1664x2496"),
+        ),
+        (
+            "BYTEPLUS",
+            "seedream-4-5-251128",
+            "size",
+            ("1664x2496", "2496x3744", "3328x4992"),
+        ),
+        (
+            "BYTEPLUS",
+            "custom-deployment-id",
+            "size",
+            ("1568x2352", "1600x2400", "1664x2496"),
+        ),
         ("BFL", "flux-3-image-klein", "resolution", ("1k", "1.5k", "2k")),
         (
             "OPENAI",

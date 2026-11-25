@@ -323,7 +323,7 @@ def test_byteplus_flash_model_omits_unsupported_sequential_parameter() -> None:
     )
     adapter.render(request())
     assert "sequential_image_generation" not in transport.calls[0][1]
-    assert transport.calls[0][1]["size"] == "2K"
+    assert transport.calls[0][1]["size"] == "1664x2496"
     assert "2:3 aspect ratio" in transport.calls[0][1]["prompt"]
 
 

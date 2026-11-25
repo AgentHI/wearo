@@ -558,10 +558,10 @@ def test_byteplus_flash_model_omits_unsupported_sequential_parameter(
         model="dola-seedream-5-0-flash-260915",
         prompt="try on",
         images=[b"person", b"product"],
-        parameters={"sequential_image_generation": "disabled", "size": "1.5K"},
+        parameters={"sequential_image_generation": "disabled", "size": "1248x1872"},
     )
     assert "sequential_image_generation" not in calls[0]["json"]
-    assert calls[0]["json"]["size"] == "1.5K"
+    assert calls[0]["json"]["size"] == "1248x1872"
     assert "2:3 aspect ratio" in calls[0]["json"]["prompt"]
 
 
