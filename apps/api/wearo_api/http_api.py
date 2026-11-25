@@ -955,6 +955,8 @@ def _job_json(job: DurableRenderJob) -> dict[str, Any]:
         "cost_wearo_tokens": 0,
         "error_code": job.error_code,
         "result_asset_id": job.result_asset_id,
+        "cancel_after": job.cancel_after,
+        "can_cancel": job.can_cancel(),
         "status_url": f"/api/v1/renders/{job.job_id}",
     }
 
@@ -1146,6 +1148,7 @@ def create_app(
             "JOB_STATE_CONFLICT",
             "QUOTA_STATE_CONFLICT",
             "QUEUE_CANCELLATION_TOO_EARLY",
+            "PROCESSING_CANCELLATION_TOO_EARLY",
             "CATALOG_CONFLICT",
             "REGISTRATION_CONFLICT",
             "LAST_OWNER_REQUIRED",

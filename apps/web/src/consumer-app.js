@@ -365,7 +365,10 @@ function homeView() {
               <button id="open-camera" class="wearable-source wearable-source--camera" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>Take photo</button>
             </div>
           </div>
-          <button id="generate-button" class="button button--primary button--full start-tryon-button" type="submit" disabled><span aria-hidden="true">✦</span> Generate try-on</button>
+          <div class="tryon-generation-actions">
+            <button id="generate-button" class="button button--primary button--full start-tryon-button" type="submit" disabled><span aria-hidden="true">✦</span> Generate try-on</button>
+            <button id="cancel-generation-button" class="button button--full tryon-cancel-button" type="button" hidden>Cancel try-on</button>
+          </div>
           <p id="tryon-status" class="form-status status-panel" role="status" aria-live="polite"></p>
         </form>
       </div>
@@ -1683,6 +1686,7 @@ function attachHomeFlow(auth) {
   const resultPreviewImage = document.querySelector("#tryon-preview-image");
   const closeResultPreview = document.querySelector("#close-tryon-preview");
   const submit = document.querySelector("#generate-button");
+  const cancelGeneration = document.querySelector("#cancel-generation-button");
   const status = document.querySelector("#tryon-status");
   const allowanceCount = document.querySelector("#allowance-count");
   const allowanceCopy = document.querySelector("#allowance-copy");
@@ -1693,6 +1697,7 @@ function attachHomeFlow(auth) {
   let itemPreviewUrl = null;
   let selectedItemFile = null;
   let generationActive = false;
+  let activeRenderId = null;
   let selectedPersonAssetId = null;
   let sponsoredSession = null;
   let sponsoredAdvertisementUrl = null;
@@ -1727,6 +1732,19 @@ function attachHomeFlow(auth) {
       || sponsoredLimitReached
       || (!sponsoredSession && personalTryOnsRemaining === 0),
     );
+  };
+
+  const updateCancellationAvailability = (job = null) => {
+    if (job?.render_id) activeRenderId = job.render_id;
+    const active = job && ["QUEUED", "PROCESSING"].includes(job.status);
+    cancelGeneration.hidden = !(active && job.can_cancel);
+    if (!cancelGeneration.hidden) cancelGeneration.disabled = false;
+  };
+
+  const clearActiveRender = () => {
+    activeRenderId = null;
+    cancelGeneration.hidden = true;
+    cancelGeneration.disabled = false;
   };
 
   const loadHomeCaption = async () => {
@@ -1990,6 +2008,7 @@ function attachHomeFlow(auth) {
       const activeRender = galleryResponse.queue.find((item) => ["QUEUED", "PROCESSING"].includes(item.status));
       if (activeRender) {
         generationActive = true;
+        updateCancellationAvailability(activeRender);
         showGeneratingPreview();
         setButtonBusy(submit, true, "Creating try-on…", "Generate try-on");
         setStatus(status, `Creating your try-on… ${activeRender.status.toLowerCase()}`);
@@ -2000,10 +2019,16 @@ function attachHomeFlow(auth) {
           setStatus(status, "Your private try-on is ready.", "success");
           await refreshAllowance();
         } catch (error) {
-          showGenerationFailure();
-          setStatus(status, error.message, "error");
+          if (error.code === "RENDER_CANCELLED") {
+            showEmptyPreview();
+            setStatus(status, "Try-on cancelled.", "success");
+          } else {
+            showGenerationFailure();
+            setStatus(status, error.message, "error");
+          }
         } finally {
           generationActive = false;
+          clearActiveRender();
           setButtonBusy(submit, false, "Creating try-on…", "Generate try-on");
           updateSubmitAvailability();
         }
@@ -2077,8 +2102,14 @@ function attachHomeFlow(auth) {
     // Keep polling slightly beyond that lease so the UI receives the actual success/failure state.
     for (let attempt = 0; attempt < 165; attempt += 1) {
       const job = await api(`/renders/${renderId}`, {}, auth);
+      updateCancellationAvailability(job);
       if (job.status === "SUCCEEDED") return job;
-      if (["FAILED", "CANCELLED"].includes(job.status)) {
+      if (job.status === "CANCELLED") {
+        const cancellation = new Error("Try-on cancelled.");
+        cancellation.code = "RENDER_CANCELLED";
+        throw cancellation;
+      }
+      if (job.status === "FAILED") {
         throw new Error(`Generation stopped: ${job.error_code || "UNKNOWN"}.`);
       }
       setStatus(status, `Creating your try-on… ${job.status.toLowerCase()}`);
@@ -2142,6 +2173,30 @@ function attachHomeFlow(auth) {
     },
   });
   openCameraButton.addEventListener("click", () => itemCamera.open());
+
+  cancelGeneration.addEventListener("click", async () => {
+    if (!activeRenderId) return;
+    if (!await wearoConfirm({
+      eyebrow: "Active try-on",
+      title: "Cancel this try-on?",
+      message: "The current try-on will stop and no generated look will be saved.",
+      note: "Any reserved free or purchased try-on will be released.",
+      confirmLabel: "Cancel try-on",
+      cancelLabel: "Keep processing",
+    })) return;
+    const renderId = activeRenderId;
+    setButtonBusy(cancelGeneration, true, "Cancelling…", "Cancel try-on");
+    try {
+      await api(`/renders/${encodeURIComponent(renderId)}`, { method: "DELETE" }, auth);
+      clearActiveRender();
+      showEmptyPreview();
+      setStatus(status, "Try-on cancelled.", "success");
+      await refreshAllowance();
+    } catch (error) {
+      setStatus(status, error.message, "error");
+      setButtonBusy(cancelGeneration, false, "Cancelling…", "Cancel try-on");
+    }
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2212,16 +2267,23 @@ function attachHomeFlow(auth) {
         },
         auth,
       );
+      updateCancellationAvailability(job);
       const result = await waitForRender(job.render_id);
       showGeneratedPreview(result.result_asset_id);
       playCompletionSound();
       setStatus(status, "Your private try-on is ready.", "success");
       await refreshAllowance();
     } catch (error) {
-      showGenerationFailure();
-      setStatus(status, error.message, "error");
+      if (error.code === "RENDER_CANCELLED") {
+        showEmptyPreview();
+        setStatus(status, "Try-on cancelled.", "success");
+      } else {
+        showGenerationFailure();
+        setStatus(status, error.message, "error");
+      }
     } finally {
       generationActive = false;
+      clearActiveRender();
       setButtonBusy(submit, false, "Creating try-on…", "Generate try-on");
       updateSubmitAvailability();
     }
@@ -2279,7 +2341,7 @@ function queueMarkup(items) {
         ? `<small class="queue-card__error">${escapeHtml(item.error_code)}</small>`
         : "";
       const remove = item.can_cancel
-        ? `<button class="queue-card__remove" type="button" data-cancel-render-id="${escapeHtml(item.render_id)}">Remove from queue</button>`
+        ? `<button class="queue-card__remove" type="button" data-cancel-render-id="${escapeHtml(item.render_id)}">Cancel try-on</button>`
         : "";
       return `
         <article class="queue-card" data-status="${escapeHtml(item.status.toLowerCase())}">
@@ -2417,15 +2479,15 @@ function attachHistoryFlow(auth) {
     const button = event.target instanceof Element ? event.target.closest("[data-cancel-render-id]") : null;
     if (!button) return;
     const renderId = button.dataset.cancelRenderId;
-    setButtonBusy(button, true, "Removing…", "Remove from queue");
-    setStatus(status, "Removing the delayed item from your queue…");
+    setButtonBusy(button, true, "Cancelling…", "Cancel try-on");
+    setStatus(status, "Cancelling the active try-on…");
     try {
       await api(`/renders/${encodeURIComponent(renderId)}`, { method: "DELETE" }, auth);
-      setStatus(status, "The item was removed from your active queue.", "success");
+      setStatus(status, "The try-on was cancelled.", "success");
       await loadLooks();
     } catch (error) {
       setStatus(status, error.message, "error");
-      setButtonBusy(button, false, "Removing…", "Remove from queue");
+      setButtonBusy(button, false, "Cancelling…", "Cancel try-on");
     }
   });
 

@@ -3414,7 +3414,7 @@ paths:
     delete:
       tags:
       - Rendering
-      summary: Delete owned private result and revoke asset access
+      summary: Cancel an owned queued render or a render processing for at least 30 seconds
       operationId: delete__renders__id
       responses:
         '200':
@@ -3422,7 +3422,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Success'
+                $ref: '#/components/schemas/RenderJob'
         '400':
           description: Malformed request
           content:
@@ -4490,11 +4490,18 @@ components:
           format: date-time
         status_url:
           type: string
+        cancel_after:
+          type: [string, 'null']
+          format: date-time
+        can_cancel:
+          type: boolean
       required:
       - render_id
       - status
       - charge_status
       - cost_wearo_tokens
+      - cancel_after
+      - can_cancel
       additionalProperties: false
     RenderGalleryItem:
       type: object

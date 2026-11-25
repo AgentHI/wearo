@@ -36,6 +36,7 @@ def _seed_quote(
     person_category: str = "unknown",
     age_range: str = "unknown",
     estimated_age: int | None = None,
+    marketing_approved: bool = False,
 ) -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -83,13 +84,15 @@ def _seed_quote(
                         consent_version,
                         purpose,
                         permission_asserted,
+                        marketing_approved,
                         accepted_at
                     )
                 VALUES
-                    (:consent, :account, :person, :principal, 'beta-v1', 'TRY_ON', true, now())
+                    (:consent, :account, :person, :principal, 'beta-v1', 'TRY_ON', true,
+                     :marketing_approved, now())
                 """
             ),
-            ids,
+            {**ids, "marketing_approved": marketing_approved},
         )
         connection.execute(
             text(
@@ -341,9 +344,26 @@ def test_exhausted_free_grant_uses_retail_tokens_and_refunds_failure(engine: Eng
 
         leased = runtime.claim_next("paid-integration-worker", now=now)
         assert leased is not None and leased.job.job_id == created.job_id
-        failed = runtime.complete_failure(created.job_id, "PROVIDER_TIMEOUT", now=now)
-        replayed_failure = runtime.complete_failure(created.job_id, "PROVIDER_TIMEOUT", now=now)
-        assert failed.status == replayed_failure.status == "FAILED"
+        with pytest.raises(DurableRenderError, match="after 30 seconds"):
+            runtime.cancel_queued(
+                created.job_id,
+                ids["account"],
+                now=now + timedelta(seconds=29),
+            )
+        cancelled = runtime.cancel_queued(
+            created.job_id,
+            ids["account"],
+            now=now + timedelta(seconds=30),
+        )
+        replayed_cancel = runtime.cancel_queued(
+            created.job_id,
+            ids["account"],
+            now=now + timedelta(seconds=30),
+        )
+        late_failure = runtime.complete_failure(
+            created.job_id, "PROVIDER_TIMEOUT", now=now + timedelta(seconds=31)
+        )
+        assert cancelled.status == replayed_cancel.status == late_failure.status == "CANCELLED"
         assert runtime.paid_tryon_allowance(ids["account"], now=now).token_balance == 200
         with engine.connect() as connection:
             assert (
@@ -432,6 +452,7 @@ def test_runtime_persists_exactly_once_success_and_releases_failure(engine: Engi
         person_category="woman",
         age_range="30_39",
         estimated_age=34,
+        marketing_approved=True,
     )
     try:
         created = runtime.create_job(
@@ -661,6 +682,14 @@ def test_runtime_persists_exactly_once_success_and_releases_failure(engine: Engi
             assert downgrade_result_category.person_category == "girl"
             assert downgrade_result_category.age_range == "20_29"
             assert downgrade_result_category.estimated_age == 24
+            platform_marketing_observation = connection.execute(
+                text(
+                    "SELECT marketing_eligible FROM person_tryon_observations "
+                    "WHERE render_job_id = :job"
+                ),
+                {"job": created.job_id},
+            ).scalar_one()
+            assert platform_marketing_observation is False
     finally:
         _cleanup(engine, ids["account"])
 
@@ -704,7 +733,7 @@ def test_disabled_allowance_allows_multiple_queued_jobs(engine: Engine) -> None:
         _cleanup(engine, ids["account"])
 
 
-def test_queued_job_can_only_be_cancelled_by_owner_after_one_minute(engine: Engine) -> None:
+def test_queued_job_can_be_cancelled_immediately_only_by_owner(engine: Engine) -> None:
     ids = {
         name: uuid4() for name in ("account", "principal", "person", "item", "consent", "profile")
     }
@@ -722,36 +751,24 @@ def test_queued_job_can_only_be_cancelled_by_owner_after_one_minute(engine: Engi
         )
         queued_at = runtime.list_queue_activity(ids["account"], now=now)
         queued_created_at = queued_at[0].created_at
-        queued = runtime.list_queue_activity(
-            ids["account"], now=queued_created_at + timedelta(seconds=59)
-        )
-        assert queued[0].can_cancel is False
-        assert queued[0].cancel_after == queued_created_at + timedelta(minutes=1)
+        queued = runtime.list_queue_activity(ids["account"], now=queued_created_at)
+        assert queued[0].can_cancel is True
+        assert queued[0].cancel_after == queued_created_at
 
-        with pytest.raises(DurableRenderError, match="after it has waited for one minute"):
-            runtime.cancel_queued(
-                created.job_id,
-                ids["account"],
-                now=queued_created_at + timedelta(seconds=59),
-            )
         with pytest.raises(DurableRenderError, match="unavailable"):
             runtime.cancel_queued(
                 created.job_id,
                 uuid4(),
-                now=now + timedelta(minutes=2),
+                now=now,
             )
 
-        eligible = runtime.list_queue_activity(
-            ids["account"], now=queued_created_at + timedelta(minutes=1)
-        )
-        assert eligible[0].can_cancel is True
         cancelled = runtime.cancel_queued(
             created.job_id,
             ids["account"],
-            now=queued_created_at + timedelta(minutes=1),
+            now=queued_created_at,
         )
         assert cancelled.status == "CANCELLED"
-        assert cancelled.error_code == "USER_CANCELLED_STALE_QUEUE"
+        assert cancelled.error_code == "USER_CANCELLED_QUEUED"
 
         with engine.connect() as connection:
             work_status: str = connection.execute(
@@ -767,5 +784,93 @@ def test_queued_job_can_only_be_cancelled_by_owner_after_one_minute(engine: Engi
             ).scalar_one()
         assert work_status == "DONE"
         assert active_job_id is None
+    finally:
+        _cleanup(engine, ids["account"])
+
+
+def test_processing_job_can_be_cancelled_after_thirty_seconds(engine: Engine) -> None:
+    ids = {
+        name: uuid4() for name in ("account", "principal", "person", "item", "consent", "profile")
+    }
+    quote_id, result_asset_id = uuid4(), uuid4()
+    runtime = PostgresRenderRuntime(engine)
+    now = datetime.now(UTC)
+    _seed_quote(engine, ids, quote_id)
+    try:
+        created = runtime.create_job(
+            quote_id=quote_id,
+            account_id=ids["account"],
+            principal_id=ids["principal"],
+            idempotency_key="cancel-long-processing-job",
+            now=now,
+        )
+        leased = runtime.claim_next("processing-cancel-worker", now=now)
+        assert leased is not None and leased.job.job_id == created.job_id
+
+        before_threshold = runtime.list_queue_activity(
+            ids["account"], now=now + timedelta(seconds=29)
+        )
+        assert before_threshold[0].status == "PROCESSING"
+        assert before_threshold[0].can_cancel is False
+        assert before_threshold[0].cancel_after == now + timedelta(seconds=30)
+
+        eligible = runtime.list_queue_activity(ids["account"], now=now + timedelta(seconds=30))
+        assert eligible[0].can_cancel is True
+        cancelled = runtime.cancel_queued(
+            created.job_id,
+            ids["account"],
+            now=now + timedelta(seconds=30),
+        )
+        assert cancelled.status == "CANCELLED"
+        assert cancelled.error_code == "USER_CANCELLED_PROCESSING"
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO media_assets
+                        (asset_id, account_id, object_key, content_hash, mime_type, purpose,
+                         retention_state, delete_after)
+                    VALUES
+                        (:asset, :account, :key, :hash, 'image/png', 'RENDER_RESULT',
+                         'EXPIRING', :delete_after)
+                    """
+                ),
+                {
+                    "asset": result_asset_id,
+                    "account": ids["account"],
+                    "key": f"private/{result_asset_id.hex}",
+                    "hash": result_asset_id.hex,
+                    "delete_after": now + timedelta(days=30),
+                },
+            )
+
+        late_result = runtime.complete_success(
+            job_id=created.job_id,
+            result_asset_id=result_asset_id,
+            provider_request_id="late-provider-result",
+            quality_details={"accepted": True},
+            now=now + timedelta(seconds=31),
+        )
+        assert late_result.status == "CANCELLED"
+        with engine.connect() as connection:
+            state = connection.execute(
+                text(
+                    """
+                    SELECT work.status, work.leased_by, work.lease_expires_at,
+                           asset.deletion_state,
+                           (SELECT count(*) FROM render_results result
+                            WHERE result.job_id = :job) AS result_count
+                    FROM render_work_items work
+                    JOIN media_assets asset ON asset.asset_id = :asset
+                    WHERE work.job_id = :job
+                    """
+                ),
+                {"job": created.job_id, "asset": result_asset_id},
+            ).one()
+        assert state.status == "DONE"
+        assert state.leased_by is None and state.lease_expires_at is None
+        assert state.deletion_state == "REQUESTED"
+        assert state.result_count == 0
     finally:
         _cleanup(engine, ids["account"])

@@ -1350,6 +1350,10 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .tryon-composer .tryon-card-actions .wearable-source-actions { grid-column: 2; }
 .tryon-composer .start-tryon-button { min-height: 2.75rem; grid-column: 1 / -1; margin-top: .1rem; border-radius: .75rem; font-size: .72rem; }
 .tryon-composer .start-tryon-button:disabled { color: rgb(53 16 47 / 48%); background: #eadde7; box-shadow: none; opacity: 1; }
+.tryon-generation-actions { display: grid; grid-column: 1 / -1; gap: .4rem; }
+.tryon-cancel-button { min-height: 2.45rem; border: 1px solid #8f2d3b; border-radius: .75rem; color: #8f2d3b; background: white; font-weight: 800; }
+.tryon-cancel-button:hover { color: white; background: #8f2d3b; }
+.tryon-cancel-button:disabled { cursor: wait; opacity: .65; }
 .tryon-composer .status-panel { grid-column: 1 / -1; padding: .6rem .75rem; font-size: .72rem; }
 .tryon-disclaimer { margin-top: .4rem; color: var(--ink-mauve); font-size: .62rem; }
 .tryon-disclaimer summary { width: fit-content; cursor: pointer; font-weight: 700; }
@@ -1364,7 +1368,7 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
   .tryon-composer .composer-step--wearable { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); align-content: stretch; align-items: stretch; }
   .tryon-composer .composer-step--wearable .wearable-picker { min-width: 0; height: auto; grid-column: 1; grid-row: auto; grid-template-rows: auto auto; }
   .tryon-composer .tryon-card-actions { grid-column: 1 / -1; grid-row: 2; }
-  .tryon-composer .start-tryon-button { grid-column: 1 / -1; grid-row: 3; }
+  .tryon-composer .tryon-generation-actions { grid-column: 1 / -1; grid-row: 3; }
   .tryon-composer .status-panel { min-height: 1.8rem; grid-column: 1 / -1; grid-row: 4; padding: .38rem .55rem; font-size: .62rem; }
   .tryon-composer .status-panel:empty { display: block; visibility: hidden; }
   .tryon-disclaimer { grid-column: 1 / -1; margin-top: 0; }

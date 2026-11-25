@@ -978,7 +978,7 @@ export interface paths {
         get: operations["get__renders__id"];
         put?: never;
         post?: never;
-        /** Delete owned private result and revoke asset access */
+        /** Cancel an owned queued render or a render processing for at least 30 seconds */
         delete: operations["delete__renders__id"];
         options?: never;
         head?: never;
@@ -1364,6 +1364,9 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
             status_url?: string;
+            /** Format: date-time */
+            cancel_after: string | null;
+            can_cancel: boolean;
         };
         RenderGalleryItem: {
             /** Format: uuid */
@@ -6115,7 +6118,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Success"];
+                    "application/json": components["schemas"]["RenderJob"];
                 };
             };
             /** @description Malformed request */

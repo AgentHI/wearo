@@ -43,12 +43,22 @@ class DurableRenderJob:
     company_name: str | None = None
     product_kind: str | None = None
     route_candidates: tuple[ModelRoute, ...] = ()
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     @property
     def ordered_routes(self) -> tuple[ModelRoute, ...]:
         if self.route_candidates:
             return self.route_candidates
         return (ModelRoute(self.provider, self.model, self.region, "APPAREL", True),)
+
+    @property
+    def cancel_after(self) -> datetime | None:
+        return _cancellation_after(self.status, self.created_at, self.updated_at)
+
+    def can_cancel(self, *, now: datetime | None = None) -> bool:
+        available_at = self.cancel_after
+        return available_at is not None and (now or datetime.now(UTC)) >= available_at
 
 
 @dataclass(frozen=True)
@@ -77,7 +87,7 @@ class RenderQueueItem:
     error_code: str | None
     created_at: datetime
     updated_at: datetime
-    cancel_after: datetime
+    cancel_after: datetime | None
     can_cancel: bool
 
 
@@ -100,6 +110,21 @@ class PaidTryOnAllowance:
     token_balance: int
     token_cost: int | None
     remaining: int
+
+
+PROCESSING_CANCELLATION_DELAY = timedelta(seconds=30)
+
+
+def _cancellation_after(
+    status: str,
+    created_at: datetime | None,
+    updated_at: datetime | None,
+) -> datetime | None:
+    if status == "PENDING":
+        return created_at
+    if status == "PROCESSING" and updated_at is not None:
+        return updated_at + PROCESSING_CANCELLATION_DELAY
+    return None
 
 
 def _job_from_row(row: RowMapping) -> DurableRenderJob:
@@ -136,6 +161,8 @@ def _job_from_row(row: RowMapping) -> DurableRenderJob:
         company_name=row["company_name"],
         product_kind=row["product_kind"],
         route_candidates=routes,
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
@@ -156,6 +183,8 @@ JOB_SELECT = """
         q.provider_region,
         q.product_kind,
         q.route_candidates,
+        j.created_at,
+        j.updated_at,
         sponsored_business.display_name AS company_name
     FROM render_jobs AS j
     JOIN render_quotes AS q
@@ -661,22 +690,22 @@ class PostgresRenderRuntime:
                 .mappings()
                 .all()
             )
-        return tuple(
-            RenderQueueItem(
-                render_id=row["render_id"],
-                status=row["status"],
-                attempts=row["attempts"],
-                error_code=row["error_code"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-                cancel_after=row["created_at"] + timedelta(minutes=1),
-                can_cancel=(
-                    row["status"] == "PENDING"
-                    and current >= row["created_at"] + timedelta(minutes=1)
-                ),
+        items: list[RenderQueueItem] = []
+        for row in rows:
+            cancel_after = _cancellation_after(row["status"], row["created_at"], row["updated_at"])
+            items.append(
+                RenderQueueItem(
+                    render_id=row["render_id"],
+                    status=row["status"],
+                    attempts=row["attempts"],
+                    error_code=row["error_code"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                    cancel_after=cancel_after,
+                    can_cancel=cancel_after is not None and current >= cancel_after,
+                )
             )
-            for row in rows
-        )
+        return tuple(items)
 
     def cancel_queued(
         self,
@@ -685,7 +714,7 @@ class PostgresRenderRuntime:
         *,
         now: datetime | None = None,
     ) -> DurableRenderJob:
-        """Cancel an owned job that has remained pending for at least one minute."""
+        """Cancel an owned queued job, or a processing job after thirty seconds."""
         current = now or datetime.now(UTC)
         with self.engine.begin() as connection:
             # Lock in the same work-item-then-job order used by claim_next so a worker
@@ -698,7 +727,6 @@ class PostgresRenderRuntime:
                         FROM render_work_items
                         WHERE job_id = :job
                           AND account_id = :account
-                          AND status = 'PENDING'
                         FOR UPDATE
                         """
                     ),
@@ -711,7 +739,8 @@ class PostgresRenderRuntime:
                 connection.execute(
                     text(
                         """
-                        SELECT job_id, account_id, status, created_at, billable_usage_id
+                        SELECT job_id, account_id, status, created_at, updated_at,
+                               billable_usage_id
                         FROM render_jobs
                         WHERE job_id = :job AND account_id = :account
                         FOR UPDATE
@@ -726,23 +755,40 @@ class PostgresRenderRuntime:
                 raise DurableRenderError("JOB_UNAVAILABLE", "Render job is unavailable.")
             if locked["status"] == "CANCELLED":
                 return self._get_in_transaction(connection, job_id)
-            if locked["status"] != "PENDING" or work is None:
+            if work is None or locked["status"] not in {"PENDING", "PROCESSING"}:
                 raise DurableRenderError(
-                    "JOB_STATE_CONFLICT", "Only a queued render can be removed."
+                    "JOB_STATE_CONFLICT", "Only an active try-on can be cancelled."
                 )
-            if current < locked["created_at"] + timedelta(minutes=1):
+            expected_work_status = "PENDING" if locked["status"] == "PENDING" else "LEASED"
+            if work["status"] != expected_work_status:
                 raise DurableRenderError(
-                    "QUEUE_CANCELLATION_TOO_EARLY",
-                    "A queued render can be removed after it has waited for one minute.",
+                    "JOB_STATE_CONFLICT", "The try-on state changed before it was cancelled."
+                )
+            cancel_after = _cancellation_after(
+                locked["status"], locked["created_at"], locked["updated_at"]
+            )
+            if cancel_after is None:
+                raise DurableRenderError(
+                    "JOB_STATE_CONFLICT", "Only an active try-on can be cancelled."
+                )
+            if current < cancel_after:
+                raise DurableRenderError(
+                    "PROCESSING_CANCELLATION_TOO_EARLY",
+                    "A processing try-on can be cancelled after 30 seconds.",
                 )
 
-            error_code = "USER_CANCELLED_STALE_QUEUE"
+            previous_status = locked["status"]
+            error_code = (
+                "USER_CANCELLED_QUEUED"
+                if previous_status == "PENDING"
+                else "USER_CANCELLED_PROCESSING"
+            )
             connection.execute(
                 text(
                     """
                     UPDATE render_jobs
                     SET status = 'CANCELLED', error_code = :error, updated_at = :now
-                    WHERE job_id = :job AND account_id = :account AND status = 'PENDING'
+                    WHERE job_id = :job AND account_id = :account AND status = :status
                     """
                 ),
                 {
@@ -750,17 +796,27 @@ class PostgresRenderRuntime:
                     "now": current,
                     "job": job_id,
                     "account": account_id,
+                    "status": previous_status,
                 },
             )
             connection.execute(
                 text(
                     """
                     UPDATE render_work_items
-                    SET status = 'DONE', last_error = :error, updated_at = :now
-                    WHERE work_item_id = :work AND status = 'PENDING'
+                    SET status = 'DONE',
+                        leased_by = NULL,
+                        lease_expires_at = NULL,
+                        last_error = :error,
+                        updated_at = :now
+                    WHERE work_item_id = :work AND status = :status
                     """
                 ),
-                {"error": error_code, "now": current, "work": work["work_item_id"]},
+                {
+                    "error": error_code,
+                    "now": current,
+                    "work": work["work_item_id"],
+                    "status": expected_work_status,
+                },
             )
             connection.execute(
                 text(
@@ -777,7 +833,11 @@ class PostgresRenderRuntime:
                     connection,
                     account_id=account_id,
                     usage_id=locked["billable_usage_id"],
-                    reason_code="CANCELLED_BEFORE_PROCESSING",
+                    reason_code=(
+                        "CANCELLED_BEFORE_PROCESSING"
+                        if previous_status == "PENDING"
+                        else "NON_DELIVERED"
+                    ),
                     now=current,
                 )
             return self._get_in_transaction(connection, job_id)
@@ -946,8 +1006,32 @@ class PostgresRenderRuntime:
     ) -> DurableRenderJob:
         current = now or datetime.now(UTC)
         with self.engine.begin() as connection:
+            self._lock_work_for_job(connection, job_id)
             locked = self._lock_job(connection, job_id)
             if locked["status"] == "DELIVERED":
+                return self._get_in_transaction(connection, job_id)
+            if locked["status"] == "CANCELLED":
+                # The provider call cannot always be interrupted. If it completes after
+                # the user cancelled, keep the job cancelled and retire the late asset.
+                connection.execute(
+                    text(
+                        """
+                        UPDATE media_assets
+                        SET deletion_state = 'REQUESTED',
+                            delete_after = :now,
+                            updated_at = :now
+                        WHERE asset_id = :asset
+                          AND account_id = :account
+                          AND purpose = 'RENDER_RESULT'
+                          AND deletion_state = 'RETAINED'
+                        """
+                    ),
+                    {
+                        "asset": result_asset_id,
+                        "account": locked["account_id"],
+                        "now": current,
+                    },
+                )
                 return self._get_in_transaction(connection, job_id)
             if locked["status"] != "PROCESSING":
                 raise DurableRenderError("JOB_STATE_CONFLICT", "Render job is not processing.")
@@ -1165,9 +1249,10 @@ class PostgresRenderRuntime:
                            context.tenant_id,
                            context.business_account_id,
                            context.store_id,
-                           (
+                           COALESCE(
                              context.marketing_approved
-                             AND context.marketing_tenant_id = context.tenant_id
+                             AND context.marketing_tenant_id = context.tenant_id,
+                             false
                            ),
                            :now,
                            :now,
@@ -1267,8 +1352,9 @@ class PostgresRenderRuntime:
         if not safe_code:
             raise ValueError("error code is required")
         with self.engine.begin() as connection:
+            self._lock_work_for_job(connection, job_id)
             locked = self._lock_job(connection, job_id)
-            if locked["status"] == "FAILED":
+            if locked["status"] in {"FAILED", "CANCELLED"}:
                 return self._get_in_transaction(connection, job_id)
             if locked["status"] != "PROCESSING":
                 raise DurableRenderError("JOB_STATE_CONFLICT", "Render job is not processing.")
@@ -1299,6 +1385,23 @@ class PostgresRenderRuntime:
             connection.execute(
                 text(
                     "SELECT job_id, account_id, status, billable_usage_id FROM render_jobs "
+                    "WHERE job_id = :job FOR UPDATE"
+                ),
+                {"job": job_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise DurableRenderError("JOB_UNAVAILABLE", "Render job is unavailable.")
+        return row
+
+    @staticmethod
+    def _lock_work_for_job(connection: Connection, job_id: UUID) -> RowMapping:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT work_item_id, status FROM render_work_items "
                     "WHERE job_id = :job FOR UPDATE"
                 ),
                 {"job": job_id},

@@ -528,8 +528,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(consumer, /queueMarkup/);
   assert.match(consumer, /Processing/);
   assert.match(consumer, /attempts/);
-  assert.match(consumer, /Remove from queue/);
+  assert.match(consumer, /Cancel try-on/);
   assert.match(consumer, /data-cancel-render-id/);
+  assert.match(consumer, /cancel-generation-button/);
   assert.match(consumer, /method: "DELETE"/);
   assert.match(consumer, /\["QUEUED", "PROCESSING"\]\.includes\(item\.status\)/);
   assert.match(consumer, /loadLatestPreview/);
