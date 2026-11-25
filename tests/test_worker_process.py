@@ -8,6 +8,8 @@ from PIL import Image
 
 from apps.api.wearo_api.external_runtime import OpenAIAnalysisClient
 from apps.api.wearo_api.render_provider import (
+    APPAREL_ACCESSORY_NEGATIVE_PROMPT,
+    APPAREL_ACCESSORY_PRESERVATION_PROMPT,
     PERSON_PRESERVATION_NEGATIVE_PROMPT,
     PERSON_PRESERVATION_PROMPT,
     OpenAIImageEditAdapter,
@@ -76,7 +78,10 @@ def test_production_apparel_prompt_locks_face_and_body_structure() -> None:
     call = capture.calls[0]
     assert str(call["prompt"]).startswith(PERSON_PRESERVATION_PROMPT)
     assert "Never make the person wider, narrower" in str(call["prompt"])
+    assert APPAREL_ACCESSORY_PRESERVATION_PROMPT in str(call["prompt"])
+    assert "Bare ears must remain bare" in str(call["prompt"])
     assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
+    assert APPAREL_ACCESSORY_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
     assert call["parameters"]["width"] == 1152
     assert call["parameters"]["height"] == 2048
 
@@ -102,8 +107,10 @@ def test_production_jewellery_keeps_existing_prompt_and_adds_person_lock(
     call = capture.calls[0]
     assert str(call["prompt"]).startswith(PERSON_PRESERVATION_PROMPT)
     assert _RUNWARE_NECKLACE_ONLY_PROMPT in str(call["prompt"])
+    assert APPAREL_ACCESSORY_PRESERVATION_PROMPT not in str(call["prompt"])
     assert _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
     assert PERSON_PRESERVATION_NEGATIVE_PROMPT in call["parameters"]["negativePrompt"]
+    assert APPAREL_ACCESSORY_NEGATIVE_PROMPT not in call["parameters"]["negativePrompt"]
     assert call["parameters"]["width"] == 1152
     assert call["parameters"]["height"] == 2048
 

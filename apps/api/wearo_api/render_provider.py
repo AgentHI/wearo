@@ -60,6 +60,26 @@ PERSON_PRESERVATION_NEGATIVE_PROMPT = (
     "framing"
 )
 
+APPAREL_ACCESSORY_PRESERVATION_PROMPT = (
+    "APPAREL-ONLY ACCESSORY LOCK: the requested edit is clothing, not jewellery or styling. "
+    "Before editing, inventory every accessory actually visible on PERSON IMAGE 1 and preserve "
+    "that exact inventory. Bare ears must remain bare. If earrings already exist, preserve those "
+    "same earrings without adding another pair. Do not add, remove, replace, move, resize, or "
+    "redesign earrings, necklaces, chains, pendants, nose jewellery, head jewellery, bracelets, "
+    "bangles, watches, rings, anklets, eyewear, headwear, bags, or any other accessory. Treat "
+    "IMAGE 2 only as the clothing-design reference: ignore and never transfer any jewellery, "
+    "accessory, person, mannequin, styling prop, or background visible in IMAGE 2. Change only "
+    "the target clothing and its physically necessary boundary and occlusion pixels."
+)
+
+APPAREL_ACCESSORY_NEGATIVE_PROMPT = (
+    "new earrings, added earrings, invented earrings, transferred earrings, extra earrings, "
+    "new jewellery, added jewellery, invented jewellery, transferred jewellery, new necklace, "
+    "added necklace, new chain, added chain, new pendant, added pendant, new bracelet, added "
+    "bracelet, new watch, added watch, new ring, added ring, new eyewear, added glasses, new "
+    "headwear, added accessories, styling accessories copied from product image"
+)
+
 
 def person_preserving_prompt(prompt: str) -> str:
     """Wrap a try-on prompt with an idempotent identity and anatomy lock."""
@@ -78,6 +98,26 @@ def person_preserving_negative_prompt(prompt: str | None) -> str:
         f"{PERSON_PRESERVATION_NEGATIVE_PROMPT}, {cleaned}"
         if cleaned
         else PERSON_PRESERVATION_NEGATIVE_PROMPT
+    )
+
+
+def apparel_accessory_preserving_prompt(prompt: str) -> str:
+    """For apparel edits, preserve the person's exact pre-existing accessory inventory."""
+    cleaned = prompt.strip()
+    if APPAREL_ACCESSORY_PRESERVATION_PROMPT in cleaned:
+        return cleaned
+    return f"{cleaned} {APPAREL_ACCESSORY_PRESERVATION_PROMPT}"
+
+
+def apparel_accessory_negative_prompt(prompt: str | None) -> str:
+    """Forbid newly invented accessories while retaining provider-specific exclusions."""
+    cleaned = (prompt or "").strip()
+    if APPAREL_ACCESSORY_NEGATIVE_PROMPT in cleaned:
+        return cleaned
+    return (
+        f"{APPAREL_ACCESSORY_NEGATIVE_PROMPT}, {cleaned}"
+        if cleaned
+        else APPAREL_ACCESSORY_NEGATIVE_PROMPT
     )
 
 
@@ -339,7 +379,8 @@ class OpenAIImageEditAdapter:
     provider = "OPENAI"
     region = "global"
     endpoint = "https://api.openai.com/v1/images/edits"
-    prompt = person_preserving_prompt(
+    prompt = apparel_accessory_preserving_prompt(
+        person_preserving_prompt(
         "Perform a photorealistic virtual try-on using exactly two images. IMAGE 1 (PERSON) is the "
         "original person photo and fixed output canvas. IMAGE 2 (PRODUCT) is the exact wearable to "
         "apply. Replace or add ONLY the target wearable in IMAGE 1 using the product from IMAGE 2. "
@@ -425,6 +466,7 @@ class OpenAIImageEditAdapter:
         "Do not copy unrelated content from the reference image or modify unrelated parts of the "
         "customer image. Before returning the result, verify that the face and all non-wearable "
         "regions still match Image 1 exactly. Return only the edited customer photo."
+        )
     )
 
     def __init__(

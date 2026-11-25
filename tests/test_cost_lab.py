@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw
 from pytest import MonkeyPatch
 
 from apps.api.wearo_api.render_provider import (
+    APPAREL_ACCESSORY_NEGATIVE_PROMPT,
+    APPAREL_ACCESSORY_PRESERVATION_PROMPT,
     PERSON_PRESERVATION_NEGATIVE_PROMPT,
     PERSON_PRESERVATION_PROMPT,
 )
@@ -185,6 +187,7 @@ def test_cost_lab_runware_tryon_uses_person_lock_and_input_aspect_ratio() -> Non
         {"width": 1536, "height": 1536, "negativePrompt": "existing exclusions"},
         encoded.getvalue(),
         is_runware=True,
+        is_apparel=False,
     )
 
     assert prompt.startswith(PERSON_PRESERVATION_PROMPT)
@@ -193,6 +196,16 @@ def test_cost_lab_runware_tryon_uses_person_lock_and_input_aspect_ratio() -> Non
     assert parameters["height"] == 2048
     assert parameters["negativePrompt"].startswith(PERSON_PRESERVATION_NEGATIVE_PROMPT)
     assert parameters["negativePrompt"].endswith("existing exclusions")
+
+    apparel_prompt, apparel_parameters = _prepare_tryon_generation(
+        _benchmark_prompt("DRESS"),
+        {"width": 1536, "height": 1536},
+        encoded.getvalue(),
+        is_runware=True,
+        is_apparel=True,
+    )
+    assert APPAREL_ACCESSORY_PRESERVATION_PROMPT in apparel_prompt
+    assert APPAREL_ACCESSORY_NEGATIVE_PROMPT in apparel_parameters["negativePrompt"]
 
 
 def test_runware_jewellery_negative_prompt_forbids_displayed_earrings() -> None:

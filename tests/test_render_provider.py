@@ -6,6 +6,8 @@ import pytest
 from PIL import Image
 
 from apps.api.wearo_api.render_provider import (
+    APPAREL_ACCESSORY_NEGATIVE_PROMPT,
+    APPAREL_ACCESSORY_PRESERVATION_PROMPT,
     PERSON_PRESERVATION_FINAL_CHECK,
     PERSON_PRESERVATION_NEGATIVE_PROMPT,
     PERSON_PRESERVATION_PROMPT,
@@ -17,6 +19,8 @@ from apps.api.wearo_api.render_provider import (
     RenderQuality,
     RenderRequest,
     VertexTryOnAdapter,
+    apparel_accessory_negative_prompt,
+    apparel_accessory_preserving_prompt,
     person_preserving_negative_prompt,
     person_preserving_prompt,
     runware_aspect_dimensions,
@@ -193,6 +197,8 @@ def test_openai_request_uses_two_references_and_records_provenance() -> None:
     assert fields["prompt"].startswith(PERSON_PRESERVATION_PROMPT)
     assert "Never make the person wider, narrower" in fields["prompt"]
     assert "the person must never be changed to fit the wearable" in fields["prompt"]
+    assert APPAREL_ACCESSORY_PRESERVATION_PROMPT in fields["prompt"]
+    assert "Bare ears must remain bare" in fields["prompt"]
     assert [file.field_name for file in files] == ["image[]", "image[]"]
     assert [file.filename for file in files] == ["person.jpg", "item.png"]
     assert headers == {"Authorization": "Bearer secret-key"} and timeout == (15, 180)
@@ -227,6 +233,16 @@ def test_person_preservation_wrappers_are_idempotent_and_keep_existing_instructi
     assert "changed hairline" in negative
     assert "changed eyewear" in negative
     assert person_preserving_negative_prompt(negative) == negative
+
+    apparel = apparel_accessory_preserving_prompt(existing)
+    assert apparel.startswith(existing)
+    assert apparel.endswith(APPAREL_ACCESSORY_PRESERVATION_PROMPT)
+    assert apparel_accessory_preserving_prompt(apparel) == apparel
+
+    apparel_negative = apparel_accessory_negative_prompt("existing exclusions")
+    assert apparel_negative.startswith(APPAREL_ACCESSORY_NEGATIVE_PROMPT)
+    assert apparel_negative.endswith("existing exclusions")
+    assert apparel_accessory_negative_prompt(apparel_negative) == apparel_negative
 
 
 def test_runware_dimensions_preserve_person_aspect_ratio_and_pixel_budget() -> None:

@@ -17,6 +17,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.wearo_api.database import create_database_engine
 from apps.api.wearo_api.render_provider import (
+    apparel_accessory_negative_prompt,
+    apparel_accessory_preserving_prompt,
     person_preserving_negative_prompt,
     person_preserving_prompt,
     runware_aspect_dimensions,
@@ -53,6 +55,7 @@ def _prepare_tryon_generation(
     person_image: bytes,
     *,
     is_runware: bool,
+    is_apparel: bool,
 ) -> tuple[str, dict[str, Any]]:
     """Apply the production person lock to Cost Lab try-on requests."""
     prepared = dict(parameters)
@@ -65,7 +68,14 @@ def _prepare_tryon_generation(
         prepared["negativePrompt"] = person_preserving_negative_prompt(
             str(prepared.get("negativePrompt") or "")
         )
-    return person_preserving_prompt(prompt), prepared
+        if is_apparel:
+            prepared["negativePrompt"] = apparel_accessory_negative_prompt(
+                str(prepared.get("negativePrompt") or "")
+            )
+    prepared_prompt = person_preserving_prompt(prompt)
+    if is_apparel:
+        prepared_prompt = apparel_accessory_preserving_prompt(prepared_prompt)
+    return prepared_prompt, prepared
 
 
 class CostLabWorker:
@@ -225,6 +235,7 @@ class CostLabWorker:
                 parameters,
                 person_image,
                 is_runware=adapter_type is RunwareAdapter,
+                is_apparel=job["category"] != "JEWELLERY",
             )
             result = adapter.generate(
                 model=job["api_identifier"],

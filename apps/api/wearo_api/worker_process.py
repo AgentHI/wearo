@@ -31,6 +31,8 @@ from .render_provider import (
     RenderRequest,
     RenderResponse,
     VertexTryOnAdapter,
+    apparel_accessory_negative_prompt,
+    apparel_accessory_preserving_prompt,
     person_preserving_negative_prompt,
     person_preserving_prompt,
     runware_aspect_dimensions,
@@ -141,10 +143,16 @@ class _CostLabProductionAdapter:
                 else negatives[plan.strategy]
             )
         prompt = person_preserving_prompt(prompt)
+        if request.product_kind != "JEWELLERY":
+            prompt = apparel_accessory_preserving_prompt(prompt)
         if self.provider == "RUNWARE":
             parameters["negativePrompt"] = person_preserving_negative_prompt(
                 str(parameters.get("negativePrompt") or "")
             )
+            if request.product_kind != "JEWELLERY":
+                parameters["negativePrompt"] = apparel_accessory_negative_prompt(
+                    str(parameters.get("negativePrompt") or "")
+                )
         try:
             result = self.adapter.generate(
                 model=self.model,
