@@ -2,6 +2,7 @@ import base64
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal, cast
 from uuid import uuid4
 
@@ -27,6 +28,7 @@ from apps.cost_lab_api.app import (
     _RUNWARE_SPLIT_JEWELLERY_PROMPT,
     _benchmark_category_instruction,
     _benchmark_prompt,
+    _populate_result_image_fields,
     reproducible_combinations,
 )
 from apps.cost_lab_api.jewellery_references import (
@@ -45,6 +47,79 @@ def test_cost_lab_pricing_supports_disjoint_units() -> None:
         {"unit": "requests", "price_usd": "0.25"},
     ]
     assert calculate_cost(usage, prices) == Decimal("6.50000000")
+
+
+def test_result_detail_uses_saved_image_metadata_without_storage_read() -> None:
+    class UnexpectedStorage:
+        def get(self, _key: str) -> bytes:
+            raise AssertionError("stored metadata should avoid an S3 read")
+
+    tryon_id = uuid4()
+    item = {
+        "tryon_id": tryon_id,
+        "output_path": f"benchmarks/run/{tryon_id}.png",
+        "raw_metadata": {
+            "pixel_width": 1024,
+            "pixel_height": 1024,
+            "image_format": "PNG",
+            "file_size_bytes": 123_456,
+        },
+    }
+
+    _populate_result_image_fields(SimpleNamespace(storage=UnexpectedStorage()), item)
+
+    assert item["pixel_width"] == 1024
+    assert item["pixel_height"] == 1024
+    assert item["image_format"] == "PNG"
+    assert item["file_size_bytes"] == 123_456
+    assert item["image_url"] == f"/api/cost-lab/results/tryons/{tryon_id}/image"
+    assert item["download_url"].endswith("?download=true")
+
+
+def test_result_detail_storage_timeout_does_not_hide_image_links() -> None:
+    class TimeoutStorage:
+        def get(self, _key: str) -> bytes:
+            raise TimeoutError("S3 read timed out")
+
+    tryon_id = uuid4()
+    item = {
+        "tryon_id": tryon_id,
+        "output_path": f"benchmarks/run/{tryon_id}.png",
+        "raw_metadata": {},
+    }
+
+    _populate_result_image_fields(SimpleNamespace(storage=TimeoutStorage()), item)
+
+    assert item["image_url"] == f"/api/cost-lab/results/tryons/{tryon_id}/image"
+    assert item["download_url"].endswith("?download=true")
+    assert item["pixel_width"] is None
+    assert item["pixel_height"] is None
+    assert item["image_format"] is None
+    assert item["file_size_bytes"] is None
+
+
+def test_result_detail_keeps_metadata_for_legacy_results() -> None:
+    output = BytesIO()
+    Image.new("RGB", (37, 29), (10, 20, 30)).save(output, "PNG")
+    content = output.getvalue()
+
+    class LegacyStorage:
+        def get(self, _key: str) -> bytes:
+            return content
+
+    tryon_id = uuid4()
+    item = {
+        "tryon_id": tryon_id,
+        "output_path": f"benchmarks/run/{tryon_id}.png",
+        "raw_metadata": {},
+    }
+
+    _populate_result_image_fields(SimpleNamespace(storage=LegacyStorage()), item)
+
+    assert item["pixel_width"] == 37
+    assert item["pixel_height"] == 29
+    assert item["image_format"] == "PNG"
+    assert item["file_size_bytes"] == len(content)
 
 
 def test_cost_lab_aggregate_tokens_are_not_double_counted() -> None:

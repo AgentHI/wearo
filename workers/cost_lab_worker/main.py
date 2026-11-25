@@ -203,10 +203,17 @@ class CostLabWorker:
             result.raw_metadata["reference_images"] = len(reference_images)
             result.raw_metadata["reference_strategy"] = reference_strategy
             result.raw_metadata["effective_prompt_version"] = effective_prompt_version
+            result.raw_metadata["file_size_bytes"] = len(result.image_bytes)
             try:
                 with Image.open(BytesIO(result.image_bytes)) as generated:
-                    extension = ".png" if generated.format == "PNG" else ".jpg"
+                    image_format = generated.format or "UNKNOWN"
+                    width, height = generated.size
+                    result.raw_metadata["pixel_width"] = width
+                    result.raw_metadata["pixel_height"] = height
+                    result.raw_metadata["image_format"] = image_format
+                    extension = ".png" if image_format == "PNG" else ".jpg"
             except Exception:
+                result.raw_metadata["image_format"] = "UNKNOWN"
                 extension = ".bin"
             path = f"benchmarks/{job['run_id']}/{job['tryon_id']}{extension}"
             self.service.storage.put(

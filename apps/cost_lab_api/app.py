@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import html
 import json
+import logging
 import os
 import random
 import re
@@ -37,6 +38,57 @@ from .pricing import calculate_cost
 from .storage import FilesystemCostLabStorage, S3CostLabStorage
 
 COOKIE = "wearo_cost_lab_session"
+LOGGER = logging.getLogger(__name__)
+
+
+def _populate_result_image_fields(service: "CostLab", item: dict[str, Any]) -> None:
+    item["image_url"] = None
+    item["download_url"] = None
+    item["pixel_width"] = None
+    item["pixel_height"] = None
+    item["image_format"] = None
+    item["file_size_bytes"] = None
+    output_path = item.get("output_path")
+    if not output_path:
+        return
+
+    tryon_id = item["tryon_id"]
+    item["image_url"] = f"/api/cost-lab/results/tryons/{tryon_id}/image"
+    item["download_url"] = (
+        f"/api/cost-lab/results/tryons/{tryon_id}/image?download=true"
+    )
+    metadata = item.get("raw_metadata")
+    if isinstance(metadata, dict):
+        item["pixel_width"] = metadata.get("pixel_width")
+        item["pixel_height"] = metadata.get("pixel_height")
+        item["image_format"] = metadata.get("image_format")
+        item["file_size_bytes"] = metadata.get("file_size_bytes")
+    if all(
+        item.get(field) is not None
+        for field in ("pixel_width", "pixel_height", "image_format", "file_size_bytes")
+    ):
+        return
+
+    try:
+        stored_content = service.storage.get(str(output_path))
+    except Exception as error:
+        LOGGER.warning(
+            "Cost Lab result metadata read failed tryon_id=%s error=%s",
+            tryon_id,
+            type(error).__name__,
+        )
+        return
+    if stored_content is None:
+        item["image_url"] = None
+        item["download_url"] = None
+        return
+    try:
+        with Image.open(BytesIO(stored_content)) as generated:
+            item["pixel_width"], item["pixel_height"] = generated.size
+            item["image_format"] = generated.format
+    except Exception:
+        item["image_format"] = "UNKNOWN"
+    item["file_size_bytes"] = len(stored_content)
 
 
 def _stored_response(
@@ -2469,26 +2521,7 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 f"/api/cost-lab/assets/{item['product_asset_id']}/content"
                 f"?quality={item['input_quality']}"
             )
-            item["image_url"] = None
-            item["download_url"] = None
-            item["pixel_width"] = None
-            item["pixel_height"] = None
-            item["image_format"] = None
-            item["file_size_bytes"] = None
-            if item.get("output_path"):
-                stored_content = service.storage.get(item["output_path"])
-                if stored_content is not None:
-                    try:
-                        with Image.open(BytesIO(stored_content)) as generated:
-                            item["pixel_width"], item["pixel_height"] = generated.size
-                            item["image_format"] = generated.format
-                    except Exception:
-                        item["image_format"] = "UNKNOWN"
-                    item["file_size_bytes"] = len(stored_content)
-                    item["image_url"] = f"/api/cost-lab/results/tryons/{item['tryon_id']}/image"
-                    item["download_url"] = (
-                        f"/api/cost-lab/results/tryons/{item['tryon_id']}/image?download=true"
-                    )
+            _populate_result_image_fields(service, item)
         return {"run": dict(run), "tryons": items}
 
     @app.post("/api/cost-lab/fx/refresh")
