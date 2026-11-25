@@ -9,6 +9,7 @@ from PIL import Image
 
 from apps.api.wearo_api.durable_worker import DurableRenderWorker
 from apps.api.wearo_api.image_inputs import InputRole
+from apps.api.wearo_api.render_preflight import ModelRoute
 from apps.api.wearo_api.render_provider import ProviderError, RenderRequest, RenderResponse
 from apps.api.wearo_api.render_quality import QualityDecision
 from apps.api.wearo_api.render_runtime import DurableRenderJob, LeasedRenderWork, RecoverySummary
@@ -42,6 +43,9 @@ class Runtime:
         provider_request_id: str,
         quality_details: dict[str, object],
         provider_usage: dict[str, object] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        region: str | None = None,
         now: datetime | None = None,
     ) -> DurableRenderJob:
         assert self.job is not None and quality_details["accepted"] is True
@@ -51,6 +55,9 @@ class Runtime:
             status="DELIVERED",
             result_asset_id=result_asset_id,
             provider_request_id=provider_request_id,
+            provider=provider or self.job.provider,
+            model=model or self.job.model,
+            region=region or self.job.region,
         )
         return self.job
 
@@ -226,3 +233,82 @@ def test_quoted_provider_route_must_match_worker_before_media_or_provider_call()
     assert result.job is not None
     assert result.job.status == "FAILED"
     assert result.job.error_code == "PROVIDER_ROUTE_MISMATCH"
+
+
+def test_provider_failure_uses_next_priority_and_records_actual_route() -> None:
+    primary = ModelRoute(
+        "GOOGLE_VERTEX", "virtual-try-on-001", "asia-southeast1", "APPAREL", True, 1
+    )
+    fallback = ModelRoute("OPENAI", "gpt-image-2.5-flare", "global", "APPAREL", True, 2)
+    queued = replace(job(), route_candidates=(primary, fallback))
+    runtime = Runtime(queued)
+    attempted: list[str] = []
+
+    class RoutedProvider(Provider):
+        def __init__(self, route: ModelRoute) -> None:
+            super().__init__(
+                ProviderError("BYTEPLUS_INVALID_PARAMETER", retryable=False)
+                if route.priority == 1
+                else None
+            )
+            self.provider = route.provider
+            self.model = route.model
+            self.region = route.region
+
+        def render(self, request: RenderRequest) -> RenderResponse:
+            attempted.append(self.provider)
+            if self.error is not None:
+                raise self.error
+            return RenderResponse(
+                generated_image(),
+                "image/png",
+                self.provider,
+                self.model,
+                self.region,
+                "fallback-request",
+                1,
+            )
+
+    result = DurableRenderWorker(
+        runtime,
+        Media(),
+        Provider(),
+        Quality(True),
+        worker_id="worker-1",
+        provider_resolver=lambda candidate: RoutedProvider(candidate.ordered_routes[0]),
+    ).run_once(now=NOW)
+
+    assert attempted == ["GOOGLE_VERTEX", "OPENAI"]
+    assert result.job is not None and result.job.status == "DELIVERED"
+    assert (result.job.provider, result.job.model, result.job.region) == (
+        "OPENAI",
+        "gpt-image-2.5-flare",
+        "global",
+    )
+
+
+def test_safety_failure_does_not_fall_back_to_another_provider() -> None:
+    primary = ModelRoute(
+        "GOOGLE_VERTEX", "virtual-try-on-001", "asia-southeast1", "APPAREL", True, 1
+    )
+    fallback = ModelRoute("OPENAI", "gpt-image-2.5-flare", "global", "APPAREL", True, 2)
+    runtime = Runtime(replace(job(), route_candidates=(primary, fallback)))
+    attempted: list[str] = []
+
+    class SafetyProvider(Provider):
+        def render(self, request: RenderRequest) -> RenderResponse:
+            attempted.append(self.provider)
+            raise ProviderError("RUNWARE_NSFW_CONTENT", retryable=False)
+
+    result = DurableRenderWorker(
+        runtime,
+        Media(),
+        Provider(),
+        Quality(True),
+        worker_id="worker-1",
+        provider_resolver=lambda _candidate: SafetyProvider(),
+    ).run_once(now=NOW)
+
+    assert attempted == ["GOOGLE_VERTEX"]
+    assert result.job is not None and result.job.status == "FAILED"
+    assert result.job.error_code == "RUNWARE_NSFW_CONTENT"

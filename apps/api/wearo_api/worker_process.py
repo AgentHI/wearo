@@ -5,8 +5,10 @@ import logging
 import os
 import socket
 import threading
-from typing import TypedDict
+from decimal import Decimal
+from typing import Any, Protocol, TypedDict, cast
 
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -26,13 +28,169 @@ from .render_provider import (
     BytePlusImageGenerationAdapter,
     OpenAIImageEditAdapter,
     ProviderError,
+    RenderRequest,
+    RenderResponse,
     VertexTryOnAdapter,
 )
 from .render_quality import QualityAnalyzer, RenderQualityGate
+from .render_quality_strategy import quality_parameters
 from .render_runtime import DurableRenderJob, PostgresRenderRuntime
 from .worker_health import start_worker_health_server
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _GenerationAdapter(Protocol):
+    def generate(
+        self, *, model: str, prompt: str, images: list[bytes], parameters: dict[str, Any]
+    ) -> Any: ...
+
+
+class _CostLabProductionAdapter:
+    """Adapt a promoted Cost Lab model to the production worker contract."""
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        model: str,
+        region: str,
+        base_url: str,
+        api_key: str,
+        request_parameters: dict[str, Any] | None = None,
+    ) -> None:
+        from apps.cost_lab_api.adapters import (
+            BFLAdapter,
+            BytePlusAdapter,
+            OpenAICompatibleAdapter,
+            RunwareAdapter,
+        )
+
+        adapters = {
+            "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
+            "BYTEPLUS": BytePlusAdapter,
+            "BFL": BFLAdapter,
+            "RUNWARE": RunwareAdapter,
+        }
+        adapter_type = adapters.get(provider)
+        if adapter_type is None:
+            raise ProviderError("PROVIDER_ADAPTER_UNSUPPORTED", retryable=False)
+        self.provider = provider
+        self.model = model
+        self.region = region
+        self.request_parameters = request_parameters or {}
+        self.adapter = cast(_GenerationAdapter, adapter_type(base_url, api_key, 180))
+
+    def render(self, request: RenderRequest) -> RenderResponse:
+        from apps.cost_lab_api.app import (
+            _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT,
+            _RUNWARE_EARRINGS_ONLY_PROMPT,
+            _RUNWARE_JEWELLERY_NEGATIVE_PROMPT,
+            _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT,
+            _RUNWARE_NECKLACE_ONLY_PROMPT,
+            _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT,
+            _RUNWARE_SPLIT_JEWELLERY_PROMPT,
+            _benchmark_prompt,
+        )
+        from apps.cost_lab_api.jewellery_references import (
+            plan_runware_jewellery_references,
+        )
+
+        reference_images = [request.person_image, request.item_image]
+        prompt = (
+            _benchmark_prompt("JEWELLERY")
+            if request.product_kind == "JEWELLERY"
+            else OpenAIImageEditAdapter.prompt
+        )
+        parameters = dict(self.request_parameters)
+        strategy_provider = "OPENAI" if self.provider == "OPENAI_COMPATIBLE" else self.provider
+        parameters |= quality_parameters(strategy_provider, self.model, request.quality)
+        if (
+            self.provider == "RUNWARE"
+            and self.model == "runware:400@4"
+            and (request.product_kind == "JEWELLERY")
+        ):
+            plan = plan_runware_jewellery_references(request.person_image, request.item_image)
+            reference_images = list(plan.images)
+            prompts = {
+                "person_necklace": _RUNWARE_NECKLACE_ONLY_PROMPT,
+                "person_earring": _RUNWARE_EARRINGS_ONLY_PROMPT,
+                "person_necklace_earring": _RUNWARE_SPLIT_JEWELLERY_PROMPT,
+                "person_combined_product": _benchmark_prompt("JEWELLERY"),
+            }
+            negatives = {
+                "person_necklace": _RUNWARE_NECKLACE_ONLY_NEGATIVE_PROMPT,
+                "person_earring": _RUNWARE_EARRINGS_ONLY_NEGATIVE_PROMPT,
+                "person_necklace_earring": _RUNWARE_SPLIT_JEWELLERY_NEGATIVE_PROMPT,
+                "person_combined_product": _RUNWARE_JEWELLERY_NEGATIVE_PROMPT,
+            }
+            prompt = prompts[plan.strategy]
+            configured_negative = str(parameters.get("negativePrompt") or "").strip()
+            parameters["negativePrompt"] = (
+                f"{negatives[plan.strategy]}, {configured_negative}"
+                if configured_negative
+                else negatives[plan.strategy]
+            )
+        try:
+            result = self.adapter.generate(
+                model=self.model,
+                prompt=prompt,
+                images=reference_images,
+                parameters=parameters,
+            )
+        except Exception as error:
+            raise self._provider_error(error) from error
+        usage = dict(result.usage)
+        if usage.get("cost_usd") is not None and usage.get("cost_usd_micros") is None:
+            usage["cost_usd_micros"] = int(Decimal(str(usage["cost_usd"])) * 1_000_000)
+        mime_type = (
+            "image/png"
+            if result.image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+            else "image/webp"
+            if result.image_bytes.startswith(b"RIFF")
+            else "image/jpeg"
+        )
+        return RenderResponse(
+            result.image_bytes,
+            mime_type,
+            self.provider,
+            self.model,
+            self.region,
+            result.request_id,
+            1,
+            usage,
+        )
+
+    def _provider_error(self, error: Exception) -> ProviderError:
+        from apps.cost_lab_api.adapters import BFLUpstreamError
+
+        if isinstance(error, ProviderError):
+            return error
+        status = getattr(error, "status_code", None)
+        retryable = isinstance(error, BFLUpstreamError) and (
+            status in {408, 409, 429, 500, 502, 503, 504}
+            or getattr(error, "phase", "") in {"submit", "poll", "download", "timeout"}
+        )
+        message = str(error).upper()
+        retryable = retryable or any(
+            token in message
+            for token in (
+                "HTTP_408",
+                "HTTP_409",
+                "HTTP_429",
+                "HTTP_500",
+                "HTTP_502",
+                "HTTP_503",
+                "HTTP_504",
+                "PROCESSING",
+                "TIMED OUT",
+                "TIMEOUT",
+            )
+        )
+        code = str(error).split(":", 1)[0].strip().upper().replace(" ", "_")
+        if not code or len(code) > 100:
+            code = f"{self.provider}_REQUEST_FAILED"
+        return ProviderError(code, retryable=retryable)
 
 
 def _required(name: str) -> str:
@@ -142,6 +300,75 @@ def build_worker(
         worker_id = f"{worker_id}-{worker_slot}"
 
     def resolve_provider(job: DurableRenderJob) -> WorkerProvider:
+        release_id = job.ordered_routes[0].release_id
+        if release_id is not None:
+            with database_engine.connect() as connection:
+                promoted_route = (
+                    connection.execute(
+                        text("""SELECT
+                            p.provider_type,
+                            p.api_base_url,
+                            p.secret_ciphertext,
+                            p.secret_reference,
+                            m.api_identifier,
+                            quality.settings quality_settings,
+                            mapping.request_parameters,
+                            mapping.provider_quality
+                          FROM cost_lab.production_model_releases release
+                          JOIN cost_lab.ai_models m USING (model_id)
+                          JOIN cost_lab.model_providers p USING (provider_id)
+                          LEFT JOIN cost_lab.quality_profiles quality ON quality.code='HIGH'
+                          LEFT JOIN cost_lab.model_quality_mapping mapping
+                            ON mapping.model_id=m.model_id
+                           AND mapping.profile_id=quality.profile_id
+                           AND mapping.supported
+                          WHERE release.release_id=:release
+                            AND release.retired_at IS NULL
+                            AND release.approved_quality_levels ? 'HIGH'
+                            AND m.enabled AND p.enabled"""),
+                        {"release": release_id},
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+            if promoted_route is None or promoted_route["api_identifier"] != job.model:
+                raise ProviderError("PROVIDER_ROUTE_UNAVAILABLE", retryable=False)
+            provider_type = str(promoted_route["provider_type"])
+            base_url = str(promoted_route["api_base_url"] or "").strip()
+            if provider_type == "SECRET_REFERENCE" and "bfl.ai" in base_url.casefold():
+                provider_type = "BFL"
+            if provider_type != job.provider or not base_url:
+                raise ProviderError("PROVIDER_ROUTE_UNAVAILABLE", retryable=False)
+            reference = str(promoted_route["secret_reference"] or "")
+            credential = ""
+            if reference.startswith("env:"):
+                credential = os.environ.get(reference[4:], "")
+            elif promoted_route["secret_ciphertext"] is not None:
+                encryption_key = os.environ.get("COST_LAB_ENCRYPTION_KEY", "")
+                if encryption_key:
+                    try:
+                        credential = (
+                            Fernet(encryption_key.encode())
+                            .decrypt(bytes(promoted_route["secret_ciphertext"]))
+                            .decode()
+                        )
+                    except (InvalidToken, ValueError):
+                        credential = ""
+            if not credential:
+                raise ProviderError("PROVIDER_CREDENTIAL_UNAVAILABLE", retryable=False)
+            request_parameters = dict(promoted_route["quality_settings"] or {}) | dict(
+                promoted_route["request_parameters"] or {}
+            )
+            if promoted_route["provider_quality"]:
+                request_parameters["quality"] = promoted_route["provider_quality"]
+            return _CostLabProductionAdapter(
+                provider=provider_type,
+                model=job.model,
+                region=job.region,
+                base_url=base_url,
+                api_key=credential,
+                request_parameters=request_parameters,
+            )
         with database_engine.connect() as connection:
             route = (
                 connection.execute(
@@ -240,8 +467,12 @@ def main() -> None:
         application_name=f"wearo-render-worker:{socket.gethostname()}:{os.getpid()}",
         pool_size=concurrency,
     )
-    health_server = None if args.once else start_worker_health_server(
-        "render-worker", int(os.environ.get("WEARO_RENDER_WORKER_HEALTH_PORT", "8021"))
+    health_server = (
+        None
+        if args.once
+        else start_worker_health_server(
+            "render-worker", int(os.environ.get("WEARO_RENDER_WORKER_HEALTH_PORT", "8021"))
+        )
     )
 
     def run_slot(slot: int) -> None:

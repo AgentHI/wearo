@@ -187,23 +187,231 @@ def _cleanup(engine: Engine, account_id: UUID) -> None:
         connection.execute(
             text("ALTER TABLE consent_records DISABLE TRIGGER trg_consent_records_immutable")
         )
+        connection.execute(
+            text("ALTER TABLE usage_recredits DISABLE TRIGGER trg_usage_recredits_append_only")
+        )
+        connection.execute(
+            text("ALTER TABLE ledger_entries DISABLE TRIGGER trg_ledger_entries_append_only")
+        )
         try:
             for statement in (
                 "DELETE FROM render_results WHERE account_id = :account",
                 "DELETE FROM render_work_items WHERE account_id = :account",
                 "DELETE FROM consumer_free_tryon_grants WHERE account_id = :account",
                 "DELETE FROM render_jobs WHERE account_id = :account",
+                "DELETE FROM usage_recredits WHERE account_id = :account",
+                "DELETE FROM billable_usage_records WHERE account_id = :account",
                 "DELETE FROM render_quotes WHERE account_id = :account",
                 "DELETE FROM person_profiles WHERE account_id = :account",
                 "DELETE FROM consent_records WHERE account_id = :account",
+                "DELETE FROM account_persons WHERE account_id = :account",
                 "DELETE FROM media_assets WHERE account_id = :account",
+                "DELETE FROM ledger_entries WHERE account_id = :account",
+                "DELETE FROM wallet_buckets WHERE account_id = :account",
+                "DELETE FROM wallets WHERE account_id = :account",
                 "DELETE FROM principals WHERE account_id = :account",
                 "DELETE FROM accounts WHERE account_id = :account",
             ):
                 connection.execute(text(statement), {"account": account_id})
         finally:
             connection.execute(
+                text("ALTER TABLE ledger_entries ENABLE TRIGGER trg_ledger_entries_append_only")
+            )
+            connection.execute(
+                text("ALTER TABLE usage_recredits ENABLE TRIGGER trg_usage_recredits_append_only")
+            )
+            connection.execute(
                 text("ALTER TABLE consent_records ENABLE TRIGGER trg_consent_records_immutable")
+            )
+
+
+def test_exhausted_free_grant_uses_retail_tokens_and_refunds_failure(engine: Engine) -> None:
+    ids = {
+        name: uuid4() for name in ("account", "principal", "person", "item", "consent", "profile")
+    }
+    quote_id, success_quote_id, retail_price_id, result_asset_id = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
+    runtime = PostgresRenderRuntime(engine)
+    now = datetime.now(UTC)
+    _seed_quote(engine, ids, quote_id)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO consumer_free_tryon_grants
+                        (account_id, grant_limit, successful_generations)
+                    VALUES (:account, 3, 3)
+                    """
+                ),
+                ids,
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO retail_tryon_prices
+                        (retail_price_id, price_minor, tokens_per_tryon, currency, reason,
+                         effective_from, effective_until)
+                    VALUES (:price, 300, 15, 'INR', 'integration test',
+                            :starts, :ends)
+                    """
+                ),
+                {
+                    "price": retail_price_id,
+                    "starts": now - timedelta(seconds=1),
+                    "ends": now + timedelta(hours=1),
+                },
+            )
+            wallet_id: UUID = connection.execute(
+                text("INSERT INTO wallets (account_id) VALUES (:account) RETURNING wallet_id"),
+                ids,
+            ).scalar_one()
+            bucket_id: UUID = connection.execute(
+                text(
+                    """
+                    INSERT INTO wallet_buckets (account_id, wallet_id, bucket_type)
+                    VALUES (:account, :wallet, 'PURCHASED')
+                    RETURNING bucket_id
+                    """
+                ),
+                {"account": ids["account"], "wallet": wallet_id},
+            ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO ledger_entries
+                        (account_id, wallet_id, bucket_id, entry_type, amount, operation_key)
+                    VALUES (:account, :wallet, :bucket, 'CREDIT', 200, :operation)
+                    """
+                ),
+                {
+                    "account": ids["account"],
+                    "wallet": wallet_id,
+                    "bucket": bucket_id,
+                    "operation": f"test-credit:{ids['account']}",
+                },
+            )
+
+        allowance = runtime.paid_tryon_allowance(ids["account"], now=now)
+        assert allowance.token_balance == 200
+        assert allowance.token_cost == 15
+        assert allowance.remaining == 13
+
+        created = runtime.create_job(
+            quote_id=quote_id,
+            account_id=ids["account"],
+            principal_id=ids["principal"],
+            idempotency_key="paid-render-command",
+            now=now,
+        )
+        replay = runtime.create_job(
+            quote_id=quote_id,
+            account_id=ids["account"],
+            principal_id=ids["principal"],
+            idempotency_key="paid-render-command",
+            now=now,
+        )
+        assert replay.job_id == created.job_id
+        assert runtime.paid_tryon_allowance(ids["account"], now=now).token_balance == 185
+
+        with engine.connect() as connection:
+            billing = connection.execute(
+                text(
+                    """
+                    SELECT job.billable_usage_id, usage.retail_price_id,
+                           usage.token_cost, count(entry.entry_id) AS debit_count
+                    FROM render_jobs job
+                    JOIN billable_usage_records usage
+                      ON usage.usage_id = job.billable_usage_id
+                    JOIN ledger_entries entry
+                      ON entry.entry_id = usage.ledger_entry_id
+                    WHERE job.job_id = :job
+                    GROUP BY job.billable_usage_id, usage.retail_price_id, usage.token_cost
+                    """
+                ),
+                {"job": created.job_id},
+            ).one()
+        assert billing.retail_price_id == retail_price_id
+        assert billing.token_cost == 15
+        assert billing.debit_count == 1
+
+        leased = runtime.claim_next("paid-integration-worker", now=now)
+        assert leased is not None and leased.job.job_id == created.job_id
+        failed = runtime.complete_failure(created.job_id, "PROVIDER_TIMEOUT", now=now)
+        replayed_failure = runtime.complete_failure(created.job_id, "PROVIDER_TIMEOUT", now=now)
+        assert failed.status == replayed_failure.status == "FAILED"
+        assert runtime.paid_tryon_allowance(ids["account"], now=now).token_balance == 200
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM usage_recredits WHERE account_id = :account"),
+                    ids,
+                ).scalar_one()
+                == 1
+            )
+
+        with engine.begin() as connection:
+            _insert_quote(connection, ids, success_quote_id)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO media_assets
+                        (asset_id, account_id, object_key, content_hash, mime_type, purpose,
+                         retention_state, delete_after)
+                    VALUES
+                        (:asset, :account, :key, :hash, 'image/png', 'RENDER_RESULT',
+                         'EXPIRING', :delete_after)
+                    """
+                ),
+                {
+                    "asset": result_asset_id,
+                    "account": ids["account"],
+                    "key": f"private/{result_asset_id.hex}",
+                    "hash": result_asset_id.hex,
+                    "delete_after": now + timedelta(days=30),
+                },
+            )
+        successful_job = runtime.create_job(
+            quote_id=success_quote_id,
+            account_id=ids["account"],
+            principal_id=ids["principal"],
+            idempotency_key="paid-success-command",
+            now=now,
+        )
+        leased = runtime.claim_next("paid-success-worker", now=now)
+        assert leased is not None and leased.job.job_id == successful_job.job_id
+        delivered = runtime.complete_success(
+            job_id=successful_job.job_id,
+            result_asset_id=result_asset_id,
+            provider_request_id="paid-provider-request",
+            quality_details={"accepted": True},
+            now=now,
+        )
+        assert delivered.status == "DELIVERED"
+        assert runtime.paid_tryon_allowance(ids["account"], now=now).token_balance == 185
+        with engine.connect() as connection:
+            grant = connection.execute(
+                text(
+                    """
+                    SELECT successful_generations, active_job_id
+                    FROM consumer_free_tryon_grants
+                    WHERE account_id = :account
+                    """
+                ),
+                ids,
+            ).one()
+        assert grant.successful_generations == 3
+        assert grant.active_job_id is None
+    finally:
+        _cleanup(engine, ids["account"])
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM retail_tryon_prices WHERE retail_price_id = :price"),
+                {"price": retail_price_id},
             )
 
 

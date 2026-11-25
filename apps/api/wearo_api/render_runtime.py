@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Connection, Engine, text
 from sqlalchemy.engine import RowMapping
 
+from .render_preflight import ModelRoute
 from .tryon_authorization import (
     BusinessTryOnStatus,
     SubscriptionState,
@@ -40,6 +41,14 @@ class DurableRenderJob:
     model: str = "virtual-try-on-001"
     region: str = "asia-southeast1"
     company_name: str | None = None
+    product_kind: str | None = None
+    route_candidates: tuple[ModelRoute, ...] = ()
+
+    @property
+    def ordered_routes(self) -> tuple[ModelRoute, ...]:
+        if self.route_candidates:
+            return self.route_candidates
+        return (ModelRoute(self.provider, self.model, self.region, "APPAREL", True),)
 
 
 @dataclass(frozen=True)
@@ -86,7 +95,30 @@ class RecoverySummary:
     failed: int
 
 
+@dataclass(frozen=True)
+class PaidTryOnAllowance:
+    token_balance: int
+    token_cost: int | None
+    remaining: int
+
+
 def _job_from_row(row: RowMapping) -> DurableRenderJob:
+    raw_routes = row.get("route_candidates") or []
+    if isinstance(raw_routes, str):
+        raw_routes = json.loads(raw_routes)
+    routes = tuple(
+        ModelRoute(
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+            region=str(route["region"]),
+            capability=str(route.get("capability") or "APPAREL"),
+            enabled=bool(route.get("enabled", True)),
+            priority=int(route.get("priority") or 1),
+            release_id=UUID(str(route["release_id"])) if route.get("release_id") else None,
+        )
+        for route in raw_routes
+        if isinstance(route, dict)
+    )
     return DurableRenderJob(
         job_id=row["job_id"],
         quote_id=row["quote_id"],
@@ -102,6 +134,8 @@ def _job_from_row(row: RowMapping) -> DurableRenderJob:
         model=row["model_version"],
         region=row["provider_region"],
         company_name=row["company_name"],
+        product_kind=row["product_kind"],
+        route_candidates=routes,
     )
 
 
@@ -120,6 +154,8 @@ JOB_SELECT = """
         q.provider,
         q.model_version,
         q.provider_region,
+        q.product_kind,
+        q.route_candidates,
         sponsored_business.display_name AS company_name
     FROM render_jobs AS j
     JOIN render_quotes AS q
@@ -166,6 +202,58 @@ class PostgresRenderRuntime:
     def __init__(self, engine: Engine, *, enforce_free_allowance: bool = True) -> None:
         self.engine = engine
         self.enforce_free_allowance = enforce_free_allowance
+
+    def paid_tryon_allowance(
+        self, account_id: UUID, *, now: datetime | None = None
+    ) -> PaidTryOnAllowance:
+        """Return spendable retail allowance using the same bucket rules as debit."""
+        current = now or datetime.now(UTC)
+        with self.engine.connect() as connection:
+            price = connection.execute(
+                text(
+                    """
+                        SELECT tokens_per_tryon
+                        FROM retail_tryon_prices
+                        WHERE effective_from <= :now
+                          AND (effective_until IS NULL OR effective_until > :now)
+                        ORDER BY effective_from DESC
+                        LIMIT 1
+                        """
+                ),
+                {"now": current},
+            ).scalar_one_or_none()
+            balances = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT COALESCE(sum(balance), 0) AS token_balance,
+                           COALESCE(sum(
+                             CASE WHEN CAST(:cost AS bigint) IS NULL OR balance <= 0 THEN 0
+                                  ELSE balance / CAST(:cost AS bigint) END
+                           ), 0) AS remaining
+                    FROM (
+                        SELECT bucket.bucket_id,
+                               COALESCE(sum(entry.amount), 0)::bigint AS balance
+                        FROM wallet_buckets bucket
+                        LEFT JOIN ledger_entries entry
+                          ON entry.bucket_id = bucket.bucket_id
+                         AND entry.account_id = bucket.account_id
+                        WHERE bucket.account_id = :account
+                          AND (bucket.expires_at IS NULL OR bucket.expires_at > :now)
+                        GROUP BY bucket.bucket_id
+                    ) spendable
+                    """
+                    ),
+                    {"account": account_id, "now": current, "cost": price},
+                )
+                .mappings()
+                .one()
+            )
+        return PaidTryOnAllowance(
+            token_balance=max(int(balances["token_balance"]), 0),
+            token_cost=int(price) if price is not None else None,
+            remaining=max(int(balances["remaining"]), 0),
+        )
 
     def create_job(
         self,
@@ -319,9 +407,36 @@ class PostgresRenderRuntime:
                     },
                 ).scalar_one_or_none()
             if self.enforce_free_allowance and not sponsored and usage is None:
-                raise DurableRenderError(
-                    "FREE_ALLOWANCE_UNAVAILABLE",
-                    "Free try-ons are used or another generation is active.",
+                grant = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT successful_generations, grant_limit, active_job_id
+                            FROM consumer_free_tryon_grants
+                            WHERE account_id = :account
+                            FOR UPDATE
+                            """
+                        ),
+                        {"account": account_id},
+                    )
+                    .mappings()
+                    .one()
+                )
+                if (
+                    int(grant["successful_generations"]) < int(grant["grant_limit"])
+                    and grant["active_job_id"] is not None
+                ):
+                    raise DurableRenderError(
+                        "FREE_ALLOWANCE_UNAVAILABLE",
+                        "Free try-ons are available, but another generation is active.",
+                    )
+                self._debit_paid_tryon(
+                    connection,
+                    job_id=job_id,
+                    account_id=account_id,
+                    principal_id=principal_id,
+                    request_key=key,
+                    now=current,
                 )
 
             connection.execute(
@@ -596,7 +711,7 @@ class PostgresRenderRuntime:
                 connection.execute(
                     text(
                         """
-                        SELECT job_id, account_id, status, created_at
+                        SELECT job_id, account_id, status, created_at, billable_usage_id
                         FROM render_jobs
                         WHERE job_id = :job AND account_id = :account
                         FOR UPDATE
@@ -657,6 +772,14 @@ class PostgresRenderRuntime:
                 ),
                 {"account": account_id, "job": job_id, "now": current},
             )
+            if locked["billable_usage_id"] is not None:
+                self._recredit_paid_tryon(
+                    connection,
+                    account_id=account_id,
+                    usage_id=locked["billable_usage_id"],
+                    reason_code="CANCELLED_BEFORE_PROCESSING",
+                    now=current,
+                )
             return self._get_in_transaction(connection, job_id)
 
     def claim_next(
@@ -740,7 +863,8 @@ class PostgresRenderRuntime:
                 connection.execute(
                     text(
                         """
-                    SELECT work.work_item_id, work.job_id, work.account_id, work.attempts
+                    SELECT work.work_item_id, work.job_id, work.account_id, work.attempts,
+                           job.billable_usage_id
                     FROM render_work_items AS work
                     JOIN render_jobs AS job ON job.job_id = work.job_id
                     WHERE work.status = 'LEASED'
@@ -796,6 +920,14 @@ class PostgresRenderRuntime:
                         "now": current,
                     },
                 )
+                if work["billable_usage_id"] is not None:
+                    self._recredit_paid_tryon(
+                        connection,
+                        account_id=work["account_id"],
+                        usage_id=work["billable_usage_id"],
+                        reason_code="FAILED",
+                        now=current,
+                    )
                 failed += 1
         return RecoverySummary(0, failed)
 
@@ -807,6 +939,9 @@ class PostgresRenderRuntime:
         provider_request_id: str,
         quality_details: dict[str, Any],
         provider_usage: dict[str, Any] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        region: str | None = None,
         now: datetime | None = None,
     ) -> DurableRenderJob:
         current = now or datetime.now(UTC)
@@ -849,12 +984,12 @@ class PostgresRenderRuntime:
                         :result_asset,
                         q.person_asset_id,
                         q.item_asset_id,
-                        q.model_version,
+                        COALESCE(:model, q.model_version),
                         'APPROVED',
                         CAST(:quality AS jsonb),
                         'beta-v1',
-                        q.provider,
-                        q.provider_region,
+                        COALESCE(:provider, q.provider),
+                        COALESCE(:region, q.provider_region),
                         :provider_request,
                         CAST(:provider_usage AS jsonb),
                         q.product_kind,
@@ -874,6 +1009,9 @@ class PostgresRenderRuntime:
                     "quality": json.dumps(quality_details),
                     "provider_request": provider_request_id,
                     "provider_usage": json.dumps(provider_usage) if provider_usage else None,
+                    "provider": provider,
+                    "model": model,
+                    "region": region,
                     "job": job_id,
                 },
             )
@@ -904,15 +1042,19 @@ class PostgresRenderRuntime:
                         ELSE 'ESTIMATED'
                       END
                     FROM render_jobs j JOIN render_quotes q ON q.quote_id=j.quote_id
-                    JOIN ai_providers provider ON provider.code=q.provider
+                    JOIN ai_providers provider ON provider.code=COALESCE(:provider, q.provider)
                     JOIN ai_models model ON model.provider_id=provider.provider_id
-                      AND model.api_model_id=q.model_version AND model.region=q.provider_region
+                      AND model.api_model_id=COALESCE(:model, q.model_version)
+                      AND model.region=COALESCE(:region, q.provider_region)
                     WHERE j.job_id=:job
                     ON CONFLICT (job_id) DO NOTHING"""
                 ),
                 {
                     "job": job_id,
                     "provider_usage": json.dumps(provider_usage) if provider_usage else None,
+                    "provider": provider,
+                    "model": model,
+                    "region": region,
                 },
             )
             self._finish_job(connection, job_id, "DELIVERED", None, current)
@@ -1052,7 +1194,11 @@ class PostgresRenderRuntime:
                 ).scalar_one()
             )
             usage_updated = None
-            if self.enforce_free_allowance and not sponsored:
+            if (
+                self.enforce_free_allowance
+                and not sponsored
+                and locked["billable_usage_id"] is None
+            ):
                 usage_updated = connection.execute(
                     text(
                         """
@@ -1072,11 +1218,20 @@ class PostgresRenderRuntime:
                         "now": current,
                     },
                 ).scalar_one_or_none()
-            if self.enforce_free_allowance and not sponsored and usage_updated is None:
+            if (
+                self.enforce_free_allowance
+                and not sponsored
+                and locked["billable_usage_id"] is None
+                and usage_updated is None
+            ):
                 raise DurableRenderError(
                     "QUOTA_STATE_CONFLICT", "Free try-on allowance cannot settle."
                 )
-            if not self.enforce_free_allowance or sponsored:
+            if (
+                not self.enforce_free_allowance
+                or sponsored
+                or locked["billable_usage_id"] is not None
+            ):
                 connection.execute(
                     text(
                         """
@@ -1128,6 +1283,14 @@ class PostgresRenderRuntime:
                 ),
                 {"account": locked["account_id"], "job": job_id, "now": current},
             )
+            if locked["billable_usage_id"] is not None:
+                self._recredit_paid_tryon(
+                    connection,
+                    account_id=locked["account_id"],
+                    usage_id=locked["billable_usage_id"],
+                    reason_code="FAILED",
+                    now=current,
+                )
             return self._get_in_transaction(connection, job_id)
 
     @staticmethod
@@ -1135,7 +1298,7 @@ class PostgresRenderRuntime:
         row = (
             connection.execute(
                 text(
-                    "SELECT job_id, account_id, status FROM render_jobs "
+                    "SELECT job_id, account_id, status, billable_usage_id FROM render_jobs "
                     "WHERE job_id = :job FOR UPDATE"
                 ),
                 {"job": job_id},
@@ -1146,6 +1309,231 @@ class PostgresRenderRuntime:
         if row is None:
             raise DurableRenderError("JOB_UNAVAILABLE", "Render job is unavailable.")
         return row
+
+    @staticmethod
+    def _debit_paid_tryon(
+        connection: Connection,
+        *,
+        job_id: UUID,
+        account_id: UUID,
+        principal_id: UUID,
+        request_key: str,
+        now: datetime,
+    ) -> UUID:
+        price = (
+            connection.execute(
+                text(
+                    """
+                    SELECT retail_price_id, tokens_per_tryon
+                    FROM retail_tryon_prices
+                    WHERE effective_from <= :now
+                      AND (effective_until IS NULL OR effective_until > :now)
+                    ORDER BY effective_from DESC
+                    LIMIT 1
+                    """
+                ),
+                {"now": now},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if price is None:
+            raise DurableRenderError(
+                "PRICE_UNAVAILABLE", "Purchased try-on pricing is unavailable."
+            )
+        # Lock candidate buckets before calculating their balances. Keeping the
+        # balance check in a second statement prevents two concurrent renders
+        # from both observing the same pre-lock ledger snapshot.
+        candidates = (
+            connection.execute(
+                text(
+                    """
+                    SELECT bucket.bucket_id, bucket.wallet_id
+                    FROM wallet_buckets bucket
+                    WHERE bucket.account_id = :account
+                      AND (bucket.expires_at IS NULL OR bucket.expires_at > :now)
+                    ORDER BY (bucket.bucket_type = 'PROMO') DESC,
+                             bucket.expires_at NULLS LAST,
+                             bucket.created_at
+                    FOR UPDATE
+                    """
+                ),
+                {"account": account_id, "now": now},
+            )
+            .mappings()
+            .all()
+        )
+        cost = int(price["tokens_per_tryon"])
+        bucket = next(
+            (
+                candidate
+                for candidate in candidates
+                if int(
+                    connection.execute(
+                        text(
+                            """
+                            SELECT COALESCE(sum(amount), 0)
+                            FROM ledger_entries
+                            WHERE account_id = :account AND bucket_id = :bucket
+                            """
+                        ),
+                        {"account": account_id, "bucket": candidate["bucket_id"]},
+                    ).scalar_one()
+                )
+                >= cost
+            ),
+            None,
+        )
+        if bucket is None:
+            raise DurableRenderError(
+                "TRYONS_USED",
+                "You have no free or purchased try-ons remaining. Buy more try-ons to continue.",
+            )
+
+        entry_id, usage_id = uuid4(), uuid4()
+        connection.execute(
+            text(
+                """
+                INSERT INTO ledger_entries
+                    (entry_id, account_id, wallet_id, bucket_id, entry_type,
+                     amount, operation_key, performed_by_principal_id)
+                VALUES
+                    (:entry, :account, :wallet, :bucket, 'DEBIT',
+                     :amount, :operation, :principal)
+                """
+            ),
+            {
+                "entry": entry_id,
+                "account": account_id,
+                "wallet": bucket["wallet_id"],
+                "bucket": bucket["bucket_id"],
+                "amount": -cost,
+                "operation": f"render:{job_id}",
+                "principal": principal_id,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO billable_usage_records
+                    (usage_id, account_id, principal_id, action_code, request_key,
+                     retail_price_id, token_cost, ledger_entry_id, created_at)
+                VALUES
+                    (:usage, :account, :principal, 'TRY_ON', :request_key,
+                     :retail_price, :cost, :entry, :now)
+                """
+            ),
+            {
+                "usage": usage_id,
+                "account": account_id,
+                "principal": principal_id,
+                "request_key": request_key,
+                "retail_price": price["retail_price_id"],
+                "cost": cost,
+                "entry": entry_id,
+                "now": now,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE render_jobs
+                SET billable_usage_id = :usage, updated_at = :now
+                WHERE job_id = :job AND account_id = :account
+                """
+            ),
+            {"usage": usage_id, "now": now, "job": job_id, "account": account_id},
+        )
+        return usage_id
+
+    @staticmethod
+    def _recredit_paid_tryon(
+        connection: Connection,
+        *,
+        account_id: UUID,
+        usage_id: UUID,
+        reason_code: str,
+        now: datetime,
+    ) -> None:
+        existing = connection.execute(
+            text(
+                """
+                SELECT recredit_id
+                FROM usage_recredits
+                WHERE usage_id = :usage AND account_id = :account
+                """
+            ),
+            {"usage": usage_id, "account": account_id},
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+        usage = (
+            connection.execute(
+                text(
+                    """
+                    SELECT usage.tenant_id, usage.token_cost,
+                           entry.wallet_id, entry.bucket_id
+                    FROM billable_usage_records usage
+                    JOIN ledger_entries entry
+                      ON entry.entry_id = usage.ledger_entry_id
+                     AND entry.account_id = usage.account_id
+                    WHERE usage.usage_id = :usage AND usage.account_id = :account
+                    FOR UPDATE OF usage
+                    """
+                ),
+                {"usage": usage_id, "account": account_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if usage is None:
+            raise DurableRenderError(
+                "BILLING_STATE_CONFLICT", "Paid try-on usage cannot be refunded."
+            )
+        entry_id, recredit_id = uuid4(), uuid4()
+        connection.execute(
+            text(
+                """
+                INSERT INTO ledger_entries
+                    (entry_id, account_id, tenant_id, wallet_id, bucket_id,
+                     entry_type, amount, operation_key)
+                VALUES
+                    (:entry, :account, :tenant, :wallet, :bucket,
+                     'RECREDIT', :amount, :operation)
+                """
+            ),
+            {
+                "entry": entry_id,
+                "account": account_id,
+                "tenant": usage["tenant_id"],
+                "wallet": usage["wallet_id"],
+                "bucket": usage["bucket_id"],
+                "amount": int(usage["token_cost"]),
+                "operation": f"recredit:{usage_id}",
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO usage_recredits
+                    (recredit_id, usage_id, account_id, tenant_id, reason_code,
+                     token_amount, ledger_entry_id, created_at)
+                VALUES
+                    (:recredit, :usage, :account, :tenant, :reason,
+                     :amount, :entry, :now)
+                """
+            ),
+            {
+                "recredit": recredit_id,
+                "usage": usage_id,
+                "account": account_id,
+                "tenant": usage["tenant_id"],
+                "reason": reason_code,
+                "amount": int(usage["token_cost"]),
+                "entry": entry_id,
+                "now": now,
+            },
+        )
 
     @staticmethod
     def _finish_job(

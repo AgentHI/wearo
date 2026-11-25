@@ -96,6 +96,9 @@ class Routes:
     def route_for(self, capability: str, at: datetime) -> ModelRoute | None:
         return self.route
 
+    def routes_for(self, capability: str, at: datetime) -> tuple[ModelRoute, ...]:
+        return (self.route,)
+
 
 class Quotes:
     def __init__(self) -> None:
@@ -148,6 +151,32 @@ def test_valid_quote_captures_approved_route_allowance_and_limitation() -> None:
     assert "not a sizing" in result.limitation and quotes.items == [result]
 
 
+def test_quote_snapshots_routes_in_priority_order() -> None:
+    service, _quotes, account, principal, person_asset_id = setup()
+    primary = ModelRoute("BYTEPLUS", "model-a", "ap-southeast-1", "APPAREL", True, 1)
+    fallback = ModelRoute("BFL", "model-b", "global", "APPAREL", True, 2)
+
+    class PriorityRoutes:
+        def route_for(self, capability: str, at: datetime) -> ModelRoute | None:
+            return primary
+
+        def routes_for(self, capability: str, at: datetime) -> tuple[ModelRoute, ...]:
+            return (primary, fallback)
+
+    service.routes = PriorityRoutes()
+    result = service.quote(
+        account_id=account,
+        principal_id=principal,
+        person_asset_id=person_asset_id,
+        item_asset_id=uuid4(),
+        person_image=b"p",
+        item_image=b"i",
+        now=NOW,
+    )
+
+    assert result.route_candidates == (primary, fallback)
+
+
 def test_quote_captures_product_category_for_successful_render_settlement() -> None:
     service, quotes, account, principal, person_asset_id = setup()
     service.images = Images(high_jewellery=True)
@@ -185,6 +214,23 @@ def test_sponsored_quote_uses_business_allowance_when_personal_quota_is_used() -
     )
 
     assert result.remaining_before == 2
+    assert quotes.items == [result]
+
+
+def test_purchased_tryons_extend_personal_allowance_after_free_grant_is_used() -> None:
+    service, quotes, account, principal, person_asset_id = setup(remaining=0)
+    result = service.quote(
+        account_id=account,
+        principal_id=principal,
+        person_asset_id=person_asset_id,
+        item_asset_id=uuid4(),
+        person_image=b"p",
+        item_image=b"i",
+        purchased_remaining=13,
+        now=NOW,
+    )
+
+    assert result.remaining_before == 13
     assert quotes.items == [result]
 
 

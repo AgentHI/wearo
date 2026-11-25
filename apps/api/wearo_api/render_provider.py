@@ -33,6 +33,7 @@ class RenderRequest:
     on_partial: Callable[[bytes, str, int], None] | None = None
     quality: RenderQuality = RenderQuality.HIGH
     job_id: str | None = None
+    product_kind: str | None = None
 
 
 @dataclass(frozen=True)

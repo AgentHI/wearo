@@ -26,6 +26,8 @@ class ModelRoute:
     region: str
     capability: str
     enabled: bool
+    priority: int = 1
+    release_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -47,10 +49,17 @@ class BetaRenderQuote:
     person_category: PersonCategory = "unknown"
     age_range: AgeRange = "unknown"
     estimated_age: int | None = None
+    fallback_routes: tuple[ModelRoute, ...] = ()
+
+    @property
+    def route_candidates(self) -> tuple[ModelRoute, ...]:
+        return (self.route, *self.fallback_routes)
 
 
 class RouteRegistry(Protocol):
     def route_for(self, capability: str, at: datetime) -> ModelRoute | None: ...
+
+    def routes_for(self, capability: str, at: datetime) -> tuple[ModelRoute, ...]: ...
 
 
 class QuoteStore(Protocol):
@@ -119,6 +128,7 @@ class BetaRenderPreflightService:
         product_currency: str | None = None,
         bypass_free_allowance: bool = False,
         sponsored_remaining: int | None = None,
+        purchased_remaining: int = 0,
         now: datetime | None = None,
     ) -> BetaRenderQuote:
         current = now or datetime.now(UTC)
@@ -149,7 +159,7 @@ class BetaRenderPreflightService:
         remaining = (
             sponsored_remaining
             if bypass_free_allowance and sponsored_remaining is not None
-            else self.quota.remaining(account_id, now=current)
+            else self.quota.remaining(account_id, now=current) + max(purchased_remaining, 0)
         )
         if remaining < 1:
             raise RenderPreflightError(
@@ -157,15 +167,22 @@ class BetaRenderPreflightService:
                 (
                     "No try-ons remain in this business-sponsored session."
                     if bypass_free_allowance
-                    else "You have used all 3 free registration try-ons. "
+                    else "You have no free or purchased try-ons remaining. "
                     "Buy more try-ons to continue."
                 ),
             )
-        route = self.routes.route_for("APPAREL", current)
-        if route is None or not route.enabled:
+        routes_for = getattr(self.routes, "routes_for", None)
+        routes = (
+            tuple(routes_for("APPAREL", current))
+            if callable(routes_for)
+            else tuple(filter(None, (self.routes.route_for("APPAREL", current),)))
+        )
+        routes = tuple(route for route in routes if route.enabled)
+        if not routes:
             raise RenderPreflightError(
                 "ROUTE_UNAVAILABLE", "Generation is temporarily unavailable."
             )
+        route = routes[0]
         quote = BetaRenderQuote(
             quote_id=uuid4(),
             account_id=account_id,
@@ -196,6 +213,7 @@ class BetaRenderPreflightService:
             person_category=result.person_category,
             age_range=result.age_range,
             estimated_age=result.estimated_age,
+            fallback_routes=routes[1:],
         )
         self.quotes.create(quote)
         return quote

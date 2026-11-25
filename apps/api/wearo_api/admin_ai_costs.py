@@ -350,9 +350,53 @@ class PostgresTryOnRouteRegistry:
         self.engine = engine
 
     def route_for(self, capability: str, at: datetime) -> ModelRoute | None:
+        routes = self.routes_for(capability, at)
+        return routes[0] if routes else None
+
+    def routes_for(self, capability: str, at: datetime) -> tuple[ModelRoute, ...]:
         if capability != "APPAREL":
-            return None
+            return ()
         with self.engine.connect() as connection:
+            promoted = connection.execute(
+                text("""SELECT
+                    CASE
+                      WHEN p.provider_type='SECRET_REFERENCE'
+                           AND lower(coalesce(p.api_base_url,'')) LIKE '%bfl.ai%' THEN 'BFL'
+                      ELSE p.provider_type
+                    END provider,
+                    m.api_identifier model,
+                    CASE WHEN p.provider_type='BYTEPLUS' THEN 'ap-southeast-1'
+                         ELSE 'global' END region,
+                    r.priority,
+                    r.release_id
+                  FROM cost_lab.production_model_releases r
+                  JOIN cost_lab.ai_models m USING (model_id)
+                  JOIN cost_lab.model_providers p USING (provider_id)
+                  WHERE r.retired_at IS NULL
+                    AND r.priority IS NOT NULL
+                    AND r.approved_quality_levels ? 'HIGH'
+                    AND m.enabled AND p.enabled
+                    AND (
+                      p.provider_type IN ('OPENAI_COMPATIBLE','BYTEPLUS','BFL','RUNWARE')
+                      OR (p.provider_type='SECRET_REFERENCE'
+                          AND lower(coalesce(p.api_base_url,'')) LIKE '%bfl.ai%')
+                    )
+                  ORDER BY r.priority, r.promoted_at""")
+            )
+            rows = promoted.mappings().all()
+            if rows:
+                return tuple(
+                    ModelRoute(
+                        provider=row["provider"],
+                        model=row["model"],
+                        region=row["region"],
+                        capability="APPAREL",
+                        enabled=True,
+                        priority=row["priority"],
+                        release_id=row["release_id"],
+                    )
+                    for row in rows
+                )
             row = (
                 connection.execute(
                     text("""SELECT p.code provider, m.api_model_id model, m.region
@@ -364,11 +408,13 @@ class PostgresTryOnRouteRegistry:
                 .one_or_none()
             )
         if row is None:
-            return None
-        return ModelRoute(
-            provider=row["provider"],
-            model=row["model"],
-            region=row["region"],
-            capability="APPAREL",
-            enabled=True,
+            return ()
+        return (
+            ModelRoute(
+                provider=row["provider"],
+                model=row["model"],
+                region=row["region"],
+                capability="APPAREL",
+                enabled=True,
+            ),
         )

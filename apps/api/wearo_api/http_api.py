@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -4211,22 +4211,16 @@ def create_app(
         usage = container.quota.store.get(session.account_id)
         used = usage.successful_generations if usage else 0
         ist = current.astimezone(IST)
-        token_cost = None
-        token_balance = 0
-        purchased_try_ons_remaining = 0
+        paid_allowance = container.renders.paid_tryon_allowance(session.account_id, now=current)
+        token_cost = paid_allowance.token_cost
+        token_balance = paid_allowance.token_balance
+        purchased_try_ons_remaining = paid_allowance.remaining
         if container.plan_usage is not None:
             usage_snapshot = container.plan_usage.for_account(
                 session.account_id, action_code="TRY_ON", date_from=ist.date(), date_to=ist.date()
             )
-            token_balance = usage_snapshot.token_balance
-            retail_price = retail_tryon_pricing.current()
-            token_cost = (
-                cast(int, retail_price["tokens_per_tryon"])
-                if retail_price is not None
-                else usage_snapshot.action_cost
-            )
-            if token_cost and token_cost > 0:
-                purchased_try_ons_remaining = max(token_balance, 0) // token_cost
+            if token_cost is None:
+                token_cost = usage_snapshot.action_cost
         free_remaining = (
             container.quota.maximum
             if not container.quota.limit_enabled
@@ -4286,6 +4280,11 @@ def create_app(
                 body.sponsored_session_id, session.account_id, session.principal_id
             )
             sponsored_remaining = int(str(sponsored["try_ons_remaining"]))
+        purchased_remaining = (
+            0
+            if body.sponsored_session_id is not None
+            else container.renders.paid_tryon_allowance(session.account_id).remaining
+        )
         quote = container.preflight.quote(
             account_id=session.account_id,
             principal_id=session.principal_id,
@@ -4295,6 +4294,7 @@ def create_app(
             item_image=item_image,
             bypass_free_allowance=body.sponsored_session_id is not None,
             sponsored_remaining=sponsored_remaining,
+            purchased_remaining=purchased_remaining,
         )
         return {
             "quote_id": quote.quote_id,

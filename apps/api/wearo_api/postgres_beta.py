@@ -587,7 +587,8 @@ class PostgresQuoteStore:
                             classification_evidence,
                             person_category,
                             age_range,
-                            estimated_age
+                            estimated_age,
+                            route_candidates
                         )
                     SELECT
                         :quote,
@@ -607,7 +608,8 @@ class PostgresQuoteStore:
                         CAST(:classification_evidence AS jsonb),
                         :person_category,
                         :age_range,
-                        :estimated_age
+                        :estimated_age,
+                        CAST(:route_candidates AS jsonb)
                     FROM person_profiles AS profile
                     WHERE profile.profile_id = :profile
                       AND profile.account_id = :account
@@ -644,6 +646,20 @@ class PostgresQuoteStore:
                     "person_category": quote.person_category,
                     "age_range": quote.age_range,
                     "estimated_age": quote.estimated_age,
+                    "route_candidates": json.dumps(
+                        [
+                            {
+                                "provider": route.provider,
+                                "model": route.model,
+                                "region": route.region,
+                                "capability": route.capability,
+                                "enabled": route.enabled,
+                                "priority": route.priority,
+                                "release_id": str(route.release_id) if route.release_id else None,
+                            }
+                            for route in quote.route_candidates
+                        ]
+                    ),
                     "classification_evidence": (
                         json.dumps(quote.classification_evidence)
                         if quote.classification_evidence is not None

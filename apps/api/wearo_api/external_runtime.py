@@ -696,3 +696,7 @@ class ApprovedBetaRouteRegistry:
             capability="APPAREL",
             enabled=self.enabled,
         )
+
+    def routes_for(self, capability: str, at: datetime) -> tuple[ModelRoute, ...]:
+        route = self.route_for(capability, at)
+        return (route,) if route is not None else ()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
@@ -30,6 +30,9 @@ class WorkerRuntime(Protocol):
         provider_request_id: str,
         quality_details: dict[str, object],
         provider_usage: dict[str, object] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        region: str | None = None,
         now: datetime | None = None,
     ) -> DurableRenderJob: ...
 
@@ -110,36 +113,85 @@ class DurableRenderWorker:
             return WorkerOutcome(False, None)
         job = work.job
         try:
-            provider = self.provider_resolver(job) if self.provider_resolver else self.provider
-            configured_route = (provider.provider, provider.model, provider.region)
-            quoted_route = (job.provider, job.model, job.region)
-            if configured_route != quoted_route:
-                failed = self.runtime.complete_failure(
-                    job.job_id,
-                    "PROVIDER_ROUTE_MISMATCH",
-                    now=current,
-                )
-                return WorkerOutcome(True, failed)
             person, person_mime = self.media.read_prepared(
                 job.person_asset_id, job.account_id, "PERSON"
             )
             item, item_mime = self.media.read_prepared(job.item_asset_id, job.account_id, "GARMENT")
-            response = provider.render(
-                RenderRequest(
-                    person,
-                    item,
-                    person_mime,
-                    item_mime,
-                    "APPAREL",
-                    on_partial=lambda image, mime, _index: self.media.store_progressive_preview(
-                        job.job_id,
-                        apply_generated_image_watermark(image, mime, company_name=job.company_name)[
-                            0
-                        ],
-                    ),
-                    job_id=str(job.job_id),
+            response: RenderResponse | None = None
+            selected_route = None
+            routes = job.ordered_routes
+            for index, route in enumerate(routes):
+                candidate_job = replace(
+                    job,
+                    provider=route.provider,
+                    model=route.model,
+                    region=route.region,
+                    route_candidates=(route,),
                 )
-            )
+                try:
+                    provider = (
+                        self.provider_resolver(candidate_job)
+                        if self.provider_resolver
+                        else self.provider
+                    )
+                    configured_route = (provider.provider, provider.model, provider.region)
+                    candidate_route = (route.provider, route.model, route.region)
+                    if configured_route != candidate_route:
+                        raise ProviderError("PROVIDER_ROUTE_MISMATCH", retryable=False)
+                    response = provider.render(
+                        RenderRequest(
+                            person,
+                            item,
+                            person_mime,
+                            item_mime,
+                            "APPAREL",
+                            on_partial=lambda image, mime, _index: (
+                                self.media.store_progressive_preview(
+                                    job.job_id,
+                                    apply_generated_image_watermark(
+                                        image, mime, company_name=job.company_name
+                                    )[0],
+                                )
+                            ),
+                            job_id=str(job.job_id),
+                            product_kind=job.product_kind,
+                        )
+                    )
+                    selected_route = route
+                    break
+                except ProviderError as error:
+                    request_invalid = error.code in {
+                        "CAPABILITY_UNSUPPORTED",
+                        "PROVIDER_IMAGE_INVALID",
+                        "PROVIDER_IMAGE_TOO_LARGE",
+                        "CONTENT_MODERATED",
+                        "SAFETY_REJECTED",
+                    } or any(
+                        marker in error.code.upper()
+                        for marker in ("MODERAT", "SAFETY", "NSFW", "CONTENT_POLICY")
+                    )
+                    has_fallback = index + 1 < len(routes)
+                    if has_fallback and not request_invalid:
+                        logger.warning(
+                            "Render provider failed; trying fallback job_id=%s priority=%s "
+                            "provider=%s model=%s error=%s next_priority=%s",
+                            job.job_id,
+                            route.priority,
+                            route.provider,
+                            route.model,
+                            error.code,
+                            routes[index + 1].priority,
+                        )
+                        continue
+                    failed = self.runtime.complete_failure(job.job_id, error.code, now=current)
+                    self._clear_progressive_preview(job.job_id)
+                    return WorkerOutcome(True, failed)
+            if response is None or selected_route is None:  # pragma: no cover - loop is exhaustive.
+                failed = self.runtime.complete_failure(
+                    job.job_id, "PROVIDER_ROUTE_UNAVAILABLE", now=current
+                )
+                self._clear_progressive_preview(job.job_id)
+                return WorkerOutcome(True, failed)
             quality_bypassed = not self.enforce_quality_gate
             decision = (
                 self.quality.evaluate(person, item, response.image)
@@ -163,6 +215,9 @@ class DurableRenderWorker:
                 result_asset_id=result_asset_id,
                 provider_request_id=response.request_id or "unavailable",
                 provider_usage=response.usage,
+                provider=selected_route.provider,
+                model=selected_route.model,
+                region=selected_route.region,
                 quality_details={
                     "accepted": decision.accepted,
                     "hard_failure": decision.hard_failure,
@@ -173,10 +228,6 @@ class DurableRenderWorker:
             )
             self._clear_progressive_preview(job.job_id)
             return WorkerOutcome(True, delivered)
-        except ProviderError as error:
-            failed = self.runtime.complete_failure(job.job_id, error.code, now=current)
-            self._clear_progressive_preview(job.job_id)
-            return WorkerOutcome(True, failed)
         except AnalysisServiceError:
             failed = self.runtime.complete_failure(job.job_id, "ANALYSIS_UNAVAILABLE", now=current)
             self._clear_progressive_preview(job.job_id)
