@@ -158,6 +158,8 @@ def test_advertisement_model_selection_uses_only_promoted_releases() -> None:
     )
     assert 'aria-label="Save priorities"' in cost_lab_ui
     assert 'aria-label="Save advertisement model"' in cost_lab_ui
+    assert "cost-advertisement-model__current" in cost_lab_ui
+    assert "Current active model" in cost_lab_ui
 
 
 def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:

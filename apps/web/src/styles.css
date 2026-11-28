@@ -2089,6 +2089,11 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .cost-advertisement-model .eyebrow { margin: 0; }
 .cost-advertisement-model strong { color: var(--brand-plum); }
 .cost-advertisement-model small { color: var(--ink-mauve); line-height: 1.4; }
+.cost-advertisement-model__current { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .65rem; width: fit-content; margin-top: .45rem; padding: .45rem .65rem; border: 1px solid rgb(51 132 91 / 35%); border-radius: .6rem; background: #e0f1e9; }
+.cost-advertisement-model__current span { color: #225b43; font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.cost-advertisement-model__current strong { color: #174d36; }
+.cost-advertisement-model__current--empty { border-color: rgb(176 127 36 / 30%); background: #fff0c9; }
+.cost-advertisement-model__current--empty span, .cost-advertisement-model__current--empty strong { color: #795714; }
 .cost-advertisement-model label { display: grid; gap: .35rem; color: var(--brand-plum); font-size: .72rem; font-weight: 700; }
 .cost-advertisement-model select { width: 100%; padding: .65rem .75rem; border: 1px solid rgb(147 112 132 / 32%); border-radius: .55rem; color: var(--brand-plum); background: white; }
 .cost-advertisement-model .button { margin: 0; white-space: nowrap; }
