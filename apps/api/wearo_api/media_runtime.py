@@ -47,9 +47,7 @@ class FilesystemPrivateBlobStore:
         self.root = root.resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
 
-    def put(
-        self, key: str, content: bytes, content_type: str = "application/octet-stream"
-    ) -> None:
+    def put(self, key: str, content: bytes, content_type: str = "application/octet-stream") -> None:
         target = self._path(key)
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         temporary = target.with_suffix(f".{uuid4().hex}.tmp")
@@ -108,9 +106,7 @@ class S3PrivateBlobStore:
         self.bucket = bucket
         self.client = client
 
-    def put(
-        self, key: str, content: bytes, content_type: str = "application/octet-stream"
-    ) -> None:
+    def put(self, key: str, content: bytes, content_type: str = "application/octet-stream") -> None:
         self._validate_key(key)
         self.client.put_object(
             Bucket=self.bucket,
@@ -139,15 +135,19 @@ class S3PrivateBlobStore:
 
     def delete_asset_family(self, key: str) -> None:
         self._validate_key(key)
-        keys = [key]
+        objects: list[dict[str, str]] = []
         try:
-            paginator = self.client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=f"{key}."):
-                keys.extend(item["Key"] for item in page.get("Contents", ()))
-            for offset in range(0, len(keys), 1000):
+            paginator = self.client.get_paginator("list_object_versions")
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=key):
+                for collection in ("Versions", "DeleteMarkers"):
+                    for item in page.get(collection, ()):
+                        candidate = item["Key"]
+                        if candidate == key or candidate.startswith(f"{key}."):
+                            objects.append({"Key": candidate, "VersionId": item["VersionId"]})
+            for offset in range(0, len(objects), 1000):
                 response = self.client.delete_objects(
                     Bucket=self.bucket,
-                    Delete={"Objects": [{"Key": item} for item in keys[offset : offset + 1000]]},
+                    Delete={"Objects": objects[offset : offset + 1000]},
                 )
                 errors = response.get("Errors", ())
                 if errors:
@@ -193,6 +193,7 @@ def private_blob_store_from_env() -> PrivateBlobStore:
 
 class PostgresMediaRuntime:
     maximum_bytes = 15 * 1024 * 1024
+    automatically_expiring_purposes = {"RENDER_RESULT"}
     mime_formats = {
         "image/jpeg": "JPEG",
         "image/png": "PNG",
@@ -236,13 +237,9 @@ class PostgresMediaRuntime:
             )
         return self._store(account_id, "ADVERTISEMENT", content, content_type)
 
-    def store_smart_ad(
-        self, account_id: UUID, content: bytes, content_type: str
-    ) -> StoredMedia:
+    def store_smart_ad(self, account_id: UUID, content: bytes, content_type: str) -> StoredMedia:
         if len(content) > 5 * 1024 * 1024:
-            raise MediaRuntimeError(
-                "INVALID_IMAGE_SIZE", "SmartAds images must be under 5 MB."
-            )
+            raise MediaRuntimeError("INVALID_IMAGE_SIZE", "SmartAds images must be under 5 MB.")
         return self._store(account_id, "SMART_AD", content, content_type)
 
     def _store(
@@ -342,14 +339,14 @@ class PostgresMediaRuntime:
                         "mime": normalized_type,
                         "purpose": purpose,
                         "retention_state": (
-                            "ACTIVE"
-                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO", "SMART_AD"}
-                            else "EXPIRING"
+                            "EXPIRING"
+                            if purpose in self.automatically_expiring_purposes
+                            else "ACTIVE"
                         ),
                         "delete_after": (
-                            None
-                            if purpose in {"PERSON_SOURCE", "BUSINESS_LOGO", "SMART_AD"}
-                            else datetime.now(UTC) + timedelta(days=30)
+                            datetime.now(UTC) + timedelta(days=30)
+                            if purpose in self.automatically_expiring_purposes
+                            else None
                         ),
                     },
                 )

@@ -86,3 +86,59 @@ def test_owner_deletion_revokes_immediately_and_purges_with_tombstone(
                 text("DELETE FROM accounts WHERE account_id = :account"),
                 {"account": account_id},
             )
+
+
+def test_only_render_results_receive_automatic_expiry(engine: Engine, tmp_path: Path) -> None:
+    account_id = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO accounts (account_id, kind) VALUES (:account, 'CONSUMER')"),
+            {"account": account_id},
+        )
+    media = PostgresMediaRuntime(engine, FilesystemPrivateBlobStore(tmp_path / "private"))
+
+    try:
+        retained = {
+            media.store(
+                account_id, kind="PERSON", content=_image(), content_type="image/png"
+            ).asset_id,
+            media.store(
+                account_id, kind="PRODUCT", content=_image(), content_type="image/png"
+            ).asset_id,
+            media.store_business_logo(account_id, _image(), "image/png").asset_id,
+            media.store_advertisement(account_id, _image(), "image/png").asset_id,
+            media.store_smart_ad(account_id, _image(), "image/png").asset_id,
+        }
+        render_result = media.store_result(account_id, _image(), "image/png")
+
+        with engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT asset_id, purpose, retention_state, delete_after
+                    FROM media_assets
+                    WHERE account_id = :account
+                    """
+                ),
+                {"account": account_id},
+            ).mappings()
+            assets = {row["asset_id"]: row for row in rows}
+
+        assert all(
+            assets[asset_id]["retention_state"] == "ACTIVE"
+            and assets[asset_id]["delete_after"] is None
+            for asset_id in retained
+        )
+        assert assets[render_result]["purpose"] == "RENDER_RESULT"
+        assert assets[render_result]["retention_state"] == "EXPIRING"
+        assert timedelta(days=29) < assets[render_result]["delete_after"] - datetime.now(UTC)
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM media_assets WHERE account_id = :account"),
+                {"account": account_id},
+            )
+            connection.execute(
+                text("DELETE FROM accounts WHERE account_id = :account"),
+                {"account": account_id},
+            )

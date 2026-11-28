@@ -19,12 +19,19 @@ class FakeClientError(Exception):
 
 
 class FakePaginator:
-    def __init__(self, client: FakeS3Client) -> None:
+    def __init__(self, client: FakeS3Client, operation: str) -> None:
         self.client = client
+        self.operation = operation
 
     def paginate(self, *, Bucket: str, Prefix: str) -> tuple[dict[str, object], ...]:  # noqa: N803
-        keys = [{"Key": key} for key in self.client.objects if key.startswith(Prefix)]
-        return ({"Contents": keys},)
+        assert Bucket == "wearo-private"
+        assert self.operation == "list_object_versions"
+        versions = [
+            {"Key": key, "VersionId": "current"}
+            for key in self.client.objects
+            if key.startswith(Prefix)
+        ]
+        return ({"Versions": versions, "DeleteMarkers": []},)
 
 
 class FakeS3Client:
@@ -33,6 +40,7 @@ class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.content_types: dict[str, str] = {}
+        self.delete_requests: list[dict[str, str]] = []
 
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, **options: str) -> None:  # noqa: N803
         assert Bucket == "wearo-private"
@@ -46,13 +54,13 @@ class FakeS3Client:
         return {"Body": BytesIO(self.objects[Key])}
 
     def get_paginator(self, operation: str) -> FakePaginator:
-        assert operation == "list_objects_v2"
-        return FakePaginator(self)
+        return FakePaginator(self, operation)
 
     def delete_objects(
         self, *, Bucket: str, Delete: dict[str, list[dict[str, str]]]
     ) -> dict[str, list[dict[str, str]]]:  # noqa: N803
         for item in Delete["Objects"]:
+            self.delete_requests.append(item)
             self.objects.pop(item["Key"], None)
         return {"Deleted": Delete["Objects"]}
 
@@ -75,6 +83,10 @@ def test_s3_store_round_trip_and_family_deletion() -> None:
     store.delete_asset_family(key)
     assert store.get(key) is None
     assert store.get(f"{key}.prepared-v1-person") is None
+    assert client.delete_requests == [
+        {"Key": key, "VersionId": "current"},
+        {"Key": f"{key}.prepared-v1-person", "VersionId": "current"},
+    ]
 
 
 def test_s3_store_preserves_content_type() -> None:
@@ -111,7 +123,9 @@ def test_s3_render_preview_deletion() -> None:
 
 
 def test_s3_delete_failure_reports_safe_error_codes() -> None:
-    store = S3PrivateBlobStore("wearo-private", client=DeleteDeniedS3Client())
+    client = DeleteDeniedS3Client()
+    store = S3PrivateBlobStore("wearo-private", client=client)
+    store.put("private/previews/example", b"preview")
 
     with pytest.raises(OSError, match=r"error_codes=AccessDenied"):
         store.delete_asset_family("private/previews/example")
