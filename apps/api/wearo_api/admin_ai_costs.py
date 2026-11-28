@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -23,53 +22,39 @@ class PostgresAdminAiCosts:
 
     def dashboard(self) -> dict[str, object]:
         with self.engine.connect() as connection:
-            providers = [
-                dict(row)
-                for row in connection.execute(
-                    text("""SELECT p.*,
-                COALESCE(x.purchased_minor,0) purchased_minor,
-                COALESCE(u.used_usd_micros,0) used_usd_micros
-              FROM ai_providers p
-              LEFT JOIN (SELECT provider_id,
-                                sum(amount_minor) FILTER (WHERE currency='USD') purchased_minor
-                         FROM provider_purchases GROUP BY provider_id) x USING (provider_id)
-              LEFT JOIN (SELECT m.provider_id, sum(u.cost_usd_micros) used_usd_micros
-                         FROM model_usage_costs u JOIN ai_models m USING (model_id)
-                         GROUP BY m.provider_id) u USING (provider_id)
-              ORDER BY p.display_name""")
-                ).mappings()
-            ]
             models = [
                 dict(row)
                 for row in connection.execute(
-                    text("""SELECT m.*, p.code provider_code,
-                count(j.job_id) try_ons,
-                count(j.job_id) FILTER (WHERE j.status='DELIVERED') successful_try_ons,
-                COALESCE(sum(u.cost_usd_micros),0) total_cost_usd_micros,
-                COALESCE(round(avg(u.cost_usd_micros)),0) average_cost_usd_micros,
-                COALESCE(round(avg(extract(epoch FROM (j.updated_at-j.created_at))*1000)
-                  FILTER (WHERE j.status IN ('DELIVERED','FAILED'))),0) average_generation_time_ms
-              FROM ai_models m JOIN ai_providers p USING (provider_id)
-              LEFT JOIN render_quotes q ON q.provider=p.code
-                AND q.model_version=m.api_model_id AND q.provider_region=m.region
-              LEFT JOIN render_jobs j USING (quote_id)
-              LEFT JOIN model_usage_costs u ON u.job_id=j.job_id AND u.model_id=m.model_id
-              GROUP BY m.model_id, p.code ORDER BY average_cost_usd_micros, m.display_name""")
-                ).mappings()
+                    text("""SELECT r.release_id,r.priority,r.approved_quality_levels,
+                r.pricing_snapshot,r.pricing_effective_at,r.promoted_by,r.promoted_at,
+                m.model_id,m.name model_name,m.api_identifier,m.version model_version,
+                m.enabled model_enabled,p.provider_id,p.name provider_name,
+                p.provider_type,p.api_base_url,p.enabled provider_enabled
+              FROM cost_lab.production_model_releases r
+              JOIN cost_lab.ai_models m USING (model_id)
+              JOIN cost_lab.model_providers p USING (provider_id)
+              WHERE r.retired_at IS NULL
+              ORDER BY r.priority NULLS LAST,r.promoted_at DESC""")
+                )
+                .mappings()
+                .all()
             ]
-            purchases = [
-                dict(row)
-                for row in connection.execute(
-                    text("""SELECT x.*, p.display_name provider_name
-              FROM provider_purchases x JOIN ai_providers p USING (provider_id)
-              ORDER BY purchased_at DESC LIMIT 100""")
-                ).mappings()
-            ]
-        for provider in providers:
-            env_name = str(provider.pop("credential_env_name"))
-            provider["credential_env_name"] = env_name
-            provider["credential_configured"] = bool(os.environ.get(env_name))
-        return {"providers": providers, "models": models, "purchases": purchases}
+        providers_by_id: dict[object, dict[str, object]] = {}
+        for model in models:
+            provider_id = model["provider_id"]
+            provider = providers_by_id.setdefault(
+                provider_id,
+                {
+                    "provider_id": provider_id,
+                    "provider_name": model["provider_name"],
+                    "provider_type": model["provider_type"],
+                    "api_base_url": model["api_base_url"],
+                    "provider_enabled": model["provider_enabled"],
+                    "promoted_model_count": 0,
+                },
+            )
+            provider["promoted_model_count"] = int(str(provider["promoted_model_count"])) + 1
+        return {"providers": list(providers_by_id.values()), "models": models}
 
     def add_provider(self, values: dict[str, object]) -> dict[str, object]:
         code = str(values["code"]).strip().upper()
@@ -255,7 +240,7 @@ class PostgresAdminAiCosts:
                     else "SELECT EXISTS (SELECT 1 FROM ai_models "
                     "WHERE selected_for_tryon AND model_id=:id)"
                 )
-                selected = connection.execute(
+                selected: bool = connection.execute(
                     text(selected_statement),
                     {"id": entity_id},
                 ).scalar_one()

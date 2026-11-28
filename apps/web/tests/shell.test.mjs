@@ -264,6 +264,17 @@ test("platform admin login is isolated and protects dashboard routes", () => {
   assert.match(admin, /Existing transactions were not changed/);
 });
 
+test("admin AI cost screen is a read-only view of Cost Lab promotions", () => {
+  assert.match(admin, /Read-only production registry/);
+  assert.match(admin, /href="\/admin\/cost-lab\/promoted-models"/);
+  assert.match(admin, /pricing_snapshot/);
+  assert.match(admin, /approved_quality_levels/);
+  assert.doesNotMatch(admin, /data-open-ai-panel/);
+  assert.doesNotMatch(admin, /id="ai-provider-form"/);
+  assert.doesNotMatch(admin, /id="ai-model-form"/);
+  assert.doesNotMatch(admin, /id="ai-purchase-form"/);
+});
+
 test("business app exposes onboarding, billing, dashboard, and honest payment state", () => {
   for (const text of [
     "Create your business workspace",
