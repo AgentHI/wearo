@@ -81,6 +81,9 @@ class ProviderAdapter(Protocol):
     def generate(
         self, *, model: str, prompt: str, images: list[bytes], parameters: dict[str, Any]
     ) -> GenerationResult: ...
+    def generate_from_prompt(
+        self, *, model: str, prompt: str, parameters: dict[str, Any] | None = None
+    ) -> GenerationResult: ...
 
 
 def normalize_openai_usage(raw: dict[str, Any]) -> dict[str, Any]:

@@ -178,7 +178,7 @@ from .sms_delivery import AwsSmsDeliveryProvider, AwsSmsSettings, HttpSmsDeliver
 from .smtp_email import SmtpEmailDeliveryProvider, SmtpSettings
 from .sponsored_tryons import PostgresSponsoredTryOns, SponsoredTryOnError
 from .store_advertisements import (
-    OpenAIAdvertisementGenerator,
+    CostLabAdvertisementGenerator,
     PostgresStoreAdvertisements,
     StoreAdvertisementError,
 )
@@ -4705,9 +4705,9 @@ def create_app_from_env() -> FastAPI:
         PostgresStoreAdvertisements(
             engine,
             container.media,
-            OpenAIAdvertisementGenerator(
-                os.environ.get("WEARO_OPENAI_API_KEY", ""),
-                os.environ.get("WEARO_ADVERTISEMENT_AI_MODEL", "gpt-image-2"),
+            CostLabAdvertisementGenerator(
+                engine,
+                os.environ.get("COST_LAB_ENCRYPTION_KEY", ""),
             ),
             container.retention,
         ),

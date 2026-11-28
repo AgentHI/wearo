@@ -1,16 +1,18 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
-import base64
 import io
+import os
 from datetime import date
+from typing import Any, Protocol, cast
 from uuid import UUID
 
-import requests
+from cryptography.fernet import Fernet, InvalidToken
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import Engine, text
 
 from .media_runtime import PostgresMediaRuntime
+from .render_quality_strategy import quality_parameters
 from .retention import RetentionService
 
 CARD_WIDTH = 768
@@ -48,43 +50,127 @@ def validate_duration(starts_on: date, ends_on: date) -> None:
         )
 
 
-class OpenAIAdvertisementGenerator:
-    endpoint = "https://api.openai.com/v1/images/generations"
+class StoreAdvertisementGenerator(Protocol):
+    def generate(self, prompt: str) -> bytes: ...
 
-    def __init__(self, api_key: str, model: str) -> None:
-        self.api_key = api_key
-        self.model = model
+
+class CostLabAdvertisementGenerator:
+    """Generate store cards with the dedicated Cost Lab advertisement model."""
+
+    def __init__(self, engine: Engine, encryption_key: str) -> None:
+        self.engine = engine
+        self.encryption_key = encryption_key
+
+    def _selected_route(self) -> dict[str, object]:
+        with self.engine.connect() as connection:
+            route = (
+                connection.execute(
+                    text(
+                        """SELECT r.release_id,r.approved_quality_levels,
+                              m.model_id,m.api_identifier,p.provider_type,p.api_base_url,
+                              p.secret_ciphertext,p.secret_reference,
+                              quality.code quality,quality.settings quality_settings,
+                              mapping.provider_quality,mapping.request_parameters
+                    FROM cost_lab.ai_models m
+                    JOIN cost_lab.model_providers p USING(provider_id)
+                    LEFT JOIN cost_lab.production_model_releases r
+                      ON r.model_id=m.model_id AND r.advertisement_model
+                     AND r.retired_at IS NULL
+                    JOIN cost_lab.quality_profiles quality ON quality.code=CASE
+                      WHEN COALESCE(r.approved_quality_levels,m.quality_levels) ? 'HIGH' THEN 'HIGH'
+                      WHEN COALESCE(r.approved_quality_levels,m.quality_levels) ? 'MEDIUM'
+                        THEN 'MEDIUM'
+                      ELSE 'LOW'
+                    END
+                    LEFT JOIN cost_lab.model_quality_mapping mapping
+                      ON mapping.model_id=m.model_id
+                     AND mapping.profile_id=quality.profile_id
+                     AND mapping.supported
+                    WHERE m.advertisement_model AND m.enabled AND p.enabled
+                    LIMIT 1"""
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if route is None:
+            raise StoreAdvertisementError(
+                "ADVERTISEMENT_AI_UNAVAILABLE",
+                "Select an advertisement model and provider in Cost Lab.",
+            )
+        return dict(route)
+
+    def _credential(self, route: dict[str, object]) -> str:
+        reference = str(route.get("secret_reference") or "")
+        if reference.startswith("env:"):
+            credential = os.environ.get(reference[4:], "")
+            if credential:
+                return credential
+        encrypted = route.get("secret_ciphertext")
+        if isinstance(encrypted, (bytes, bytearray, memoryview)) and self.encryption_key:
+            try:
+                return Fernet(self.encryption_key.encode()).decrypt(bytes(encrypted)).decode()
+            except (InvalidToken, ValueError):
+                pass
+        raise StoreAdvertisementError(
+            "ADVERTISEMENT_AI_UNAVAILABLE",
+            "The selected advertisement model credential is unavailable.",
+        )
 
     def generate(self, prompt: str) -> bytes:
-        if not self.api_key:
-            raise StoreAdvertisementError(
-                "ADVERTISEMENT_AI_UNAVAILABLE", "AI advertisement generation is not configured."
-            )
-        response = requests.post(
-            self.endpoint,
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-            json={
-                "model": self.model,
-                "prompt": "Create a polished premium retail advertisement card. No small print. "
-                + prompt,
-                "size": "1024x1536",
-                "quality": "high",
-                "output_format": "png",
-                "n": 1,
-            },
-            timeout=180,
+        from apps.cost_lab_api.adapters import (
+            BFLAdapter,
+            BytePlusAdapter,
+            OpenAICompatibleAdapter,
+            ProviderAdapter,
+            RunwareAdapter,
         )
-        if response.status_code != 200:
+
+        route = self._selected_route()
+        provider = str(route["provider_type"])
+        base_url = str(route.get("api_base_url") or "").strip()
+        if provider == "SECRET_REFERENCE" and "bfl.ai" in base_url.casefold():
+            provider = "BFL"
+        adapter_types = {
+            "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
+            "BYTEPLUS": BytePlusAdapter,
+            "BFL": BFLAdapter,
+            "RUNWARE": RunwareAdapter,
+        }
+        adapter_type = adapter_types.get(provider)
+        if adapter_type is None or not base_url:
             raise StoreAdvertisementError(
-                "ADVERTISEMENT_AI_FAILED", "The advertisement could not be generated. Try again."
+                "ADVERTISEMENT_AI_UNAVAILABLE",
+                "The selected advertisement model provider is unsupported.",
             )
+        model = str(route["api_identifier"])
+        quality = str(route["quality"])
+        parameters = dict(cast(dict[str, Any], route.get("quality_settings") or {}))
+        parameters |= dict(cast(dict[str, Any], route.get("request_parameters") or {}))
+        if route.get("provider_quality"):
+            parameters["quality"] = str(route["provider_quality"])
+        strategy_provider = "OPENAI" if provider == "OPENAI_COMPATIBLE" else provider
+        parameters |= quality_parameters(strategy_provider, model, quality)
+        if provider == "OPENAI_COMPATIBLE":
+            parameters["output_format"] = "png"
+        elif provider == "RUNWARE":
+            width = int(cast(int | str, parameters["width"]))
+            parameters["height"] = round(width * 1.5)
         try:
-            encoded = response.json()["data"][0]["b64_json"]
-            return base64.b64decode(encoded, validate=True)
-        except (KeyError, IndexError, TypeError, ValueError, requests.JSONDecodeError):
+            adapter = cast(ProviderAdapter, adapter_type(base_url, self._credential(route), 180))
+            result = adapter.generate_from_prompt(
+                model=model,
+                prompt="Create a polished premium retail advertisement card. No small print. "
+                + prompt,
+                parameters=parameters,
+            )
+            return result.image_bytes
+        except StoreAdvertisementError:
+            raise
+        except Exception as error:
             raise StoreAdvertisementError(
                 "ADVERTISEMENT_AI_FAILED", "The advertisement could not be generated. Try again."
-            ) from None
+            ) from error
 
 
 class PostgresStoreAdvertisements:
@@ -92,7 +178,7 @@ class PostgresStoreAdvertisements:
         self,
         engine: Engine,
         media: PostgresMediaRuntime,
-        generator: OpenAIAdvertisementGenerator,
+        generator: StoreAdvertisementGenerator,
         retention: RetentionService,
     ) -> None:
         self.engine = engine
