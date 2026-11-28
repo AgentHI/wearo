@@ -2084,6 +2084,16 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .cost-priority-actions p { margin: 0 auto 0 0; color: var(--ink-mauve); font-size: .72rem; }
 .cost-priority-actions .form-status { margin: 0; }
 #production-priority-form select { min-width: 4.5rem; padding: .45rem .6rem; border: 1px solid rgb(147 112 132 / 32%); border-radius: .45rem; color: var(--brand-plum); background: white; font-weight: 700; }
+.cost-advertisement-model { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(15rem, .8fr) auto; align-items: end; gap: 1rem; margin: 1.25rem 0; padding: 1rem; border: 1px solid rgb(201 164 107 / 45%); border-radius: .9rem; background: #fff8e9; }
+.cost-advertisement-model > div { display: grid; gap: .25rem; }
+.cost-advertisement-model .eyebrow { margin: 0; }
+.cost-advertisement-model strong { color: var(--brand-plum); }
+.cost-advertisement-model small { color: var(--ink-mauve); line-height: 1.4; }
+.cost-advertisement-model label { display: grid; gap: .35rem; color: var(--brand-plum); font-size: .72rem; font-weight: 700; }
+.cost-advertisement-model select { width: 100%; padding: .65rem .75rem; border: 1px solid rgb(147 112 132 / 32%); border-radius: .55rem; color: var(--brand-plum); background: white; }
+.cost-advertisement-model .button { margin: 0; white-space: nowrap; }
+.cost-advertisement-model .form-status { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 860px) { .cost-advertisement-model { grid-template-columns: 1fr; } .cost-advertisement-model .button { width: 100%; } }
 .cost-management-list--primary { margin-top: 1rem; padding: 1.35rem; }
 .cost-list-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 1rem; }
 .cost-list-toolbar .cost-panel-heading { flex: 1 1 auto; margin: 0; }

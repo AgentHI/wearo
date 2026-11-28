@@ -119,6 +119,13 @@ test("business and consumer route families are separated", () => {
   assert.match(business, /brandMarkup\("\/business", "white"\)/);
   assert.match(business, /\["smart-ads", "SmartAds", smartAdsMark\("smart-ads-mark--nav"\)\]/);
   assert.match(business, /class="smart-ads-mark/);
+  assert.match(business, /function smartAdsCaption\(operatingProfile\)/);
+  for (const profile of ["BOUTIQUE", "CLOTHING_RETAILER", "JEWELLERY_RETAILER", "ENTERPRISE_CHAIN", "OTHER"]) {
+    assert.match(business, new RegExp(`${profile}:`));
+  }
+  assert.match(business, /smartAdsCaption\(result\.operating_profile\)/);
+  assert.doesNotMatch(business, /Independent workspace/);
+  assert.doesNotMatch(business, /SmartAds campaigns stay separate from your store try-on advertisements/);
   assert.match(business, /Unique female users/);
   assert.match(business, /Upload and generate concept/);
   assert.match(business, /smart-ad-generation-progress/);

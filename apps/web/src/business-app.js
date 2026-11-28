@@ -506,14 +506,24 @@ async function loadCustomers({ page = 1, search = "" } = {}) {
   }
 }
 
+function smartAdsCaption(operatingProfile) {
+  const captions = {
+    BOUTIQUE: "Create boutique campaigns with AI, then reach the right consented audience at the right moment.",
+    CLOTHING_RETAILER: "Create clothing campaigns with AI, then reach the right consented audience at the right moment.",
+    JEWELLERY_RETAILER: "Create jewellery campaigns with AI, then reach the right consented audience at the right moment.",
+    ENTERPRISE_CHAIN: "Create multi-location retail campaigns with AI, then reach the right consented audience at the right moment.",
+    OTHER: "Create tailored business campaigns with AI, then reach the right consented audience at the right moment.",
+  };
+  return captions[String(operatingProfile || "OTHER").toUpperCase()] || captions.OTHER;
+}
+
 function smartAdsView() {
   return `
     <header class="smart-ads-hero">
       <div class="smart-ads-hero__identity">
         <span class="smart-ads-hero__mark">${smartAdsMark("smart-ads-mark--hero")}</span>
-        <div><p class="eyebrow">Campaign intelligence</p><h1>Smart<span>Ads</span></h1><p>Create jewellery campaigns with AI, then reach the right consented audience at the right moment.</p></div>
+        <div><p class="eyebrow">Campaign intelligence</p><h1>Smart<span>Ads</span></h1><p id="smart-ads-caption">${smartAdsCaption()}</p></div>
       </div>
-      <div class="smart-ads-hero__note"><span>Independent workspace</span><p>SmartAds campaigns stay separate from your store try-on advertisements.</p></div>
     </header>
     <section class="smart-ads-summary" aria-label="SmartAds summary">
       <article class="smart-ads-stat smart-ads-stat--audience"><div class="smart-ads-stat__top"><span>Unique female users</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 18c.4-3.1 2.2-4.7 5.5-4.7s5.1 1.6 5.5 4.7M17 8.5a2.5 2.5 0 1 0 0-5M16 13c2.7 0 4.2 1.3 4.5 4"/></svg></div><strong id="smart-ads-female-users">—</strong><small>Individual women, including multiple people saved in one profile.</small></article>
@@ -568,6 +578,7 @@ function setSmartAdGenerationUi(active, message = "Generating advertisement conc
 
 function renderSmartAds(result) {
   const tenantId = localStorage.getItem("wearo_business_tenant_id");
+  document.querySelector("#smart-ads-caption").textContent = smartAdsCaption(result.operating_profile);
   document.querySelector("#smart-ads-female-users").textContent = String(result.female_unique_users ?? 0);
   document.querySelector("#smart-ads-eligible-users").textContent = String(result.female_marketing_eligible_users ?? 0);
   document.querySelector("#smart-ads-attempts").textContent = `${result.attempts_remaining_today ?? 0} of ${result.maximum_daily_attempts ?? 2} left`;

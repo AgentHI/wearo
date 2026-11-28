@@ -546,6 +546,11 @@ class ProductionModelPrioritiesBody(BaseModel):
         return self
 
 
+class AdvertisementProductionModelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    release_id: UUID
+
+
 class KnowledgeTextBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=240)
@@ -2830,12 +2835,12 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                     409, "Promotion requires a completed final-check score summary"
                 )
             now = datetime.now(UTC)
-            existing_priority = connection.execute(text("""SELECT priority
+            existing_release = connection.execute(text("""SELECT priority,advertisement_model
             FROM cost_lab.production_model_releases
             WHERE model_id=:model AND retired_at IS NULL FOR UPDATE"""),
-                {"model": candidate["model_id"]}).scalar_one_or_none()
+                {"model": candidate["model_id"]}).mappings().one_or_none()
             connection.execute(text("""UPDATE cost_lab.production_model_releases
-            SET retired_at=:now,priority=NULL
+            SET retired_at=:now,priority=NULL,advertisement_model=false
             WHERE model_id=:model AND retired_at IS NULL"""),
                 {"now": now, "model": candidate["model_id"]})
             used_priorities = set(connection.execute(text("""SELECT priority
@@ -2844,19 +2849,23 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             available_priority = next(
                 (value for value in range(1, 21) if value not in used_priorities), None
             )
-            priority = existing_priority or available_priority
+            priority = existing_release["priority"] if existing_release else available_priority
             if priority is None:
                 raise HTTPException(409, "All 20 production model priorities are in use")
+            advertisement_model = bool(
+                existing_release and existing_release["advertisement_model"]
+            )
             release_id = uuid4()
             connection.execute(text("""INSERT INTO cost_lab.production_model_releases
             (release_id,model_id,final_check_id,promoted_by,promoted_at,
-             pricing_snapshot,pricing_effective_at,priority)
+             pricing_snapshot,pricing_effective_at,priority,advertisement_model)
             VALUES(:release,:model,:check,:username,:now,CAST(:pricing AS jsonb),:effective,
-             :priority)"""),
+             :priority,:advertisement_model)"""),
                 {"release": release_id, "model": candidate["model_id"], "check": check_id,
                  "pricing": _json(candidate["pricing_snapshot"] or []),
                  "effective": candidate["pricing_effective_at"],
-                 "username": username, "now": now, "priority": priority})
+                 "username": username, "now": now, "priority": priority,
+                 "advertisement_model": advertisement_model})
             connection.execute(text("""UPDATE cost_lab.production_model_releases
             SET approved_quality_levels=CAST(:qualities AS jsonb) WHERE release_id=:id"""),
                 {"qualities": _json(body.quality_levels), "id": release_id})
@@ -2865,13 +2874,15 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 {"id": check_id, "now": now})
         return {"release_id": release_id, "model_id": candidate["model_id"],
                 "approved_quality_levels": body.quality_levels, "priority": priority,
+                "advertisement_model": advertisement_model,
                 "status": "PRODUCTION"}
 
     @app.get("/api/cost-lab/production-models")
     def production_models(_: Auth) -> dict[str, Any]:
         with service.engine.begin() as connection:
             releases = _rows(connection.execute(text("""SELECT r.*,m.name model_name,m.api_identifier,
-            m.version model_version,p.name provider_name,p.provider_type,p.api_base_url
+            m.version model_version,m.enabled model_enabled,p.name provider_name,
+            p.provider_type,p.api_base_url,p.enabled provider_enabled
             FROM cost_lab.production_model_releases r
             JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id)
             ORDER BY (r.retired_at IS NOT NULL),r.priority NULLS LAST,r.promoted_at DESC""")))
@@ -2898,6 +2909,40 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
                 SET priority=:priority WHERE release_id=:release"""),
                     {"release": release_id, "priority": priority})
         return {"priorities": [item.model_dump() for item in body.priorities]}
+
+    @app.put("/api/cost-lab/production-models/advertisement-model")
+    def update_advertisement_production_model(
+        body: AdvertisementProductionModelBody, auth: Auth
+    ) -> dict[str, Any]:
+        with service.engine.begin() as connection:
+            selected = connection.execute(
+                text("""SELECT r.release_id,r.model_id,m.name model_name
+                FROM cost_lab.production_model_releases r
+                JOIN cost_lab.ai_models m USING(model_id)
+                JOIN cost_lab.model_providers p USING(provider_id)
+                WHERE r.release_id=:release AND r.retired_at IS NULL
+                  AND m.enabled AND p.enabled
+                FOR UPDATE OF r"""),
+                {"release": body.release_id},
+            ).mappings().one_or_none()
+            if selected is None:
+                raise HTTPException(409, "Choose an active promoted model")
+            connection.execute(text("""UPDATE cost_lab.production_model_releases
+            SET advertisement_model=false WHERE advertisement_model"""))
+            connection.execute(text("""UPDATE cost_lab.production_model_releases
+            SET advertisement_model=true WHERE release_id=:release"""),
+                {"release": body.release_id})
+            connection.execute(text("""INSERT INTO cost_lab.audit_events
+            (event_id,action,target_type,target_id,metadata)
+            VALUES(:event,'ADVERTISEMENT_PRODUCTION_MODEL_SELECTED',
+              'PRODUCTION_MODEL_RELEASE',:release,
+              jsonb_build_object('model_id',CAST(:model AS text),
+                                 'model_name',CAST(:name AS text),
+                                 'selected_by',CAST(:username AS text)))"""),
+                {"event": uuid4(), "release": body.release_id,
+                 "model": selected["model_id"], "name": selected["model_name"],
+                 "username": auth})
+        return {"release_id": body.release_id, "advertisement_model": True}
 
     @app.put("/api/cost-lab/production-models/{release_id}/pricing")
     def update_production_model_pricing(
@@ -2963,10 +3008,14 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
     def delete_production_model(release_id: UUID, _: Auth) -> dict[str, Any]:
         with service.engine.begin() as connection:
             release = connection.execute(text("""SELECT release_id,model_id,final_check_id,
-            retired_at FROM cost_lab.production_model_releases
+            retired_at,advertisement_model FROM cost_lab.production_model_releases
             WHERE release_id=:id FOR UPDATE"""), {"id": release_id}).mappings().one_or_none()
             if release is None:
                 raise HTTPException(404, "Promoted model not found")
+            if release["advertisement_model"] and release["retired_at"] is None:
+                raise HTTPException(
+                    409, "Select another advertisement model before deleting this one"
+                )
             connection.execute(
                 text("DELETE FROM cost_lab.production_model_releases WHERE release_id=:id"),
                 {"id": release_id},

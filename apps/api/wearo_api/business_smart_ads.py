@@ -4,17 +4,20 @@ import base64
 import hashlib
 import io
 import json
+import os
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, Protocol, cast
 from urllib.parse import quote, urlencode, urljoin
 from uuid import UUID, uuid4
 
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import Connection, Engine, text
 
 from .image_watermark import apply_generated_image_watermark
 from .media_runtime import PostgresMediaRuntime
+from .render_quality_strategy import quality_parameters
 from .retention import RetentionService
 from .tenant_scope import TenantScopeError, require_tenant_scope
 
@@ -29,6 +32,28 @@ class SmartAdError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class SmartAdGenerator(Protocol):
+    def generate(
+        self,
+        prompt: str,
+        jewellery: tuple[bytes, str],
+        model_photo: tuple[bytes, str] | None,
+        *,
+        safety_identifier: str,
+    ) -> bytes: ...
+
+
+def _creative_prompt(prompt: str) -> str:
+    return (
+        "Create a premium portrait jewellery advertisement concept. Preserve the exact "
+        "jewellery design, materials, stones, and proportions from the first reference. "
+        "If a second reference is present, use that model and preserve their appearance. "
+        "Use tasteful commercial lighting and composition. Do not add logos, prices, "
+        "claims, or small print. Campaign direction: "
+        f"{prompt}"
+    )
 
 
 def smart_ad_try_on_url(
@@ -90,14 +115,7 @@ class OpenAISmartAdGenerator:
         ]
         if model_photo is not None:
             images.append({"image_url": self._data_url(model_photo[0], model_photo[1])})
-        creative_prompt = (
-            "Create a premium portrait jewellery advertisement concept. Preserve the exact "
-            "jewellery design, materials, stones, and proportions from the first reference. "
-            "If a second reference is present, use that model and preserve their appearance. "
-            "Use tasteful commercial lighting and composition. Do not add logos, prices, "
-            "claims, or small print. Campaign direction: "
-            f"{prompt}"
-        )
+        creative_prompt = _creative_prompt(prompt)
         response = requests.post(
             self.endpoint,
             headers={"Authorization": f"Bearer {self.api_key}"},
@@ -125,12 +143,140 @@ class OpenAISmartAdGenerator:
             ) from None
 
 
+class PromotedSmartAdGenerator:
+    """Generate SmartAds with the promoted model selected for advertisements."""
+
+    def __init__(self, engine: Engine, encryption_key: str) -> None:
+        self.engine = engine
+        self.encryption_key = encryption_key
+
+    def _selected_route(self) -> dict[str, object]:
+        with self.engine.connect() as connection:
+            route = (
+                connection.execute(
+                    text(
+                        """SELECT r.release_id,r.approved_quality_levels,
+                              m.api_identifier,p.provider_type,p.api_base_url,
+                              p.secret_ciphertext,p.secret_reference,
+                              quality.code quality,quality.settings quality_settings,
+                              mapping.provider_quality,mapping.request_parameters
+                    FROM cost_lab.production_model_releases r
+                    JOIN cost_lab.ai_models m USING(model_id)
+                    JOIN cost_lab.model_providers p USING(provider_id)
+                    JOIN cost_lab.quality_profiles quality ON quality.code=CASE
+                      WHEN r.approved_quality_levels ? 'HIGH' THEN 'HIGH'
+                      WHEN r.approved_quality_levels ? 'MEDIUM' THEN 'MEDIUM'
+                      ELSE 'LOW'
+                    END
+                    LEFT JOIN cost_lab.model_quality_mapping mapping
+                      ON mapping.model_id=m.model_id
+                     AND mapping.profile_id=quality.profile_id
+                     AND mapping.supported
+                    WHERE r.advertisement_model AND r.retired_at IS NULL
+                      AND m.enabled AND p.enabled
+                    LIMIT 1"""
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if route is None:
+            raise SmartAdError(
+                "SMART_AD_AI_UNAVAILABLE",
+                "Select an active promoted advertisement model in Cost Lab.",
+            )
+        return dict(route)
+
+    def _credential(self, route: dict[str, object]) -> str:
+        reference = str(route.get("secret_reference") or "")
+        if reference.startswith("env:"):
+            credential = os.environ.get(reference[4:], "")
+            if credential:
+                return credential
+        encrypted = route.get("secret_ciphertext")
+        if isinstance(encrypted, (bytes, bytearray, memoryview)) and self.encryption_key:
+            try:
+                return Fernet(self.encryption_key.encode()).decrypt(bytes(encrypted)).decode()
+            except (InvalidToken, ValueError):
+                pass
+        raise SmartAdError(
+            "SMART_AD_AI_UNAVAILABLE",
+            "The selected advertisement model credential is unavailable.",
+        )
+
+    def generate(
+        self,
+        prompt: str,
+        jewellery: tuple[bytes, str],
+        model_photo: tuple[bytes, str] | None,
+        *,
+        safety_identifier: str,
+    ) -> bytes:
+        from apps.cost_lab_api.adapters import (
+            BFLAdapter,
+            BytePlusAdapter,
+            OpenAICompatibleAdapter,
+            ProviderAdapter,
+            RunwareAdapter,
+        )
+
+        route = self._selected_route()
+        provider = str(route["provider_type"])
+        base_url = str(route.get("api_base_url") or "").strip()
+        if provider == "SECRET_REFERENCE" and "bfl.ai" in base_url.casefold():
+            provider = "BFL"
+        adapter_types = {
+            "OPENAI_COMPATIBLE": OpenAICompatibleAdapter,
+            "BYTEPLUS": BytePlusAdapter,
+            "BFL": BFLAdapter,
+            "RUNWARE": RunwareAdapter,
+        }
+        adapter_type = adapter_types.get(provider)
+        if adapter_type is None or not base_url:
+            raise SmartAdError(
+                "SMART_AD_AI_UNAVAILABLE",
+                "The selected advertisement model provider is unsupported.",
+            )
+        model = str(route["api_identifier"])
+        quality = str(route["quality"])
+        parameters = dict(cast(dict[str, object], route.get("quality_settings") or {}))
+        parameters |= dict(cast(dict[str, object], route.get("request_parameters") or {}))
+        if route.get("provider_quality"):
+            parameters["quality"] = str(route["provider_quality"])
+        strategy_provider = "OPENAI" if provider == "OPENAI_COMPATIBLE" else provider
+        parameters |= quality_parameters(strategy_provider, model, quality)
+        if provider == "OPENAI_COMPATIBLE":
+            parameters["output_format"] = "png"
+            parameters["safety_identifier"] = safety_identifier[:128]
+        elif provider == "RUNWARE":
+            width = cast(int | str, parameters["width"])
+            parameters["height"] = round(int(width) * 1.5)
+        images = [jewellery[0]]
+        if model_photo is not None:
+            images.append(model_photo[0])
+        try:
+            adapter = cast(ProviderAdapter, adapter_type(base_url, self._credential(route), 180))
+            result = adapter.generate(
+                model=model,
+                prompt=_creative_prompt(prompt),
+                images=images,
+                parameters=parameters,
+            )
+            return result.image_bytes
+        except SmartAdError:
+            raise
+        except Exception as error:
+            raise SmartAdError(
+                "SMART_AD_AI_FAILED", "The advertisement concept could not be generated."
+            ) from error
+
+
 class PostgresBusinessSmartAds:
     def __init__(
         self,
         engine: Engine,
         media: PostgresMediaRuntime,
-        generator: OpenAISmartAdGenerator,
+        generator: SmartAdGenerator,
         retention: RetentionService,
     ) -> None:
         self.engine = engine
@@ -207,6 +353,17 @@ class PostgresBusinessSmartAds:
         with self.engine.connect() as connection:
             account_id = self._owner(connection, principal_id, tenant_id)
             parameters = {"tenant": tenant_id, "account": account_id}
+            operating_profile = (
+                connection.execute(
+                    text(
+                        """SELECT operating_profile
+                        FROM business_profiles
+                        WHERE tenant_id=:tenant AND account_id=:account"""
+                    ),
+                    parameters,
+                ).scalar_one_or_none()
+                or "OTHER"
+            )
             female_users = int(
                 connection.execute(
                     text(
@@ -311,6 +468,7 @@ class PostgresBusinessSmartAds:
                     int(schedule["delivered"]) == 0 and int(schedule["processing"]) == 0
                 )
         return {
+            "operating_profile": operating_profile,
             "female_unique_users": female_users,
             "female_marketing_eligible_users": eligible_female_users,
             "attempts_used_today": attempts_today,
@@ -962,9 +1120,7 @@ class PostgresBusinessSmartAds:
                 .one_or_none()
             )
             if ad is None:
-                raise SmartAdError(
-                    "SMART_AD_NOT_ACTIVE", "Choose an accepted advertisement."
-                )
+                raise SmartAdError("SMART_AD_NOT_ACTIVE", "Choose an accepted advertisement.")
             audience = list(
                 connection.execute(
                     text(
@@ -1136,9 +1292,7 @@ class PostgresBusinessSmartAds:
             "queued_recipient_count": len(recipients),
         }
 
-    def delete_schedule(
-        self, principal_id: UUID, tenant_id: UUID, schedule_id: UUID
-    ) -> None:
+    def delete_schedule(self, principal_id: UUID, tenant_id: UUID, schedule_id: UUID) -> None:
         with self.engine.begin() as connection:
             account_id = self._owner(connection, principal_id, tenant_id)
             exists = connection.execute(

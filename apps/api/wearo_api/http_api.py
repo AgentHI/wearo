@@ -98,8 +98,8 @@ from .business_reports import BusinessReportError, PostgresBusinessReports, reco
 from .business_shop import BusinessShopError, PostgresBusinessShop, qr_poster
 from .business_smart_ads import (
     DeliveryChannel,
-    OpenAISmartAdGenerator,
     PostgresBusinessSmartAds,
+    PromotedSmartAdGenerator,
     SmartAdError,
     TargetGender,
 )
@@ -4718,9 +4718,9 @@ def create_app_from_env() -> FastAPI:
         PostgresBusinessSmartAds(
             engine,
             container.media,
-            OpenAISmartAdGenerator(
-                os.environ.get("WEARO_OPENAI_API_KEY", ""),
-                os.environ.get("WEARO_SMART_AD_AI_MODEL", "gpt-image-2.6-sunburst"),
+            PromotedSmartAdGenerator(
+                engine,
+                os.environ.get("COST_LAB_ENCRYPTION_KEY", ""),
             ),
             container.retention,
         ),

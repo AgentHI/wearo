@@ -9,10 +9,12 @@ from PIL import Image
 from apps.api.wearo_api.business_smart_ads import (
     MAX_DAILY_GENERATIONS,
     OpenAISmartAdGenerator,
+    PromotedSmartAdGenerator,
     SmartAdError,
     normalize_creative,
     smart_ad_try_on_url,
 )
+from apps.cost_lab_api.adapters import GenerationResult, OpenAICompatibleAdapter
 from scripts.validate_migrations import validate_revision
 
 
@@ -87,11 +89,70 @@ def test_smart_ad_generator_uses_jewellery_and_optional_model(
     assert body["size"] == "1024x1536"
 
 
+def test_smart_ad_generator_uses_the_selected_promoted_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    generator = PromotedSmartAdGenerator(cast(Any, object()), "")
+    monkeypatch.setenv("WEARO_SELECTED_AD_TEST_KEY", "secret")
+    monkeypatch.setattr(
+        generator,
+        "_selected_route",
+        lambda: {
+            "release_id": UUID("49bf272c-cac8-4452-8aef-b430c4326f80"),
+            "approved_quality_levels": ["HIGH"],
+            "api_identifier": "promoted-image-model",
+            "provider_type": "OPENAI_COMPATIBLE",
+            "api_base_url": "https://images.example/v1",
+            "secret_ciphertext": None,
+            "secret_reference": "env:WEARO_SELECTED_AD_TEST_KEY",
+            "quality": "HIGH",
+            "quality_settings": {},
+            "provider_quality": None,
+            "request_parameters": {},
+        },
+    )
+
+    def generate(self: OpenAICompatibleAdapter, **request: object) -> GenerationResult:
+        captured.update({"base_url": self.base_url, **request})
+        return GenerationResult(image_bytes(), "request-1", {}, {}, 10)
+
+    monkeypatch.setattr(OpenAICompatibleAdapter, "generate", generate)
+
+    result = generator.generate(
+        "A premium launch",
+        (image_bytes(), "image/png"),
+        (image_bytes((800, 1200)), "image/png"),
+        safety_identifier="stable-business",
+    )
+
+    assert result
+    assert captured["base_url"] == "https://images.example/v1"
+    assert captured["model"] == "promoted-image-model"
+    assert len(cast(list[bytes], captured["images"])) == 2
+    parameters = cast(dict[str, object], captured["parameters"])
+    assert parameters["quality"] == "high"
+    assert parameters["size"] == "1664x2496"
+    assert parameters["safety_identifier"] == "stable-business"
+
+
+def test_advertisement_model_selection_uses_only_promoted_releases() -> None:
+    migration = Path("apps/api/migrations/versions/20261128_0105_advertisement_production_model.py")
+    migration_source = migration.read_text()
+    cost_lab_api = Path("apps/cost_lab_api/app.py").read_text()
+    smart_ads = Path("apps/api/wearo_api/business_smart_ads.py").read_text()
+
+    assert validate_revision(migration) == "20261128_0105"
+    assert "ADD COLUMN advertisement_model" in migration_source
+    assert "uq_active_advertisement_production_model" in migration_source
+    assert '"/api/cost-lab/production-models/advertisement-model"' in cost_lab_api
+    assert "r.release_id=:release AND r.retired_at IS NULL" in cost_lab_api
+    assert "WHERE r.advertisement_model AND r.retired_at IS NULL" in smart_ads
+
+
 def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:
     migration = Path("apps/api/migrations/versions/20261122_0095_business_smart_ads.py")
-    email_migration = Path(
-        "apps/api/migrations/versions/20261122_0096_smart_ad_email_subject.py"
-    )
+    email_migration = Path("apps/api/migrations/versions/20261122_0096_smart_ad_email_subject.py")
     source = migration.read_text()
     email_source = email_migration.read_text()
     service = Path("apps/api/wearo_api/business_smart_ads.py").read_text()
@@ -109,10 +170,25 @@ def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:
     assert "company_logo=business_logo" in service
     assert "SMART_AD_GENERATION_IN_PROGRESS" in service
     assert "generation_in_progress" in service
+    assert "SELECT operating_profile" in service
+    assert '"operating_profile": operating_profile' in service
     assert "GENERATION_TIMEOUT" in service
     assert "communication_jobs" in service
     assert "template_key,recipient" in service
     assert MAX_DAILY_GENERATIONS == 2
+
+
+def test_smart_ad_retention_requires_the_admin_managed_record_to_be_deleted() -> None:
+    retention = Path("apps/api/wearo_api/postgres_retention.py").read_text()
+    migration = Path("apps/api/migrations/versions/20261128_0104_protect_smart_ad_assets.py")
+    migration_source = migration.read_text()
+
+    assert validate_revision(migration) == "20261128_0104"
+    assert "candidate.purpose = 'SMART_AD'" in retention
+    assert "FROM business_smart_ads AS ad" in retention
+    assert "FROM business_smart_ad_generations AS generation" in retention
+    assert "SET deletion_state = 'RETAINED'" in migration_source
+    assert "asset.deletion_state <> 'DELETED'" in migration_source
 
 
 def test_smart_ads_http_surface_covers_lifecycle_and_scheduling() -> None:

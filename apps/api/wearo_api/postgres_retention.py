@@ -55,12 +55,29 @@ class PostgresLifecycleStore:
                     text(
                         """
                     WITH due AS (
-                        SELECT asset_id
-                        FROM media_assets
-                        WHERE delete_after <= :at
-                          AND deletion_state IN ('RETAINED', 'REQUESTED')
-                          AND retention_state <> 'LEGAL_HOLD'
-                        ORDER BY delete_after
+                        SELECT candidate.asset_id
+                        FROM media_assets AS candidate
+                        WHERE candidate.delete_after <= :at
+                          AND candidate.deletion_state IN ('RETAINED', 'REQUESTED')
+                          AND candidate.retention_state <> 'LEGAL_HOLD'
+                          AND NOT (
+                            candidate.purpose = 'SMART_AD'
+                            AND (
+                              EXISTS (
+                                SELECT 1
+                                FROM business_smart_ads AS ad
+                                WHERE ad.jewellery_asset_id = candidate.asset_id
+                                   OR ad.model_asset_id = candidate.asset_id
+                                   OR ad.creative_asset_id = candidate.asset_id
+                              )
+                              OR EXISTS (
+                                SELECT 1
+                                FROM business_smart_ad_generations AS generation
+                                WHERE generation.generated_asset_id = candidate.asset_id
+                              )
+                            )
+                          )
+                        ORDER BY candidate.delete_after
                         FOR UPDATE SKIP LOCKED
                         LIMIT :limit
                     )
