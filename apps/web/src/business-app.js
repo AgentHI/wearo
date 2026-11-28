@@ -87,7 +87,7 @@ function smartAdsMark(className = "") {
 const sections = [
   ["dashboard", "Overview", "▦"],
   ["customers", "Users", "♙"],
-  ["smart-ads", "SmartAds", smartAdsMark("smart-ads-mark--nav")],
+  ["smart-ads", "SmartCampaigns", smartAdsMark("smart-ads-mark--nav")],
   ["stores", "Stores", "⌂"],
   ["agents", "Agent transfers", "♧"],
   ["billing", "Plans & billing", "▤"],
@@ -522,10 +522,10 @@ function smartAdsView() {
     <header class="smart-ads-hero">
       <div class="smart-ads-hero__identity">
         <span class="smart-ads-hero__mark">${smartAdsMark("smart-ads-mark--hero")}</span>
-        <div><p class="eyebrow">Campaign intelligence</p><h1>Smart<span>Ads</span></h1><p id="smart-ads-caption">${smartAdsCaption()}</p></div>
+        <div><p class="eyebrow">Campaign intelligence</p><h1>Smart<span>Campaigns</span></h1><p id="smart-ads-caption">${smartAdsCaption()}</p></div>
       </div>
     </header>
-    <section class="smart-ads-summary" aria-label="SmartAds summary">
+    <section class="smart-ads-summary" aria-label="SmartCampaigns summary">
       <article class="smart-ads-stat smart-ads-stat--audience"><div class="smart-ads-stat__top"><span>Unique female users</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 18c.4-3.1 2.2-4.7 5.5-4.7s5.1 1.6 5.5 4.7M17 8.5a2.5 2.5 0 1 0 0-5M16 13c2.7 0 4.2 1.3 4.5 4"/></svg></div><strong id="smart-ads-female-users">—</strong><small>Individual women, including multiple people saved in one profile.</small></article>
       <article class="smart-ads-stat"><div class="smart-ads-stat__top"><span>Ready to reach</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg></div><strong id="smart-ads-eligible-users">—</strong><small>Female users who have given marketing consent.</small></article>
       <article class="smart-ads-stat smart-ads-stat--tries"><div class="smart-ads-stat__top"><span>AI generations today</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="3.5"/></svg></div><strong id="smart-ads-attempts">—</strong><small>Two creative concepts are available each India calendar day.</small></article>
@@ -558,7 +558,7 @@ function smartAdsView() {
     </section>
     <section class="panel smart-ad-library"><div class="panel__heading"><div><p class="eyebrow">Creative library</p><h2>Your advertisements</h2><p>Review drafts, try another concept, or accept a creative to make it available for scheduling.</p></div><span id="smart-ad-count" class="status-chip">Loading</span></div><div id="smart-ad-list" class="smart-ad-grid" aria-live="polite"></div></section>
     <section class="panel smart-ad-schedules"><div class="panel__heading"><div><p class="eyebrow">Campaign calendar</p><h2>Scheduled delivery</h2><p>Email is queued once for every reachable, consented account at the selected time.</p></div></div><div id="smart-ad-schedule-list" class="smart-ad-schedule-list" aria-live="polite">Loading schedules…</div></section>
-    <dialog id="smart-ad-edit-dialog" class="cancellation-dialog smart-ad-edit-dialog" aria-labelledby="smart-ad-edit-title" aria-describedby="smart-ad-edit-description"><form id="smart-ad-edit-form" class="cancellation-dialog__panel"><header><div><p class="eyebrow">SmartAds creative</p><h2 id="smart-ad-edit-title">Edit advertisement</h2></div><button id="smart-ad-edit-close" class="camera-dialog__close" type="button" aria-label="Close advertisement editor">×</button></header><div class="cancellation-dialog__details smart-ad-edit-dialog__fields"><p id="smart-ad-edit-description">Update the customer-facing caption and the creative direction used for future generations.</p><label class="smart-ad-field"><span>Advertisement caption</span><input name="title" maxlength="120" required /></label><label class="smart-ad-field"><span>Creative direction</span><textarea name="prompt" maxlength="2000" rows="6" required></textarea><small>Changes to the creative direction apply when you generate another concept.</small></label><p id="smart-ad-edit-status" class="form-status" role="status" aria-live="polite"></p></div><div class="cancellation-dialog__actions"><button id="smart-ad-edit-cancel" class="button button--quiet" type="button">Cancel</button><button class="button button--primary" type="submit">Save changes</button></div></form></dialog>`;
+    <dialog id="smart-ad-edit-dialog" class="cancellation-dialog smart-ad-edit-dialog" aria-labelledby="smart-ad-edit-title" aria-describedby="smart-ad-edit-description"><form id="smart-ad-edit-form" class="cancellation-dialog__panel"><header><div><p class="eyebrow">SmartCampaigns creative</p><h2 id="smart-ad-edit-title">Edit advertisement</h2></div><button id="smart-ad-edit-close" class="camera-dialog__close" type="button" aria-label="Close advertisement editor">×</button></header><div class="cancellation-dialog__details smart-ad-edit-dialog__fields"><p id="smart-ad-edit-description">Update the customer-facing caption and the creative direction used for future generations.</p><label class="smart-ad-field"><span>Advertisement caption</span><input name="title" maxlength="120" required /></label><label class="smart-ad-field"><span>Creative direction</span><textarea name="prompt" maxlength="2000" rows="6" required></textarea><small>Changes to the creative direction apply when you generate another concept.</small></label><p id="smart-ad-edit-status" class="form-status" role="status" aria-live="polite"></p></div><div class="cancellation-dialog__actions"><button id="smart-ad-edit-cancel" class="button button--quiet" type="button">Cancel</button><button class="button button--primary" type="submit">Save changes</button></div></form></dialog>`;
 }
 
 function smartAdImageUrl(tenantId, item, role = "creative") {
@@ -589,7 +589,7 @@ function renderSmartAds(result) {
     const previewRole = item.creative_asset_id ? "creative" : "jewellery";
     const canGenerate = item.status === "DRAFT" && Number(result.attempts_remaining_today) > 0 && !generationBusy;
     return `<article class="smart-ad-card" data-smart-ad="${escapeHtml(item.smart_ad_id)}"><img src="${smartAdImageUrl(tenantId, item, previewRole)}" alt="${escapeHtml(item.title)} advertisement preview" /><div class="smart-ad-card__body"><div><span class="status-chip">${escapeHtml(item.status)}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.prompt)}</p></div><div class="smart-ad-card__actions">${item.status === "DRAFT" ? `<button class="button button--quiet" type="button" data-smart-generate="${escapeHtml(item.smart_ad_id)}" ${canGenerate ? "" : "disabled"}>Generate${item.creative_asset_id ? " again" : " concept"}</button>${item.creative_asset_id ? `<button class="advertisement-icon-button advertisement-icon-button--primary" type="button" data-smart-accept="${escapeHtml(item.smart_ad_id)}" aria-label="Accept advertisement" title="Accept advertisement"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></button>` : ""}` : ""}<button class="advertisement-icon-button" type="button" data-smart-edit="${escapeHtml(item.smart_ad_id)}" aria-label="Edit advertisement" title="Edit advertisement"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z"/></svg></button><button class="advertisement-icon-button advertisement-icon-button--danger" type="button" data-smart-delete="${escapeHtml(item.smart_ad_id)}" aria-label="Delete advertisement" title="Delete advertisement"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button></div></div></article>`;
-  }).join("") : '<p class="admin-empty">No SmartAds created yet.</p>';
+  }).join("") : '<p class="admin-empty">No SmartCampaigns created yet.</p>';
   setSmartAdGenerationUi(
     generationBusy,
     smartAdGenerationInProgress
@@ -748,7 +748,7 @@ function setupSmartAds() {
     } else {
       action.disabled = true;
     }
-    createStatus.textContent = "Saving SmartAds changes…";
+    createStatus.textContent = "Saving SmartCampaigns changes…";
     try {
       if (action.dataset.smartGenerate) {
         createStatus.textContent = "Generating another concept…";
@@ -771,7 +771,7 @@ function setupSmartAds() {
         createStatus.textContent = "";
       } else if (action.dataset.smartDelete) {
         const confirmed = await wearoConfirm({
-          eyebrow: "SmartAds",
+          eyebrow: "SmartCampaigns",
           title: "Delete this advertisement?",
           message: "Its queued deliveries will be cancelled and its private images scheduled for deletion.",
           confirmLabel: "Delete advertisement",

@@ -20,7 +20,7 @@ const ENGLISH_MESSAGES = {
     INSUFFICIENT_TOKENS: "You do not have enough try-on credits. Add credits to continue.",
     EMAIL_DELIVERY_UNAVAILABLE: "We could not send the email right now. Please try again shortly.",
     PAYMENT_GATEWAY_UNAVAILABLE: "Payments are temporarily unavailable. Please try again shortly.",
-    SMART_AD_DAILY_LIMIT_REACHED: "Both SmartAds generation tries have been used today. Try again tomorrow.",
+    SMART_AD_DAILY_LIMIT_REACHED: "Both SmartCampaigns generation tries have been used today. Try again tomorrow.",
     SMART_AD_AI_FAILED: "The advertisement concept could not be generated. Try a clearer prompt or reference photo.",
     SMART_AD_CREATIVE_REQUIRED: "Generate a concept before accepting this advertisement.",
     SMART_AD_NOT_ACTIVE: "Accept the advertisement before scheduling it.",

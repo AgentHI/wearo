@@ -170,7 +170,7 @@ def test_advertisement_model_selection_accepts_promoted_or_manual_models() -> No
         'id="advertisement-model-picker"'
     )
     assert 'aria-label="Save priorities"' in cost_lab_ui
-    assert 'aria-label="Save advertisement model"' in cost_lab_ui
+    assert "Save selection" in cost_lab_ui
     assert "cost-advertisement-model__current" in cost_lab_ui
     assert "Current active model" in cost_lab_ui
     assert 'name="provider_id"' in cost_lab_ui
