@@ -144,7 +144,7 @@ class OpenAISmartAdGenerator:
 
 
 class PromotedSmartAdGenerator:
-    """Generate SmartAds with the promoted model selected for advertisements."""
+    """Generate SmartAds with the Cost Lab model selected for advertisements."""
 
     def __init__(self, engine: Engine, encryption_key: str) -> None:
         self.engine = engine
@@ -156,24 +156,26 @@ class PromotedSmartAdGenerator:
                 connection.execute(
                     text(
                         """SELECT r.release_id,r.approved_quality_levels,
-                              m.api_identifier,p.provider_type,p.api_base_url,
+                              m.model_id,m.api_identifier,p.provider_type,p.api_base_url,
                               p.secret_ciphertext,p.secret_reference,
                               quality.code quality,quality.settings quality_settings,
                               mapping.provider_quality,mapping.request_parameters
-                    FROM cost_lab.production_model_releases r
-                    JOIN cost_lab.ai_models m USING(model_id)
+                    FROM cost_lab.ai_models m
                     JOIN cost_lab.model_providers p USING(provider_id)
+                    LEFT JOIN cost_lab.production_model_releases r
+                      ON r.model_id=m.model_id AND r.advertisement_model
+                     AND r.retired_at IS NULL
                     JOIN cost_lab.quality_profiles quality ON quality.code=CASE
-                      WHEN r.approved_quality_levels ? 'HIGH' THEN 'HIGH'
-                      WHEN r.approved_quality_levels ? 'MEDIUM' THEN 'MEDIUM'
+                      WHEN COALESCE(r.approved_quality_levels,m.quality_levels) ? 'HIGH' THEN 'HIGH'
+                      WHEN COALESCE(r.approved_quality_levels,m.quality_levels) ? 'MEDIUM'
+                        THEN 'MEDIUM'
                       ELSE 'LOW'
                     END
                     LEFT JOIN cost_lab.model_quality_mapping mapping
                       ON mapping.model_id=m.model_id
                      AND mapping.profile_id=quality.profile_id
                      AND mapping.supported
-                    WHERE r.advertisement_model AND r.retired_at IS NULL
-                      AND m.enabled AND p.enabled
+                    WHERE m.advertisement_model AND m.enabled AND p.enabled
                     LIMIT 1"""
                     )
                 )
@@ -183,7 +185,7 @@ class PromotedSmartAdGenerator:
         if route is None:
             raise SmartAdError(
                 "SMART_AD_AI_UNAVAILABLE",
-                "Select an active promoted advertisement model in Cost Lab.",
+                "Select an advertisement model and provider in Cost Lab.",
             )
         return dict(route)
 

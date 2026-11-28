@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 from PIL import Image
+from pydantic import ValidationError
 
 from apps.api.wearo_api.business_smart_ads import (
     MAX_DAILY_GENERATIONS,
@@ -15,6 +16,7 @@ from apps.api.wearo_api.business_smart_ads import (
     smart_ad_try_on_url,
 )
 from apps.cost_lab_api.adapters import GenerationResult, OpenAICompatibleAdapter
+from apps.cost_lab_api.app import AdvertisementProductionModelBody
 from scripts.validate_migrations import validate_revision
 
 
@@ -136,20 +138,31 @@ def test_smart_ad_generator_uses_the_selected_promoted_model(
     assert parameters["safety_identifier"] == "stable-business"
 
 
-def test_advertisement_model_selection_uses_only_promoted_releases() -> None:
-    migration = Path("apps/api/migrations/versions/20261128_0105_advertisement_production_model.py")
-    migration_source = migration.read_text()
+def test_advertisement_model_selection_accepts_promoted_or_manual_models() -> None:
+    promoted_migration = Path(
+        "apps/api/migrations/versions/20261128_0105_advertisement_production_model.py"
+    )
+    manual_migration = Path(
+        "apps/api/migrations/versions/20261128_0106_manual_advertisement_model.py"
+    )
+    promoted_migration_source = promoted_migration.read_text()
+    manual_migration_source = manual_migration.read_text()
     cost_lab_api = Path("apps/cost_lab_api/app.py").read_text()
     smart_ads = Path("apps/api/wearo_api/business_smart_ads.py").read_text()
     cost_lab_ui = Path("packages/cost-lab-ui/src/index.js").read_text()
 
-    assert validate_revision(migration) == "20261128_0105"
-    assert "ADD COLUMN advertisement_model" in migration_source
-    assert "uq_active_advertisement_production_model" in migration_source
+    assert validate_revision(promoted_migration) == "20261128_0105"
+    assert validate_revision(manual_migration) == "20261128_0106"
+    assert "ADD COLUMN advertisement_model" in promoted_migration_source
+    assert "uq_active_advertisement_production_model" in promoted_migration_source
+    assert "ALTER TABLE cost_lab.ai_models" in manual_migration_source
+    assert "uq_cost_lab_advertisement_model" in manual_migration_source
     assert '"/api/cost-lab/production-models/advertisement-model"' in cost_lab_api
     assert "r.release_id=:release AND r.retired_at IS NULL" in cost_lab_api
+    assert "provider_id and api_identifier are required" in cost_lab_api
+    assert "INSERT INTO cost_lab.ai_models" in cost_lab_api
     assert "information_schema.columns" in cost_lab_api
-    assert "WHERE r.advertisement_model AND r.retired_at IS NULL" in smart_ads
+    assert "WHERE m.advertisement_model AND m.enabled AND p.enabled" in smart_ads
     promoted_view = cost_lab_ui.split("function promotedModelsView()", 1)[1].split(
         "async function attachFinalChecks", 1
     )[0]
@@ -160,6 +173,32 @@ def test_advertisement_model_selection_uses_only_promoted_releases() -> None:
     assert 'aria-label="Save advertisement model"' in cost_lab_ui
     assert "cost-advertisement-model__current" in cost_lab_ui
     assert "Current active model" in cost_lab_ui
+    assert 'name="provider_id"' in cost_lab_ui
+    assert 'name="api_identifier"' in cost_lab_ui
+    assert 'placeholder="gpt-image-2"' in cost_lab_ui
+
+
+def test_advertisement_model_request_requires_one_complete_selection() -> None:
+    release_id = UUID("49bf272c-cac8-4452-8aef-b430c4326f80")
+    provider_id = UUID("03730145-20e9-4d49-877c-6216008f703f")
+
+    promoted = AdvertisementProductionModelBody(release_id=release_id)
+    manual = AdvertisementProductionModelBody(
+        provider_id=provider_id, api_identifier="  gpt-image-2  "
+    )
+
+    assert promoted.release_id == release_id
+    assert manual.api_identifier == "gpt-image-2"
+    with pytest.raises(ValidationError):
+        AdvertisementProductionModelBody()
+    with pytest.raises(ValidationError):
+        AdvertisementProductionModelBody(provider_id=provider_id)
+    with pytest.raises(ValidationError):
+        AdvertisementProductionModelBody(
+            release_id=release_id,
+            provider_id=provider_id,
+            api_identifier="gpt-image-2",
+        )
 
 
 def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:

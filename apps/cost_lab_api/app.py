@@ -548,7 +548,23 @@ class ProductionModelPrioritiesBody(BaseModel):
 
 class AdvertisementProductionModelBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    release_id: UUID
+    release_id: UUID | None = None
+    provider_id: UUID | None = None
+    api_identifier: str | None = Field(default=None, min_length=1, max_length=240)
+
+    @model_validator(mode="after")
+    def has_one_model_source(self) -> "AdvertisementProductionModelBody":
+        if self.api_identifier is not None:
+            self.api_identifier = self.api_identifier.strip()
+        promoted = self.release_id is not None
+        manual = self.provider_id is not None or self.api_identifier is not None
+        if promoted == manual:
+            raise ValueError(
+                "Choose either a promoted release or a provider and API model identifier"
+            )
+        if manual and (self.provider_id is None or not self.api_identifier):
+            raise ValueError("provider_id and api_identifier are required for a manual model")
+        return self
 
 
 class KnowledgeTextBody(BaseModel):
@@ -2886,9 +2902,17 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
             FROM cost_lab.production_model_releases r
             JOIN cost_lab.ai_models m USING(model_id) JOIN cost_lab.model_providers p USING(provider_id)
             ORDER BY (r.retired_at IS NOT NULL),r.priority NULLS LAST,r.promoted_at DESC""")))
+            advertisement_model = connection.execute(text("""SELECT m.model_id,m.name model_name,
+            m.api_identifier,m.provider_id,p.name provider_name,p.provider_type,
+            r.release_id IS NOT NULL promoted,r.release_id
+            FROM cost_lab.ai_models m JOIN cost_lab.model_providers p USING(provider_id)
+            LEFT JOIN cost_lab.production_model_releases r ON r.model_id=m.model_id
+              AND r.advertisement_model AND r.retired_at IS NULL
+            WHERE m.advertisement_model""")).mappings().one_or_none()
         active = [row for row in releases if row["retired_at"] is None]
         return {"active": active[0] if active else None, "active_models": active,
-                "history": releases}
+                "history": releases,
+                "advertisement_model": dict(advertisement_model) if advertisement_model else None}
 
     @app.put("/api/cost-lab/production-models/priorities")
     def update_production_model_priorities(
@@ -2915,46 +2939,101 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         body: AdvertisementProductionModelBody, auth: Auth
     ) -> dict[str, Any]:
         with service.engine.begin() as connection:
-            schema_ready = connection.execute(text("""SELECT EXISTS (
+            schema_ready: bool = connection.execute(text("""SELECT EXISTS (
               SELECT 1 FROM information_schema.columns
               WHERE table_schema='cost_lab'
-                AND table_name='production_model_releases'
+                AND table_name='ai_models'
                 AND column_name='advertisement_model'
             )""")).scalar_one()
             if not schema_ready:
                 raise HTTPException(
                     503,
-                    "Cost Lab database migration 20261128_0105 must be applied before "
+                    "Cost Lab database migration 20261128_0106 must be applied before "
                     "selecting an advertisement model",
                 )
-            selected = connection.execute(
-                text("""SELECT r.release_id,r.model_id,m.name model_name
-                FROM cost_lab.production_model_releases r
-                JOIN cost_lab.ai_models m USING(model_id)
-                JOIN cost_lab.model_providers p USING(provider_id)
-                WHERE r.release_id=:release AND r.retired_at IS NULL
-                  AND m.enabled AND p.enabled
-                FOR UPDATE OF r"""),
-                {"release": body.release_id},
-            ).mappings().one_or_none()
-            if selected is None:
-                raise HTTPException(409, "Choose an active promoted model")
+            source = "PROMOTED"
+            selected: dict[str, Any]
+            if body.release_id is not None:
+                selected_row = connection.execute(
+                    text("""SELECT r.release_id,r.model_id,m.name model_name,
+                    m.api_identifier,m.provider_id,p.name provider_name
+                    FROM cost_lab.production_model_releases r
+                    JOIN cost_lab.ai_models m USING(model_id)
+                    JOIN cost_lab.model_providers p USING(provider_id)
+                    WHERE r.release_id=:release AND r.retired_at IS NULL
+                      AND m.enabled AND p.enabled
+                    FOR UPDATE OF r,m"""),
+                    {"release": body.release_id},
+                ).mappings().one_or_none()
+                if selected_row is None:
+                    raise HTTPException(409, "Choose an active promoted model")
+                selected = dict(selected_row)
+            else:
+                source = "MANUAL"
+                provider = connection.execute(
+                    text("""SELECT provider_id,name FROM cost_lab.model_providers
+                    WHERE provider_id=:provider AND enabled FOR UPDATE"""),
+                    {"provider": body.provider_id},
+                ).mappings().one_or_none()
+                if provider is None:
+                    raise HTTPException(409, "Choose an enabled provider")
+                selected_row = connection.execute(
+                    text("""SELECT model_id,name model_name,api_identifier,provider_id,enabled
+                    FROM cost_lab.ai_models
+                    WHERE provider_id=:provider AND api_identifier=:api
+                    ORDER BY version NULLS FIRST,created_at LIMIT 1 FOR UPDATE"""),
+                    {"provider": body.provider_id, "api": body.api_identifier},
+                ).mappings().one_or_none()
+                if selected_row is not None and not selected_row["enabled"]:
+                    raise HTTPException(409, "Enable this model before selecting it")
+                if selected_row is None:
+                    model_id = uuid4()
+                    selected = {
+                        "model_id": model_id,
+                        "model_name": body.api_identifier,
+                        "api_identifier": body.api_identifier,
+                        "provider_id": body.provider_id,
+                    }
+                    connection.execute(text("""INSERT INTO cost_lab.ai_models
+                    (model_id,provider_id,name,api_identifier,input_formats,output_formats,
+                     quality_levels,enabled)
+                    VALUES(:model,:provider,:name,:api,'["png","jpeg","webp"]'::jsonb,
+                           '["png"]'::jsonb,'["HIGH"]'::jsonb,true)"""),
+                        {"model": model_id, "provider": body.provider_id,
+                         "name": body.api_identifier, "api": body.api_identifier})
+                else:
+                    selected = dict(selected_row)
+                selected["provider_name"] = provider["name"]
             connection.execute(text("""UPDATE cost_lab.production_model_releases
             SET advertisement_model=false WHERE advertisement_model"""))
-            connection.execute(text("""UPDATE cost_lab.production_model_releases
-            SET advertisement_model=true WHERE release_id=:release"""),
-                {"release": body.release_id})
+            connection.execute(text("""UPDATE cost_lab.ai_models
+            SET advertisement_model=false WHERE advertisement_model"""))
+            if body.release_id is not None:
+                connection.execute(text("""UPDATE cost_lab.production_model_releases
+                SET advertisement_model=true WHERE release_id=:release"""),
+                    {"release": body.release_id})
+            connection.execute(text("""UPDATE cost_lab.ai_models
+            SET advertisement_model=true WHERE model_id=:model"""),
+                {"model": selected["model_id"]})
             connection.execute(text("""INSERT INTO cost_lab.audit_events
             (event_id,action,target_type,target_id,metadata)
             VALUES(:event,'ADVERTISEMENT_PRODUCTION_MODEL_SELECTED',
-              'PRODUCTION_MODEL_RELEASE',:release,
+              'AI_MODEL',:model,
               jsonb_build_object('model_id',CAST(:model AS text),
                                  'model_name',CAST(:name AS text),
+                                 'api_identifier',CAST(:api AS text),
+                                 'provider_id',CAST(:provider AS text),
+                                 'provider_name',CAST(:provider_name AS text),
+                                 'source',CAST(:source AS text),
                                  'selected_by',CAST(:username AS text)))"""),
-                {"event": uuid4(), "release": body.release_id,
-                 "model": selected["model_id"], "name": selected["model_name"],
+                {"event": uuid4(), "model": selected["model_id"],
+                 "name": selected["model_name"], "api": selected["api_identifier"],
+                 "provider": selected["provider_id"],
+                 "provider_name": selected["provider_name"], "source": source,
                  "username": auth})
-        return {"release_id": body.release_id, "advertisement_model": True}
+        return {"release_id": body.release_id, "model_id": selected["model_id"],
+                "api_identifier": selected["api_identifier"], "source": source,
+                "advertisement_model": True}
 
     @app.put("/api/cost-lab/production-models/{release_id}/pricing")
     def update_production_model_pricing(
