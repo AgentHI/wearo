@@ -86,7 +86,6 @@ function smartAdsMark(className = "") {
 
 const sections = [
   ["dashboard", "Overview", "▦"],
-  ["experience", "Wearo experience", "◇"],
   ["customers", "Users", "♙"],
   ["smart-ads", "SmartAds", smartAdsMark("smart-ads-mark--nav")],
   ["stores", "Stores", "⌂"],
@@ -102,6 +101,7 @@ function businessFooter() {
 function sectionFromPath(pathname) {
   if (pathname.startsWith("/business/sign-in")) return "sign-in";
   if (pathname.startsWith("/business/signup")) return "signup";
+  if (pathname.startsWith("/business/experience")) return "dashboard";
   return sections.find(([id]) => pathname.startsWith(`/business/${id}`))?.[0] || "welcome";
 }
 
@@ -428,12 +428,6 @@ async function setupAudienceStoreFilter() {
     select.disabled = true;
   }
   await loadAudience();
-}
-
-function experienceView() {
-  return `
-    <header class="page-heading"><div><p class="eyebrow">Wearo experience</p><h1>Connect your customer experience</h1><p>Your existing app owns its inventory and commerce flow. This workspace only manages the Wearo try-on service.</p></div></header>
-    <section class="settings-grid"><article class="panel"><div class="panel__heading"><div><h2>App connection</h2><p>Connect Wearo from your own website, mobile app, or in-store application.</p></div></div><dl class="settings-list"><div><dt>Connection status</dt><dd><span class="status-chip">Not connected</span></dd></div><div><dt>Environment</dt><dd>Beta</dd></div><div><dt>Customer data</dt><dd>Private by default</dd></div></dl></article><article class="panel"><div class="panel__heading"><div><h2>Experience controls</h2><p>Manage availability without duplicating your business data in Wearo.</p></div></div><dl class="settings-list"><div><dt>Virtual try-on</dt><dd>Enabled</dd></div><div><dt>Quality gate</dt><dd>Required</dd></div><div><dt>Image retention</dt><dd>30 days</dd></div></dl></article></section>`;
 }
 
 function customersView() {
@@ -2182,9 +2176,13 @@ function attachBusinessInteractions(section) {
 
 export function renderBusinessApp(root, pathname) {
   document.documentElement.dataset.experience = "business";
-  const section = sectionFromPath(pathname);
+  const resolvedPathname = pathname.startsWith("/business/experience")
+    ? "/business/dashboard"
+    : pathname;
+  if (resolvedPathname !== pathname) window.history.replaceState({}, "", resolvedPathname);
+  const section = sectionFromPath(resolvedPathname);
   document.title = "Wearo Business";
-  if (pathname.startsWith("/business/signup")) {
+  if (resolvedPathname.startsWith("/business/signup")) {
     root.innerHTML = signupView();
     attachBusinessInteractions("signup");
     return;
@@ -2206,12 +2204,11 @@ export function renderBusinessApp(root, pathname) {
   }
   const views = {
     dashboard: dashboardView,
-        experience: experienceView,
-        customers: customersView,
-        "smart-ads": smartAdsView,
-        stores: storesView,
-        agents: agentsView,
-        billing: billingView,
+    customers: customersView,
+    "smart-ads": smartAdsView,
+    stores: storesView,
+    agents: agentsView,
+    billing: billingView,
     settings: settingsView,
   };
   root.innerHTML = businessFrame(section, views[section]());

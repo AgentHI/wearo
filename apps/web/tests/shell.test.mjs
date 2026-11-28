@@ -284,7 +284,6 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   for (const text of [
     "Create your business workspace",
     "Plans & billing",
-    "Wearo experience",
     "no charge was made",
     "Payment method",
   ]) {
@@ -324,6 +323,7 @@ test("business app exposes onboarding, billing, dashboard, and honest payment st
   assert.doesNotMatch(business, /Generation tokens and cost/);
   assert.doesNotMatch(business, /Total provider tokens/);
   assert.match(business, /\["customers", "Users", "♙"\]/);
+  assert.doesNotMatch(business, /\["experience", "Wearo experience"/);
   assert.doesNotMatch(business, /AI provider usage/);
   assert.doesNotMatch(business, /overview-provider-input/);
   assert.match(business, /id="business-user-toggle"/);
