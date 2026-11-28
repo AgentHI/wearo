@@ -125,10 +125,10 @@ from .database import create_database_engine
 from .durable_worker import DurableRenderWorker
 from .email_otp import (
     AuthRealm,
-    EmailDeliveryProvider,
     EmailOtpPolicy,
     EmailOtpService,
     OtpAuthenticationError,
+    VerificationEmailDeliveryProvider,
 )
 from .environment import load_wearo_environment
 from .external_runtime import (
@@ -213,6 +213,9 @@ class ApiProblem(ValueError):
 
 class UnavailableEmailProvider:
     def send_sign_in_code(self, **_: object) -> None:
+        raise ApiProblem(503, "EMAIL_DELIVERY_UNAVAILABLE", "Email delivery is not configured.")
+
+    def send_verification_code(self, **_: object) -> None:
         raise ApiProblem(503, "EMAIL_DELIVERY_UNAVAILABLE", "Email delivery is not configured.")
 
 
@@ -559,6 +562,20 @@ class OwnerContactUpdateBody(BaseModel):
     value: str = Field(min_length=3, max_length=320)
     otp: str = Field(min_length=4, max_length=8)
     reason: str = Field(min_length=1, max_length=500)
+
+
+class OwnerEmailChangeRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_email: str = Field(min_length=3, max_length=320)
+
+
+class OwnerEmailChangeConfirmBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_id: UUID
+    current_email_otp: str = Field(min_length=4, max_length=8)
+    new_email_otp: str = Field(min_length=4, max_length=8)
 
 
 def _problem(status: int, code: str, message: str, request_id: str) -> JSONResponse:
@@ -3610,6 +3627,12 @@ def create_app(
         session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
         if container.business_membership is None:
             raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Owner contacts are unavailable.")
+        if body.channel == "email":
+            raise ApiProblem(
+                409,
+                "DUAL_VERIFICATION_REQUIRED",
+                "Admin email changes require codes from both the current and new emails.",
+            )
         if container.registration_test_otp is None:
             raise ApiProblem(
                 503, "CONTACT_VERIFICATION_UNAVAILABLE", "Verification is unavailable."
@@ -3620,10 +3643,51 @@ def create_app(
         return container.business_membership.update_owner_contacts(
             session.principal_id,
             tenant_id,
-            email=body.value if body.channel == "email" else current["email"],
-            mobile=body.value if body.channel == "mobile" else current["mobile"],
+            email=current["email"],
+            mobile=body.value,
             reason=body.reason,
         )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/owner-email-change/request")
+    def request_owner_email_change(
+        tenant_id: UUID,
+        body: OwnerEmailChangeRequestBody,
+        request: Request,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_membership is None:
+            raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Owner contacts are unavailable.")
+        return container.business_membership.request_owner_email_change(
+            session.principal_id, tenant_id, new_email=body.new_email
+        )
+
+    @app.post("/api/v1/business/tenants/{tenant_id}/owner-email-change/confirm")
+    def confirm_owner_email_change(
+        tenant_id: UUID,
+        body: OwnerEmailChangeConfirmBody,
+        request: Request,
+        response: Response,
+        x_csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    ) -> dict[str, object]:
+        session = _authenticate_business(request, container, mutation=True, csrf_token=x_csrf_token)
+        if container.business_membership is None:
+            raise ApiProblem(503, "MEMBERSHIP_UNAVAILABLE", "Owner contacts are unavailable.")
+        result = container.business_membership.confirm_owner_email_change(
+            session.principal_id,
+            tenant_id,
+            challenge_id=body.challenge_id,
+            current_email_otp=body.current_email_otp,
+            new_email_otp=body.new_email_otp,
+        )
+        response.delete_cookie(
+            BUSINESS_SESSION_COOKIE,
+            path="/",
+            secure=container.secure_cookie,
+            httponly=True,
+            samesite="lax",
+        )
+        return result
 
     @app.patch("/api/v1/business/tenants/{tenant_id}/memberships/{membership_id}")
     def change_business_membership(
@@ -4439,7 +4503,7 @@ def create_app(
     return app
 
 
-def _smtp_provider_from_env() -> EmailDeliveryProvider:
+def _smtp_provider_from_env() -> VerificationEmailDeliveryProvider:
     host = os.environ.get("WEARO_SMTP_HOST", "")
     if not host:
         return UnavailableEmailProvider()
@@ -4534,13 +4598,14 @@ def create_app_from_env() -> FastAPI:
             PostgresQuoteStore(engine),
         )
     blob_store = private_blob_store_from_env()
+    email_provider = _smtp_provider_from_env()
     container = ApiContainer(
         engine=engine,
         otp=EmailOtpService(
             DevelopmentPostgresOtpStore(engine)
             if test_auth_enabled
             else PostgresEmailOtpStore(engine),
-            _smtp_provider_from_env(),
+            email_provider,
             EmailOtpPolicy(),
             pepper=pepper,
             fixed_test_code=fixed_test_code,
@@ -4587,7 +4652,12 @@ def create_app_from_env() -> FastAPI:
         platform_identity=PostgresPlatformIdentity(engine),
         business_onboarding=PostgresBusinessOnboarding(engine),
         business_billing=PostgresBusinessBilling(engine),
-        business_membership=PostgresBusinessMembership(engine),
+        business_membership=PostgresBusinessMembership(
+            engine,
+            email_provider=email_provider,
+            otp_pepper=pepper,
+            fixed_test_code=fixed_test_code,
+        ),
         wallet_billing=PostgresWalletBilling(engine),
         wallet_transactions=PostgresWalletTransactions(engine),
         topups=PostgresTopUps(

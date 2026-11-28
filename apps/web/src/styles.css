@@ -717,12 +717,31 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .environment-badge { display: inline-flex; align-items: center; padding: .28rem .55rem; border: 1px solid #dfe7e2; border-radius: 999px; color: #34614e; background: #f2f8f5; font-size: .7rem; font-weight: 700; }
 .topbar-help { color: #626771; font-size: .8rem; text-decoration: none; }
 .availability-dot { display: inline-block; width: .5rem; height: .5rem; margin-right: .35rem; border-radius: 50%; background: var(--success); }
-.business-user { display: flex; align-items: center; gap: .65rem; }
+.business-user-menu { position: relative; }
+.business-user { display: flex; align-items: center; gap: .65rem; padding: .35rem .45rem; border: 0; border-radius: .55rem; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.business-user:hover,
+.business-user[aria-expanded="true"] { background: #f2edf3; }
 .business-user > span { display: grid; width: 2.1rem; height: 2.1rem; place-items: center; border-radius: 50%; color: white; background: var(--brand-plum); font-size: .7rem; font-weight: 700; }
 .business-user div { display: grid; }
 .business-user small { color: var(--ink-mauve); }
 .business-user strong { font-size: .78rem; }
 .business-user small { font-size: .68rem; }
+.business-user > .business-user__chevron { width: auto; height: auto; margin-left: .15rem; color: var(--ink-mauve); background: transparent; font-size: .8rem; }
+.business-user-options { position: absolute; z-index: 20; top: calc(100% + .45rem); right: 0; width: 13rem; padding: .4rem; border: 1px solid #e0d8e1; border-radius: .65rem; background: white; box-shadow: 0 .8rem 2rem rgb(37 17 41 / 14%); }
+.business-user-options[hidden] { display: none; }
+.business-user-options button { width: 100%; padding: .7rem .75rem; border: 0; border-radius: .4rem; color: var(--brand-aubergine); background: transparent; font: inherit; font-size: .8rem; font-weight: 700; text-align: left; cursor: pointer; }
+.business-user-options button:hover { background: #f4eef5; }
+.owner-email-change-dialog { width: min(calc(100% - 2rem), 34rem); padding: 0; border: 1px solid #dfd3df; border-radius: 1rem; color: var(--ink-charcoal); background: #fffdfd; box-shadow: 0 2rem 6rem rgb(37 17 41 / 35%); }
+.owner-email-change-dialog::backdrop { background: rgb(24 9 28 / 64%); backdrop-filter: blur(4px); }
+.owner-email-change-dialog form { display: grid; gap: 1rem; padding: 1.5rem; }
+.owner-email-change-dialog__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.owner-email-change-dialog__heading h2 { margin: .2rem 0 0; }
+.owner-email-change-dialog__heading button { display: grid; width: 2rem; height: 2rem; place-items: center; padding: 0; border: 0; border-radius: 50%; color: var(--ink-mauve); background: #f2edf3; font-size: 1.25rem; cursor: pointer; }
+.owner-email-change-dialog > form > p { margin: 0; color: var(--ink-mauve); line-height: 1.5; }
+.owner-email-change-dialog fieldset { display: grid; gap: .85rem; margin: 0; padding: 1rem; border: 1px solid #e1d8e2; border-radius: .7rem; }
+.owner-email-change-dialog fieldset[hidden] { display: none; }
+.owner-email-change-dialog legend { padding: 0 .35rem; color: var(--brand-aubergine); font-size: .8rem; font-weight: 700; }
+.owner-email-change-dialog .button { margin: 0; }
 .business-main { width: min(100%, 96rem); margin: auto; padding: 2rem clamp(1.5rem, 3vw, 3rem) 4rem; }
 .advertisement-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .advertisement-editor { display: grid; align-content: start; gap: 1rem; }

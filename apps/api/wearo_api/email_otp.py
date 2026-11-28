@@ -114,6 +114,12 @@ class EmailDeliveryProvider(Protocol):
     ) -> None: ...
 
 
+class VerificationEmailDeliveryProvider(EmailDeliveryProvider, Protocol):
+    def send_verification_code(
+        self, *, to_email: str, code: str, expires_at: datetime, purpose: str
+    ) -> None: ...
+
+
 class SmsDeliveryProvider(Protocol):
     def send_sign_in_code(
         self, *, to_mobile: str, code: str, expires_at: datetime, realm: AuthRealm
