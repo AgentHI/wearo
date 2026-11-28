@@ -141,13 +141,23 @@ def test_advertisement_model_selection_uses_only_promoted_releases() -> None:
     migration_source = migration.read_text()
     cost_lab_api = Path("apps/cost_lab_api/app.py").read_text()
     smart_ads = Path("apps/api/wearo_api/business_smart_ads.py").read_text()
+    cost_lab_ui = Path("packages/cost-lab-ui/src/index.js").read_text()
 
     assert validate_revision(migration) == "20261128_0105"
     assert "ADD COLUMN advertisement_model" in migration_source
     assert "uq_active_advertisement_production_model" in migration_source
     assert '"/api/cost-lab/production-models/advertisement-model"' in cost_lab_api
     assert "r.release_id=:release AND r.retired_at IS NULL" in cost_lab_api
+    assert "information_schema.columns" in cost_lab_api
     assert "WHERE r.advertisement_model AND r.retired_at IS NULL" in smart_ads
+    promoted_view = cost_lab_ui.split("function promotedModelsView()", 1)[1].split(
+        "async function attachFinalChecks", 1
+    )[0]
+    assert promoted_view.index('id="production-model-list"') < promoted_view.index(
+        'id="advertisement-model-picker"'
+    )
+    assert 'aria-label="Save priorities"' in cost_lab_ui
+    assert 'aria-label="Save advertisement model"' in cost_lab_ui
 
 
 def test_smart_ads_schema_and_service_keep_the_feature_separate() -> None:

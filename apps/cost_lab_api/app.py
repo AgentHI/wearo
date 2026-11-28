@@ -2915,6 +2915,18 @@ h1{{margin:0;color:#3b173d;font-family:Georgia,serif;font-size:clamp(1.8rem,4vw,
         body: AdvertisementProductionModelBody, auth: Auth
     ) -> dict[str, Any]:
         with service.engine.begin() as connection:
+            schema_ready = connection.execute(text("""SELECT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='cost_lab'
+                AND table_name='production_model_releases'
+                AND column_name='advertisement_model'
+            )""")).scalar_one()
+            if not schema_ready:
+                raise HTTPException(
+                    503,
+                    "Cost Lab database migration 20261128_0105 must be applied before "
+                    "selecting an advertisement model",
+                )
             selected = connection.execute(
                 text("""SELECT r.release_id,r.model_id,m.name model_name
                 FROM cost_lab.production_model_releases r
