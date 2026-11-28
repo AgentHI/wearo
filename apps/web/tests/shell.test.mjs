@@ -475,9 +475,12 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.doesNotMatch(consumer, /\/me\/account\/\$\{/);
   assert.match(consumer, /profile: \(\) => profileView\(auth\)/);
   const consentFieldset = consumer.match(/<fieldset id="consent-fields"[\s\S]*?<\/fieldset>/)?.[0] ?? "";
-  assert.equal(consentFieldset.match(/type="checkbox"/g)?.length, 2);
+  const profileForm = consumer.match(/<form id="profile-form"[\s\S]*?<\/form>/)?.[0] ?? "";
+  assert.equal(consentFieldset.match(/type="checkbox"/g)?.length, 1);
+  assert.equal(profileForm.match(/type="checkbox"/g)?.length, 2);
   assert.match(consumer, /name="general_consent"/);
   assert.match(consumer, /name="marketing"[^>]*data-optional-consent/);
+  assert.match(profileForm, /id="consent-fields"[\s\S]*?name="marketing"[\s\S]*?id="save-profile"/);
   assert.doesNotMatch(consumer, /name="(?:adult|permission|transform|retention|training)"/);
   assert.match(consumer, /adult_confirmed: form\.elements\.general_consent\.checked/);
   assert.match(consumer, /Future collections and offers/);
@@ -594,7 +597,7 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.photo-picker-dialog/);
   assert.match(css, /\.profile-library__grid/);
   assert.match(css, /\.profile-title h1[^}]*font-size:\s*1\.75rem/s);
-  assert.match(css, /\.profile-photo-slot[^}]*grid-template-rows:\s*12rem\s+9\.5rem\s+auto/s);
+  assert.match(css, /\.profile-photo-slot[^}]*grid-template-rows:\s*12rem\s+auto\s+auto/s);
   assert.match(css, /\.profile-photo-card \.person-preview[^}]*height:\s*12rem/s);
   assert.match(css, /\.profile-photo-card \.person-preview img[^}]*object-fit:\s*contain\s*!important/s);
   assert.match(css, /\.profile-photo-card \.person-preview img[^}]*width:\s*auto\s*!important[^}]*height:\s*auto\s*!important/s);
@@ -604,6 +607,9 @@ test("consumer PWA preserves profile, consent, item, and live render flow", () =
   assert.match(css, /\.photo-picker-option > img[^}]*object-fit:\s*contain/s);
   assert.match(css, /\.profile-photo-grid/);
   assert.match(css, /\.profile-camera-button/);
+  assert.match(css, /@media \(max-width:\s*28rem\)[\s\S]*?\.profile-photo-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /@media \(max-width:\s*28rem\)[\s\S]*?\.profile-photo-card \.person-preview\s*\{[^}]*height:\s*7\.5rem/s);
+  assert.match(consumer, /<fieldset id="consent-fields"[\s\S]*?<div id="optional-consent"[\s\S]*?<button id="save-profile"[\s\S]*?<section class="consumer-card profile-extras-card">/);
   assert.match(css, /\.wearable-source-actions/);
   assert.match(css, /\.camera-dialog/);
   assert.match(consumer, /aria-live="polite"/);

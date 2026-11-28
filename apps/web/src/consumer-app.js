@@ -411,27 +411,44 @@ function profileView(auth) {
         <div class="profile-photo-grid">
           <div class="profile-photo-slot">
             <div id="full-body-preview" class="person-preview"><span aria-hidden="true">◎</span><strong>${setup ? "Add a full-body photo" : "Loading…"}</strong></div>
-            <label class="upload-zone">Full-body photo ${setup ? "(optional if adding close-up)" : "(optional replacement)"}
-              <input name="full_body" type="file" accept="image/jpeg,image/png,image/webp" />
-              <small>Best for shirts, jeans, sarees, blouses and full outfits</small>
-            </label>
-            <button class="profile-camera-button" type="button" data-profile-camera="full_body">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
-              Take full-body photo
-            </button>
+            <div class="profile-photo-slot__copy"><strong>Full-body photo</strong><small>Best for clothing and full outfits</small></div>
+            <div class="profile-photo-actions">
+              <label class="profile-upload-button">
+                <input name="full_body" type="file" accept="image/jpeg,image/png,image/webp" />
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m-4 4 4-4 4 4"/><path d="M5 14v5h14v-5"/></svg>
+                Upload
+              </label>
+              <button class="profile-camera-button" type="button" data-profile-camera="full_body" aria-label="Take full-body photo">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                <span>Camera</span>
+              </button>
+            </div>
           </div>
           <div class="profile-photo-slot">
             <div id="close-up-preview" class="person-preview"><span aria-hidden="true">◇</span><strong>Add a close-up photo</strong></div>
-            <label class="upload-zone">Close-up face photo ${setup ? "(optional if adding full-body)" : "(optional replacement)"}
-              <input name="close_up" type="file" accept="image/jpeg,image/png,image/webp" />
-              <small>Best for necklaces, earrings and face-level accessories</small>
-            </label>
-            <button class="profile-camera-button" type="button" data-profile-camera="close_up">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
-              Take close-up photo
-            </button>
+            <div class="profile-photo-slot__copy"><strong>Close-up face photo</strong><small>Best for face-level accessories</small></div>
+            <div class="profile-photo-actions">
+              <label class="profile-upload-button">
+                <input name="close_up" type="file" accept="image/jpeg,image/png,image/webp" />
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m-4 4 4-4 4 4"/><path d="M5 14v5h14v-5"/></svg>
+                Upload
+              </label>
+              <button class="profile-camera-button" type="button" data-profile-camera="close_up" aria-label="Take close-up photo">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                <span>Camera</span>
+              </button>
+            </div>
           </div>
         </div>
+      </section>
+      <fieldset id="consent-fields" class="consent-card consent-card--required" ${setup ? "" : "hidden"}>
+        <legend>Required photo consent</legend>
+        <label class="check"><input name="general_consent" type="checkbox" /> <span><strong>I agree and confirm</strong><small>I am at least 18, own or have permission to use this photo, and consent to AI transformation for virtual try-on. I understand profile and 30-day image retention, and that my images are not authorised for model training.</small></span></label>
+      </fieldset>
+      <div id="optional-consent" class="consent-card__optional profile-optional-consent" ${setup ? "" : "hidden"}><span>Optional</span><label class="check"><input name="marketing" type="checkbox" data-optional-consent /> <span><strong>Future collections and offers</strong><small>Send me new collection items and offers ${shopContext ? "from this store" : "from Wearo.ai"} by email.</small></span></label><small>You can create your profile and use virtual try-on without agreeing.</small></div>
+      <button id="save-profile" class="button button--primary button--full profile-save-button" type="submit">${setup ? "Save photos and continue" : "Save photo changes"}</button>
+      <p id="profile-status" class="form-status status-panel" role="status" aria-live="polite"></p>
+      <section class="consumer-card profile-extras-card">
         <div class="profile-library">
           <div class="profile-library__heading">
             <div><strong>Your photo library</strong><small id="profile-photo-count">0 of 10 photos</small></div>
@@ -446,13 +463,6 @@ function profileView(auth) {
         </div>
         <p class="field-help profile-library__note">Up to 10 JPEG, PNG or WebP photos · 7 MB maximum each · Private visual guidance only, never used for sizing or measurements.</p>
       </section>
-      <fieldset id="consent-fields" class="consent-card" ${setup ? "" : "hidden"}>
-        <legend>Photo consent</legend>
-        <label class="check"><input name="general_consent" type="checkbox" /> <span><strong>General consent</strong><small>I confirm I am at least 18, own or have permission to use this photo, and consent to AI transformation for virtual try-on. I understand profile and 30-day image retention, and that my images are not authorised for model training.</small></span></label>
-        <div class="consent-card__optional"><span>Optional</span><label class="check"><input name="marketing" type="checkbox" data-optional-consent /> <span><strong>Future collections and offers</strong><small>Send me new collection items and offers ${shopContext ? "from this store" : "from Wearo.ai"} by email.</small></span></label><small>You can create your profile and use virtual try-on without agreeing.</small></div>
-      </fieldset>
-      <button id="save-profile" class="button button--primary button--full" type="submit">${setup ? "Save profile and continue" : "Save profile changes"}</button>
-      <p id="profile-status" class="form-status status-panel" role="status" aria-live="polite"></p>
     </form>
     <dialog id="profile-camera-dialog" class="camera-dialog" aria-labelledby="profile-camera-title">
       <div class="camera-dialog__panel">
@@ -1206,6 +1216,7 @@ function attachProfileFlow(auth) {
   const closeUpInput = form.elements.namedItem("close_up");
   const additionalPhotosInput = form.elements.namedItem("additional_photos");
   const consentFields = document.querySelector("#consent-fields");
+  const optionalConsent = document.querySelector("#optional-consent");
   const fullBodyPreview = document.querySelector("#full-body-preview");
   const closeUpPreview = document.querySelector("#close-up-preview");
   const submit = document.querySelector("#save-profile");
@@ -1265,6 +1276,7 @@ function attachProfileFlow(auth) {
 
   const setConsentRequired = (required) => {
     consentFields.hidden = !required;
+    optionalConsent.hidden = !required;
     for (const checkbox of consentFields.querySelectorAll('input[type="checkbox"]')) {
       checkbox.required = required && !checkbox.hasAttribute("data-optional-consent");
     }
