@@ -9,6 +9,7 @@ const ADMIN_SECTIONS = [
   { slug: "support", label: "Support", icon: "?", description: "Find customers, inspect payment status, and add audited token credits." },
   { slug: "enquiries", label: "Enquiries", icon: "✦", description: "Review business enquiries submitted through the public contact page." },
   { slug: "customers-subscriptions", label: "Subscriptions", icon: "◎", description: "Manage plans, trials, billing status, cancellations, and renewals." },
+  { slug: "payments", label: "Payments", icon: "₹", description: "Review B2C and B2B collections, payment outcomes, and transaction reports." },
   { slug: "billing-pricing", label: "Billing & Pricing", icon: "₹", description: "Review platform billing and pricing configuration." },
   { slug: "notifications", label: "Notifications", icon: "✉", description: "Create and publish Email, SMS, and WhatsApp communication templates." },
   { slug: "platform-operations", label: "Platform Operations", icon: "⚙", description: "Monitor the services that operate Wearo." },
@@ -93,12 +94,36 @@ function customerDashboardView() {
     <div id="admin-customer-list" class="admin-data-panel" aria-live="polite">Loading subscriptions…</div>`;
 }
 
+function paymentAudience(pathname) {
+  return pathname.split("/")[3]?.toLowerCase() === "b2b" ? "b2b" : "b2c";
+}
+
+function paymentsView(pathname) {
+  const audience = paymentAudience(pathname);
+  const title = audience === "b2c" ? "B2C payments" : "B2B payments";
+  const description = audience === "b2c"
+    ? "Consumer package purchases and the tokens credited after successful payment."
+    : "Business token-package collections, invoices, and the tokens credited to organizations.";
+  const metricLabels = ["Total collected", "Successful payments", "Pending payments", "Failed / refunded", "Average payment", "Tokens credited"];
+  return `<section class="admin-payments" data-payment-audience="${audience}">
+    <nav class="admin-payment-tabs" aria-label="Payment audience"><a class="admin-route-link" href="/admin/payments/b2c" ${audience === "b2c" ? 'aria-current="page"' : ""}>B2C payments</a><a class="admin-route-link" href="/admin/payments/b2b" ${audience === "b2b" ? 'aria-current="page"' : ""}>B2B payments</a></nav>
+    <div class="admin-section-heading admin-payment-heading"><div><p class="eyebrow">Payment reports</p><h2>${title}</h2><p>${description}</p></div><span id="admin-payment-period-label">Today</span></div>
+    <form id="admin-payment-report-filter" class="admin-dashboard-filters">
+      <fieldset><legend>Date range</legend><div class="admin-period-options"><label><input type="radio" name="period" value="today" checked /> Today</label><label><input type="radio" name="period" value="week" /> Last 7 Days</label><label><input type="radio" name="period" value="month" /> This Month</label><label><input type="radio" name="period" value="custom" /> Custom</label></div></fieldset>
+      <div id="admin-payment-custom-dates" class="admin-custom-dates" hidden><label>From<input name="dateFrom" type="date" /></label><label>To<input name="dateTo" type="date" /></label></div>
+      <label>Payment status<select name="status"><option value="">All payments</option><option value="PAID">Paid</option><option value="PENDING">Pending</option>${audience === "b2b" ? '<option value="OVERDUE">Overdue</option>' : ""}<option value="FAILED">Failed</option><option value="REFUNDED">Refunded</option></select></label>
+      <button class="button button--primary" type="submit">Apply filters</button>
+    </form>
+    <div id="admin-payment-report-summary" class="admin-stat-grid admin-payment-summary" aria-live="polite">${metricLabels.map((label) => `<article class="is-loading"><span>${label}</span><strong>—</strong><small>Loading report</small></article>`).join("")}</div>
+    <section class="admin-payment-transactions"><div class="admin-section-heading"><div><p class="eyebrow">Transactions</p><h2>Payment activity</h2></div><span>Latest payment activity in the selected period</span></div><div id="admin-payment-report-list" class="admin-data-panel" aria-live="polite"><div class="admin-loading-state"><span></span><strong>Loading payments</strong></div></div></section>
+  </section>`;
+}
+
 function pricingSettingsView() {
   const businessTypes = '<option value="">All business types</option><option value="BOUTIQUE">Boutique</option><option value="CLOTHING_RETAILER">Clothing retailer</option><option value="JEWELLERY_RETAILER">Jewellery retailer</option><option value="ENTERPRISE_CHAIN">Enterprise chain</option><option value="OTHER">Other</option>';
   return `<section class="admin-data-panel admin-retail-pricing"><div><p class="eyebrow">Website price</p><h2>Publish retail try-on price</h2><p>Set the rupee price shown in B2C and B2B. This does not change existing action rates, wallets, plans, packages, or past transactions.</p></div><form id="retail-tryon-price-form"><label>Price per try-on (INR)<input name="price" type="number" min="0.20" max="100000" step="0.20" required placeholder="3.00" /></label><div class="admin-retail-pricing__preview"><small>Automatic conversion</small><strong id="retail-token-preview">Enter a price</strong><span>(price × 10) ÷ 2</span></div><label>Reason for publishing<input name="reason" required maxlength="500" placeholder="Approved retail price" /></label><button class="button button--primary">Publish website price</button><p class="form-status" role="status" aria-live="polite"></p></form><div id="admin-retail-pricing-current" class="admin-retail-pricing__current" aria-live="polite">Loading current website price…</div></section>
   <section class="admin-data-panel admin-retail-package"><div><p class="eyebrow">B2C packages</p><h2 id="retail-package-form-title">Create try-on package</h2><p>The package receives 5 tokens for every ₹1 before tax. Estimated try-ons use the currently published tokens-per-try-on rate.</p></div><form id="retail-tryon-package-form"><label>Package name<input name="name" required maxlength="80" placeholder="Starter" /></label><label>Minimum amount before tax (INR)<input name="amount" type="number" min="0.20" max="10000000" step="0.20" required placeholder="100.00" /></label><label>GST rate (%)<input name="gst" type="number" min="0" max="100" step="0.01" value="18" required /></label><div class="admin-retail-pricing__preview"><small>Automatic package calculation</small><strong id="retail-package-preview">Enter a minimum amount</strong><span>5 tokens per ₹1 before tax · try-ons use the published token rate</span></div><label>Reason for change<input name="reason" required maxlength="500" placeholder="Approved B2C package" /></label><div class="form-actions"><button id="retail-package-submit" class="button button--primary admin-action-with-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Create package</span></button><button id="retail-package-cancel-edit" class="button button--quiet admin-action-with-icon" type="button" hidden><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg><span>Cancel edit</span></button></div><p class="form-status" role="status" aria-live="polite"></p></form><div id="admin-retail-package-list" class="admin-retail-pricing__current" aria-live="polite">Loading packages…</div></section>
   <section class="admin-revenue-dashboard"><h2>Platform revenue</h2><form id="admin-revenue-filter" class="admin-filters"><label>From<input name="dateFrom" type="date" required /></label><label>To<input name="dateTo" type="date" required /></label><label>Organization<select name="tenantId"><option value="">All organizations</option></select></label><button class="button button--primary">Apply filters</button></form><div id="admin-revenue-metrics" class="admin-platform-metrics" aria-live="polite">Loading revenue…</div><p class="field-help">Received revenue includes completed payments only. Pending collections are shown separately. Estimated AI cost and margin use the configured cost per generation attempt; actual recorded provider costs are shown independently.</p></section>
-  <section class="admin-payment-management"><h2>Billing and payments</h2><div id="admin-payment-summary" class="admin-stat-grid" aria-live="polite"></div><form id="admin-payment-filter" class="admin-filters"><label>Payment status<select name="status"><option value="">All payments</option><option>PAID</option><option>PENDING</option><option>FAILED</option><option>OVERDUE</option></select></label><button class="button button--primary">Apply filter</button></form><div id="admin-payment-list" class="admin-data-panel" aria-live="polite">Loading payments…</div></section>
   <div class="admin-pricing-grid"><form id="pricing-settings-form" class="admin-data-panel"><h2>Platform subscription pricing</h2><label>Plan code<input name="planCode" required maxlength="40" /></label><label>Business type<select name="businessType">${businessTypes}</select></label><label>Monthly fee (INR)<input name="monthlyFee" type="number" min="0" step="0.01" required /></label><label>Tokens per try-on<input name="tryOnCost" type="number" min="1" required /></label><label>Free trial tokens<input name="trialTokens" type="number" min="0" required /></label><label>Trial duration (days)<input name="trialDays" type="number" min="1" max="365" required /></label><label>Payment grace period (days)<input name="graceDays" type="number" min="0" max="90" required /></label><label>GST / tax rate (%)<input name="gst" type="number" min="0" max="100" step="0.01" required /></label><label>Reason for pricing change<input name="reason" required maxlength="500" /></label><button class="button button--primary">Publish pricing</button><p class="form-status" role="status"></p></form>
   <form id="token-package-form" class="admin-data-panel"><h2>Create or replace token package</h2><label>Package code<input name="code" required maxlength="40" /></label><label>Business type<select name="businessType">${businessTypes}</select></label><label>Purchased tokens<input name="purchased" type="number" min="1" required /></label><label>Bonus tokens<input name="promo" type="number" min="0" required /></label><label>Package price (INR)<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>Bulk discount (%)<input name="discount" type="number" min="0" max="100" step="0.01" required /></label><label>GST / tax rate (%)<input name="gst" type="number" min="0" max="100" step="0.01" required /></label><label>Reason for package change<input name="reason" required maxlength="500" /></label><button class="button button--primary">Publish package</button><p class="form-status" role="status"></p></form></div><section class="admin-pricing-current"><h2>Current pricing</h2><div id="admin-pricing-current" class="admin-data-panel">Loading pricing…</div></section>`;
 }
@@ -145,6 +170,7 @@ function sectionContent(active, pathname) {
   if (active.slug === "support") return supportView();
   if (active.slug === "enquiries") return enquiriesView();
   if (active.slug === "customers-subscriptions") return customerDashboardView();
+  if (active.slug === "payments") return paymentsView(pathname);
   if (active.slug === "billing-pricing") return pricingSettingsView();
   if (active.slug === "notifications") return notificationsView();
   if (active.slug === "platform-operations") return tryOnOperationsView();
@@ -657,17 +683,6 @@ function attachPricingControls(root) {
   };
   fetch(`${API_ROOT}/admin/organizations`, { credentials: "same-origin" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) revenueForm.elements.tenantId.insertAdjacentHTML("beforeend", data.organizations.map((organization) => `<option value="${escapeHtml(organization.tenant_id)}">${escapeHtml(organization.organization_name)}</option>`).join("")); });
   revenueForm.addEventListener("submit", (event) => { event.preventDefault(); loadRevenue(); });
-  const loadPayments = async (status = "") => {
-    const list = root.querySelector("#admin-payment-list");
-    const response = await fetch(`${API_ROOT}/admin/billing${status ? `?status=${encodeURIComponent(status)}` : ""}`, { credentials: "same-origin" });
-    if (response.status === 401) return redirect("/admin");
-    if (!response.ok) return void (list.textContent = "Payments could not be loaded.");
-    const data = await response.json();
-    root.querySelector("#admin-payment-summary").innerHTML = `<article><span>Transactions</span><strong>${data.summary.transactions}</strong></article><article><span>Outstanding payments</span><strong>${data.summary.outstanding}</strong></article><article><span>Overdue payments</span><strong>${data.summary.overdue}</strong></article><article><span>Outstanding value</span><strong>₹${(Number(data.summary.outstanding_minor) / 100).toFixed(2)}</strong></article>`;
-    list.innerHTML = data.items.length ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Organization</th><th>Status</th><th>Invoice / payment</th><th>Subtotal</th><th>Tax</th><th>Total payable</th><th>Payment date</th><th>Billing details</th></tr></thead><tbody>${data.items.map((item) => `<tr><td>${escapeHtml(item.organization_name)}</td><td><span class="admin-status">${escapeHtml(displayEnum(item.payment_status))}</span></td><td>${item.invoice_id ? `<a href="${API_ROOT}/admin/billing/invoices/${encodeURIComponent(item.invoice_id)}.txt">${escapeHtml(item.invoice_number)}</a>` : escapeHtml(item.provider_payment_id || "Awaiting payment")}</td><td>₹${(Number(item.subtotal_minor ?? item.amount_minor) / 100).toFixed(2)}</td><td>₹${(Number(item.tax_minor || 0) / 100).toFixed(2)}</td><td>₹${(Number(item.total_payable_minor) / 100).toFixed(2)}</td><td>${item.payment_date ? escapeHtml(new Date(item.payment_date).toLocaleDateString()) : "—"}</td><td>${escapeHtml(item.legal_name)}<br>${escapeHtml(item.billing_email)}<br>GSTIN: ${escapeHtml(item.gstin || "Not provided")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="admin-empty">No payments match this status.</p>';
-  };
-  const paymentFilter = root.querySelector("#admin-payment-filter");
-  paymentFilter?.addEventListener("submit", (event) => { event.preventDefault(); loadPayments(new FormData(paymentFilter).get("status")); });
   const postPricing = async (form, path, body) => {
     const status = form.querySelector(".form-status");
     const response = await fetch(`${API_ROOT}/admin/pricing/${path}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -681,7 +696,6 @@ function attachPricingControls(root) {
   packages?.addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(packages); postPricing(packages, "token-packages", { code: data.get("code"), business_type: data.get("businessType") || null, purchased_tokens: Number(data.get("purchased")), promo_tokens: Number(data.get("promo")), amount_minor: Math.round(Number(data.get("amount")) * 100), discount_basis_points: Math.round(Number(data.get("discount")) * 100), gst_basis_points: Math.round(Number(data.get("gst")) * 100), reason: data.get("reason") }); });
   loadPricing(root);
   loadRetailPrice();
-  loadPayments();
   loadRevenue();
 }
 
@@ -867,6 +881,82 @@ function dashboardDateRange(period, form) {
   return { from: isoDate(from), to: isoDate(today) };
 }
 
+function paymentMoney(minor) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(minor || 0) / 100);
+}
+
+function renderPaymentReport(root, data) {
+  const summary = data.summary;
+  const audience = data.audience.toLowerCase();
+  const cards = [
+    ["Total collected", paymentMoney(summary.collected_minor), `${summary.transactions} total transactions`],
+    ["Successful payments", Number(summary.paid).toLocaleString("en-IN"), "Gateway-confirmed payments"],
+    ["Pending payments", Number(summary.pending).toLocaleString("en-IN"), audience === "b2b" ? `${summary.overdue} overdue` : "Awaiting confirmation"],
+    ["Failed / refunded", `${summary.failed} / ${summary.refunded}`, `${paymentMoney(summary.refunded_minor)} refunded`],
+    ["Average payment", paymentMoney(summary.average_payment_minor), "Across successful payments"],
+    ["Tokens credited", Number(summary.tokens_credited).toLocaleString("en-IN"), "Credited after confirmation"],
+  ];
+  root.querySelector("#admin-payment-report-summary").innerHTML = cards.map(([label, value, detail]) => `<article><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  const list = root.querySelector("#admin-payment-report-list");
+  if (!data.items.length) {
+    list.innerHTML = '<p class="admin-empty">No payments match this reporting period and status.</p>';
+    return;
+  }
+  const counterparty = audience === "b2c" ? "Consumer" : "Business";
+  list.innerHTML = `<div class="admin-table-wrap"><table class="admin-table admin-payment-table"><thead><tr><th>${counterparty}</th><th>Package / type</th><th>Status</th><th>Amount</th><th>Tokens</th><th>Receipt / invoice</th><th>Created</th><th>Paid / refunded</th></tr></thead><tbody>${data.items.map((item) => {
+    const reference = item.invoice_id
+      ? `<a href="${API_ROOT}/admin/billing/invoices/${encodeURIComponent(item.invoice_id)}.txt">${escapeHtml(item.invoice_number)}</a>`
+      : escapeHtml(item.receipt_number || item.provider_payment_id || item.provider_order_id || "Awaiting payment");
+    const tokenDetail = item.payment_status === "REFUNDED" ? `${Number(item.tokens_reversed || 0).toLocaleString("en-IN")} reversed` : Number(item.tokens_credited || item.ordered_tokens || 0).toLocaleString("en-IN");
+    const completedAt = item.refunded_at || item.paid_at;
+    return `<tr><td><strong>${escapeHtml(item.customer_name)}</strong><small>${escapeHtml(item.payment_order_id)}</small></td><td>${escapeHtml(item.package_name)}<small>${escapeHtml(displayEnum(item.revenue_type))}</small></td><td><span class="admin-status admin-status--${escapeHtml(item.payment_status.toLowerCase())}">${escapeHtml(displayEnum(item.payment_status))}</span></td><td><strong>${escapeHtml(paymentMoney(item.amount_minor))}</strong>${item.tax_minor != null ? `<small>Tax ${escapeHtml(paymentMoney(item.tax_minor))}</small>` : ""}</td><td>${escapeHtml(tokenDetail)}</td><td>${reference}</td><td>${escapeHtml(new Date(item.created_at).toLocaleString())}</td><td>${completedAt ? escapeHtml(new Date(completedAt).toLocaleString()) : "—"}</td></tr>`;
+  }).join("")}</tbody></table></div>`;
+}
+
+async function loadPaymentReport(root) {
+  const form = root.querySelector("#admin-payment-report-filter");
+  const summary = root.querySelector("#admin-payment-report-summary");
+  const list = root.querySelector("#admin-payment-report-list");
+  const period = new FormData(form).get("period");
+  const range = dashboardDateRange(period, form);
+  if (!range.from || !range.to) {
+    list.innerHTML = '<div class="admin-error-state admin-error-state--compact"><strong>Choose both custom dates.</strong></div>';
+    return;
+  }
+  const audience = root.querySelector(".admin-payments").dataset.paymentAudience;
+  const parameters = new URLSearchParams({ date_from: range.from, date_to: range.to });
+  if (form.elements.status.value) parameters.set("status", form.elements.status.value);
+  summary.querySelectorAll("article").forEach((card) => card.classList.add("is-loading"));
+  list.innerHTML = '<div class="admin-loading-state"><span></span><strong>Loading payments</strong></div>';
+  const response = await fetch(`${API_ROOT}/admin/payments/${audience}?${parameters}`, { credentials: "same-origin" });
+  if (response.status === 401) return redirect("/admin");
+  const data = await response.json();
+  if (!response.ok) {
+    summary.innerHTML = `<div class="admin-error-state"><strong>Payment summary is unavailable</strong><p>${escapeHtml(data.message || "Try this report again.")}</p></div>`;
+    list.innerHTML = '<p class="admin-empty">Transactions could not be loaded.</p>';
+    return;
+  }
+  root.querySelector("#admin-payment-period-label").textContent = `${new Date(`${range.from}T00:00:00`).toLocaleDateString()} – ${new Date(`${range.to}T00:00:00`).toLocaleDateString()}`;
+  renderPaymentReport(root, data);
+}
+
+function attachPaymentControls(root) {
+  const form = root.querySelector("#admin-payment-report-filter");
+  if (!form) return;
+  const today = isoDate(new Date());
+  form.elements.dateFrom.value = today;
+  form.elements.dateTo.value = today;
+  form.addEventListener("change", (event) => {
+    if (event.target.name !== "period") return;
+    const custom = event.target.value === "custom";
+    root.querySelector("#admin-payment-custom-dates").hidden = !custom;
+    form.elements.dateFrom.required = custom;
+    form.elements.dateTo.required = custom;
+  });
+  form.addEventListener("submit", (event) => { event.preventDefault(); loadPaymentReport(root); });
+  loadPaymentReport(root);
+}
+
 async function loadPlatformDashboard(root) {
   const form = root.querySelector("#admin-dashboard-filters");
   const metrics = root.querySelector("#admin-platform-metrics");
@@ -948,7 +1038,11 @@ async function attachDashboardControls(root) {
 
 function adminHomeView(pathname) {
   const active = adminSection(pathname);
-  const navigation = ADMIN_SECTIONS.map((section) => `<a href="/admin/${section.slug}" ${section.slug === active.slug ? 'aria-current="page"' : ""}><span aria-hidden="true">${section.icon}</span><span>${section.label}</span></a>`).join("");
+  const navigation = ADMIN_SECTIONS.map((section) => {
+    if (section.slug !== "payments") return `<a href="/admin/${section.slug}" ${section.slug === active.slug ? 'aria-current="page"' : ""}><span aria-hidden="true">${section.icon}</span><span>${section.label}</span></a>`;
+    const audience = paymentAudience(pathname);
+    return `<div class="admin-navigation__group ${active.slug === "payments" ? "is-active" : ""}"><a href="/admin/payments/b2c" ${active.slug === "payments" ? 'data-section-active="true"' : ""}><span aria-hidden="true">${section.icon}</span><span>${section.label}</span><span class="admin-navigation__chevron" aria-hidden="true">⌄</span></a><div class="admin-navigation__submenu"><a href="/admin/payments/b2c" ${active.slug === "payments" && audience === "b2c" ? 'aria-current="page"' : ""}>B2C payments</a><a href="/admin/payments/b2b" ${active.slug === "payments" && audience === "b2b" ? 'aria-current="page"' : ""}>B2B payments</a></div></div>`;
+  }).join("");
   return `<div class="business-app admin-app">
     <aside class="business-sidebar admin-sidebar">
       <div class="business-sidebar__brand admin-sidebar__brand"><a class="brand-white-bg" href="/admin/dashboard"><img src="/wearo-brand_white_bg.png?v=20261108-white-2" alt="Wearo.ai" /></a><span>Admin</span></div>
@@ -1198,7 +1292,7 @@ function attachSupport(root) {
 
 function renderAuthenticatedSection(root, pathname) {
   root.innerHTML = adminHomeView(pathname);
-  root.querySelectorAll(".admin-navigation a, .admin-sidebar__brand a").forEach((link) => {
+  root.querySelectorAll(".admin-navigation a, .admin-sidebar__brand a, .admin-route-link").forEach((link) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
       const target = link.getAttribute("href");
@@ -1217,6 +1311,7 @@ function renderAuthenticatedSection(root, pathname) {
   if (adminSection(pathname).slug === "realtime") attachRealtimeDashboard(root);
   if (adminSection(pathname).slug === "ai-models-cost") attachAiCostDashboard(root);
   if (adminSection(pathname).slug === "customers-subscriptions") attachCustomerControls(root);
+  if (adminSection(pathname).slug === "payments") attachPaymentControls(root);
   if (adminSection(pathname).slug === "billing-pricing") attachPricingControls(root);
   if (adminSection(pathname).slug === "notifications") attachNotificationControls(root);
   if (adminSection(pathname).slug === "platform-operations") attachTryOnOperations(root);

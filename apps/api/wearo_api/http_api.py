@@ -1848,6 +1848,25 @@ def create_app(
         except AdminBillingError as error:
             raise ApiProblem(422, "INVALID_PAYMENT_FILTER", str(error)) from None
 
+    @app.get("/api/v1/admin/payments/{audience}")
+    def admin_payment_report(
+        request: Request,
+        audience: str,
+        date_from: date,
+        date_to: date,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        require_platform_admin(request)
+        try:
+            return admin_billing.report(
+                audience=audience,
+                date_from=date_from,
+                date_to=date_to,
+                status=status,
+            )
+        except AdminBillingError as error:
+            raise ApiProblem(422, "INVALID_PAYMENT_FILTER", str(error)) from None
+
     @app.get("/api/v1/admin/revenue")
     def admin_revenue_metrics(
         request: Request, date_from: date, date_to: date, tenant_id: UUID | None = None

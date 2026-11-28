@@ -2235,7 +2235,15 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-navigation a { display: flex; min-height: 42px; align-items: center; gap: .75rem; padding: .6rem .75rem; border-radius: .45rem; color: rgb(255 255 255 / 68%); font-size: .875rem; text-decoration: none; }
 .admin-navigation a:hover { background: rgb(255 255 255 / 9%); }
 .admin-navigation a[aria-current="page"] { color: white; background: rgb(255 255 255 / 12%); box-shadow: inset 3px 0 var(--brand-gold); font-weight: 700; }
+.admin-navigation a[data-section-active="true"] { color: white; font-weight: 700; }
 .admin-navigation a > span:first-child { width: 1.2rem; font-size: 1.1rem; text-align: center; }
+.admin-navigation__group { display: grid; gap: .15rem; }
+.admin-navigation__chevron { margin-left: auto; transition: transform .2s ease; }
+.admin-navigation__group.is-active .admin-navigation__chevron { transform: rotate(180deg); }
+.admin-navigation__submenu { display: none; gap: .1rem; margin: 0 0 .3rem 2rem; padding-left: .55rem; border-left: 1px solid rgb(255 255 255 / 18%); }
+.admin-navigation__group.is-active .admin-navigation__submenu { display: grid; }
+.admin-navigation__submenu a { min-height: 34px; padding: .4rem .65rem; font-size: .78rem; }
+.admin-navigation__submenu a[aria-current="page"] { box-shadow: none; color: #f3d595; background: rgb(255 255 255 / 7%); }
 .admin-identity { display: none; align-items: center; gap: .7rem; margin-top: auto; padding-top: 1rem; border-top: 1px solid rgb(255 255 255 / 16%); }
 .admin-identity__avatar { display: grid; width: 2.5rem; height: 2.5rem; flex: 0 0 auto; place-items: center; border-radius: 50%; color: var(--brand-aubergine); background: var(--brand-gold); font-weight: 700; }
 .admin-identity strong, .admin-identity small { display: block; }
@@ -2281,6 +2289,9 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-status--active { color: #225b43; background: #e0f1e9; }
 .admin-status--paused { color: #795714; background: #fff0c9; }
 .admin-status--cancelled, .admin-status--closed, .admin-status--suspended { color: #822b38; background: #f8e3e6; }
+.admin-status--paid { color: #225b43; background: #e0f1e9; }
+.admin-status--pending, .admin-status--overdue { color: #795714; background: #fff0c9; }
+.admin-status--failed, .admin-status--refunded { color: #822b38; background: #f8e3e6; }
 .admin-empty { margin: 2rem; color: var(--ink-mauve); text-align: center; }
 .admin-data-panel h2 { margin-top: 1.5rem; }
 .admin-detail-grid { display: grid; gap: 1rem; margin: 1.5rem 0 0; }
@@ -2301,6 +2312,21 @@ input:focus, select:focus { border-color: var(--brand-plum); outline: 3px solid 
 .admin-period-options input { min-height: auto; width: auto; accent-color: var(--brand-plum); }
 .admin-custom-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
 .admin-dashboard-filters .button { align-self: end; margin: 0; }
+.admin-payment-tabs { display: inline-flex; gap: .3rem; margin-top: 1.5rem; padding: .3rem; border: 1px solid var(--border-mauve); border-radius: .75rem; background: white; }
+.admin-payment-tabs a { min-width: 8rem; padding: .65rem 1rem; border-radius: .55rem; color: var(--ink-mauve); font-size: .82rem; font-weight: 700; text-align: center; text-decoration: none; }
+.admin-payment-tabs a[aria-current="page"] { color: white; background: var(--brand-plum); box-shadow: 0 .35rem .8rem rgb(59 23 70 / 18%); }
+.admin-payment-heading { align-items: start; margin-top: 1.5rem; }
+.admin-payment-heading h2 { margin: .2rem 0; }
+.admin-payment-heading p:not(.eyebrow) { margin: 0; color: var(--ink-mauve); }
+.admin-payment-heading > span { padding: .35rem .65rem; border-radius: 99rem; background: var(--state-lilac); }
+.admin-payment-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 1rem; }
+.admin-payment-summary article { position: relative; overflow: hidden; }
+.admin-payment-summary article::before { position: absolute; top: 0; left: 0; width: .22rem; height: 100%; background: linear-gradient(var(--brand-gold), var(--brand-plum)); content: ""; }
+.admin-payment-summary small { display: block; margin-top: .55rem; color: #918793; font-size: .7rem; }
+.admin-payment-summary .is-loading { opacity: .7; }
+.admin-payment-transactions { margin-top: 2rem; }
+.admin-payment-table td { vertical-align: top; }
+.admin-payment-table td small { display: block; max-width: 16rem; margin-top: .25rem; overflow: hidden; color: var(--ink-mauve); font-size: .66rem; text-overflow: ellipsis; }
 .admin-platform-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
 .admin-platform-metrics article { min-height: 9rem; padding: 1.25rem; border: 1px solid #e5e0e6; border-radius: 1rem; background: white; box-shadow: 0 .4rem 1.4rem rgb(37 17 41 / 6%); }
 .admin-platform-metrics span, .admin-platform-metrics strong { display: block; }

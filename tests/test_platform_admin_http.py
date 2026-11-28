@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, cast
 from uuid import uuid4
 
@@ -145,6 +146,32 @@ class FakeAdminRevenue:
         }
 
 
+class FakeAdminBilling:
+    def report(self, **values: object) -> dict[str, object]:
+        assert values == {
+            "audience": "b2c",
+            "date_from": date(2026, 11, 1),
+            "date_to": date(2026, 11, 28),
+            "status": "PAID",
+        }
+        return {
+            "audience": "B2C",
+            "summary": {
+                "transactions": 2,
+                "collected_minor": 23600,
+                "paid": 2,
+                "pending": 0,
+                "overdue": 0,
+                "failed": 0,
+                "refunded": 0,
+                "refunded_minor": 0,
+                "average_payment_minor": 11800,
+                "tokens_credited": 1000,
+            },
+            "items": [],
+        }
+
+
 class FakeAdminOperations:
     def list(self, **_: object) -> dict[str, object]:
         return {
@@ -186,6 +213,7 @@ def admin_client(
     customers: object | None = None,
     subscriptions: object | None = None,
     pricing: object | None = None,
+    billing: object | None = None,
     revenue: object | None = None,
     operations: object | None = None,
     audit: object | None = None,
@@ -207,6 +235,7 @@ def admin_client(
         admin_customers=cast(Any, customers),
         admin_subscriptions=cast(Any, subscriptions),
         admin_pricing=cast(Any, pricing),
+        admin_billing=cast(Any, billing),
         admin_revenue=cast(Any, revenue),
         admin_operations=cast(Any, operations),
         admin_audit=cast(Any, audit),
@@ -227,6 +256,20 @@ def test_admin_revenue_requires_authentication_and_returns_reconciled_metrics() 
         assert result.status_code == 200
         assert result.json()["total_revenue_minor"] == 15000
         assert result.json()["estimated_gross_margin_minor"] == 12000
+
+
+def test_admin_payment_reports_are_split_by_audience_and_require_authentication() -> None:
+    with admin_client(billing=FakeAdminBilling()) as client:
+        path = "/api/v1/admin/payments/b2c?date_from=2026-11-01&date_to=2026-11-28&status=PAID"
+        assert client.get(path).status_code == 401
+        client.post(
+            "/api/v1/admin/login",
+            json={"email": "admin@wearo.ai", "password": "correct-secret"},
+        )
+        result = client.get(path)
+        assert result.status_code == 200
+        assert result.json()["audience"] == "B2C"
+        assert result.json()["summary"]["tokens_credited"] == 1000
 
 
 def test_tryon_operations_show_success_and_failure_without_images() -> None:

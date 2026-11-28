@@ -206,6 +206,7 @@ test("platform admin login is isolated and protects dashboard routes", () => {
     "Businesses",
     "Enquiries",
     "Subscriptions",
+    "Payments",
     "Billing & Pricing",
     "Platform Operations",
     "Audit History",
@@ -213,6 +214,10 @@ test("platform admin login is isolated and protects dashboard routes", () => {
     assert.match(admin, new RegExp(section.replace("&", "&")));
   }
   assert.match(admin, /Wearo Super Admin/);
+  assert.match(admin, /\/admin\/payments\/b2c/);
+  assert.match(admin, /\/admin\/payments\/b2b/);
+  for (const label of ["Total collected", "Successful payments", "Pending payments", "Failed \/ refunded", "Average payment", "Tokens credited"]) assert.match(admin, new RegExp(label));
+  assert.match(admin, /\/admin\/payments\/\$\{audience\}/);
   assert.match(admin, /\/admin\/enquiries/);
   assert.match(admin, /Total enquiries/);
   assert.match(admin, /New enquiries/);
